@@ -69,4 +69,13 @@ module.exports = {
   plugins: [
     require('@tailwindcss/typography'),
   ],
+  // Disable JIT mode temporarily to avoid file scanning issues
+  mode: 'jit',
+  corePlugins: {
+    preflight: true,
+  },
+  // Disable experimental features that cause file system access
+  experimental: {
+    optimizeUniversalDefaults: false,
+  },
 }
