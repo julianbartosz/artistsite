@@ -1,0 +1,7 @@
+{
+    "label": "Generate File Summaries",
+    "type": "shell",
+    "command": "node scripts/summarize-files.js",
+    "problemMatcher": []
+  }
+  
