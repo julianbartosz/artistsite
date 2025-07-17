@@ -3,16 +3,23 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "debug": "DEBUG_MODE=true next dev",
+    "debug:build": "DEBUG_MODE=true next build",
+    "debug:inspect": "NODE_OPTIONS='--inspect' next dev",
+    "test:preview": "./src/scripts/test-preview.sh",
+    "analyze": "ANALYZE=true npm run build",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@mdx-js/loader": "^3.1.0",
     "@mdx-js/react": "^3.1.0",
     "@next/mdx": "^15.3.5",
     "@tailwindcss/typography": "^0.5.16",
+    "@vercel/otel": "^1.12.1",
     "autoprefixer": "^10.4.21",
     "gray-matter": "^4.0.3",
     "mdx-bundler": "^10.1.1",
@@ -24,10 +31,11 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@types/node": "^20",
-    "@types/react": "^18.3.23",
-    "@types/react-dom": "^18.3.7",
-    "eslint": "^9",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "eslint": "^8",
     "eslint-config-next": "15.3.5",
+    "postcss": "^8",
     "typescript": "^5"
   }
 }

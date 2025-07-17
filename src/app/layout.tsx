@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { draftMode } from 'next/headers';
 import { PreviewBanner } from '@/components/PreviewBanner';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import "./globals.css";
 
 const geistSans = Geist({
@@ -30,8 +31,8 @@ export default async function RootLayout({
     const draft = await draftMode();
     isPreview = draft.isEnabled;
   } catch (error) {
-    // Handle any errors from draftMode gracefully
-    console.warn('Draft mode check failed:', error);
+    // Enhanced error handling with proper typing
+    console.error('Draft mode check failed:', error);
     isPreview = false;
   }
 
@@ -40,10 +41,26 @@ export default async function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {isPreview && <PreviewBanner />}
-        <div className={isPreview ? "pt-12" : ""}>
-          {children}
-        </div>
+        <ErrorBoundary 
+          showDetails={process.env.NODE_ENV === 'development'}
+          fallback={
+            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+              <div className="text-center">
+                <h1 className="text-2xl font-bold text-gray-800 mb-4">
+                  Something went wrong
+                </h1>
+                <p className="text-gray-600">
+                  Please refresh the page or try again later.
+                </p>
+              </div>
+            </div>
+          }
+        >
+          {isPreview && <PreviewBanner />}
+          <div className={isPreview ? "pt-12" : ""}>
+            {children}
+          </div>
+        </ErrorBoundary>
       </body>
     </html>
   );

@@ -2,58 +2,47 @@
 import type { NextConfig } from 'next'
 import withMDX from '@next/mdx'
 
-/** Wrap Next’s config with MDX support */
-const mdx = withMDX<NextConfig>({
+/** Wrap Next's config with MDX support */
+const mdx = withMDX({
   extension: /\.mdx?$/
 })
 
 const nextConfig: NextConfig = {
   pageExtensions: ['ts', 'tsx', 'js', 'jsx', 'md', 'mdx'],
-  // any other Next.js options (env, i18n, rewrites…)
-  webpack: (config, { isServer, webpack }) => {
+  
+  // Server external packages
+  serverExternalPackages: ['@vercel/otel'],
+  
+  // Production source maps for better debugging
+  productionBrowserSourceMaps: true,
+  
+  // Enhanced logging
+  logging: {
+    fetches: {
+      fullUrl: true,
+    },
+  },
+  
+  // Minimal webpack configuration - only essential overrides
+  webpack: (config, { isServer }) => {
+    // Only add essential fallbacks for client-side builds
     if (!isServer) {
-      // Enhanced fallback configuration for client-side builds
       config.resolve.fallback = {
         ...config.resolve.fallback,
         fs: false,
         path: false,
-        os: false,
         crypto: false,
         stream: false,
-        assert: false,
-        http: false,
-        https: false,
-        url: false,
-        zlib: false,
-        perf_hooks: false,
-        util: false,
-        buffer: false,
-        events: false,
-        process: false,
-        module: false,
-        net: false,
-        tls: false,
-        child_process: false,
-        worker_threads: false,
-        cluster: false,
-        dgram: false,
-        dns: false,
-        readline: false,
-        repl: false,
-        tty: false,
-        v8: false,
-        vm: false,
-        constants: false,
-        timers: false,
+        os: false,
       };
-
-      // Add plugin to ignore Node.js modules
-      config.plugins.push(
-        new webpack.IgnorePlugin({
-          resourceRegExp: /^(perf_hooks|fs|path|os|crypto|stream|assert|http|https|url|zlib|util|buffer|events|process|module)$/,
-        })
-      );
     }
+
+    // Add path alias for better imports
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@': require('path').resolve(__dirname, 'src'),
+    };
+
     return config;
   },
 };

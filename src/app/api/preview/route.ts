@@ -2,22 +2,23 @@ import { draftMode } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { NextRequest } from 'next/server';
 import { getPostBySlug } from '@/lib/markdown';
+import { withApiErrorHandler, ApiError } from '@/lib/api-error-handler';
 
-export async function GET(request: NextRequest) {
+export const GET = withApiErrorHandler(async (request: NextRequest) => {
   const { searchParams } = new URL(request.url);
   const secret = searchParams.get('secret');
   const slug = searchParams.get('slug');
 
   // Check the secret and next parameters
   if (secret !== process.env.PREVIEW_SECRET || !slug) {
-    return new Response('Invalid token or missing slug', { status: 401 });
+    throw new ApiError(401, 'Invalid token or missing slug', 'INVALID_PREVIEW_TOKEN');
   }
 
   // Verify the post exists and is a draft
   const post = await getPostBySlug(slug, true); // Include drafts
   
   if (!post) {
-    return new Response('Post not found', { status: 404 });
+    throw new ApiError(404, 'Post not found', 'POST_NOT_FOUND');
   }
 
   if (!post.isDraft) {
@@ -31,11 +32,11 @@ export async function GET(request: NextRequest) {
 
   // Redirect to the blog post in preview mode
   redirect(`/blog/${slug}`);
-}
+});
 
 // Disable preview mode
-export async function DELETE() {
+export const DELETE = withApiErrorHandler(async () => {
   const draft = await draftMode();
   draft.disable();
   redirect('/blog');
-}
+});
