@@ -1,0 +1,10 @@
+version: '3.8'
+services:
+  web:
+    build: .
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: production
+      PREVIEW_SECRET: your_preview_secret
+      ESP_API_KEY: your_esp_api_key

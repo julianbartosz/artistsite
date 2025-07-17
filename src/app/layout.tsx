@@ -24,7 +24,16 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const { isEnabled: isPreview } = await draftMode();
+  let isPreview = false;
+  
+  try {
+    const draft = await draftMode();
+    isPreview = draft.isEnabled;
+  } catch (error) {
+    // Handle any errors from draftMode gracefully
+    console.warn('Draft mode check failed:', error);
+    isPreview = false;
+  }
 
   return (
     <html lang="en">
