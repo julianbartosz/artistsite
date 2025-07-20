@@ -1,0 +1,455 @@
+[
+  {
+    "id": "oil-painting-urban-twilight",
+    "title": "Urban Twilight",
+    "description": "A captivating oil painting capturing the golden hour light filtering through city buildings, creating dramatic shadows and warm reflections.",
+    "price": 850,
+    "currency": "USD",
+    "category": "paintings",
+    "medium": "Oil on canvas",
+    "dimensions": "24\" x 36\"",
+    "year": 2024,
+    "availability": "available",
+    "featured": true,
+    "images": {
+      "thumbnail": "/images/shop/placeholder-1.jpg",
+      "gallery": [
+        "/images/shop/placeholder-1.jpg",
+        "/images/shop/placeholder-2.jpg"
+      ]
+    },
+    "tags": ["urban", "landscape", "oil", "contemporary"],
+    "shipping": {
+      "domestic": 25,
+      "international": 75
+    },
+    "specifications": {
+      "framed": false,
+      "signed": true,
+      "certificate": true
+    },
+    "variants": {
+      "framing": [
+        {
+          "id": "unframed",
+          "name": "Unframed",
+          "price": 0,
+          "sku": "FRAME-NONE"
+        },
+        {
+          "id": "simple-black",
+          "name": "Simple Black Frame",
+          "price": 150,
+          "sku": "FRAME-BLK-SMP"
+        },
+        {
+          "id": "ornate-gold",
+          "name": "Ornate Gold Frame",
+          "price": 300,
+          "sku": "FRAME-GLD-ORN"
+        }
+      ]
+    },
+    "customizations": [
+      {
+        "id": "dedication",
+        "name": "Personal Dedication",
+        "type": "textarea",
+        "required": false,
+        "placeholder": "Add a personal message or dedication...",
+        "maxLength": 200
+      }
+    ],
+    "relatedProducts": ["charcoal-study-reflections", "mixed-media-convergence"],
+    "commissionInfo": {
+      "available": true,
+      "estimatedDays": 45,
+      "priceRange": {
+        "min": 1200,
+        "max": 2500
+      },
+      "requiresConsultation": true
+    }
+  },
+  {
+    "id": "charcoal-study-reflections",
+    "title": "Reflections Study #3",
+    "description": "An intimate charcoal drawing exploring the interplay of light and shadow on water surfaces during early morning hours.",
+    "price": 350,
+    "currency": "USD",
+    "category": "drawings",
+    "medium": "Charcoal on paper",
+    "dimensions": "18\" x 24\"",
+    "year": 2024,
+    "availability": "available",
+    "featured": false,
+    "images": {
+      "thumbnail": "/images/shop/placeholder-3.jpg",
+      "gallery": [
+        "/images/shop/placeholder-3.jpg"
+      ]
+    },
+    "tags": ["charcoal", "study", "water", "monochrome"],
+    "shipping": {
+      "domestic": 15,
+      "international": 45
+    },
+    "specifications": {
+      "framed": false,
+      "signed": true,
+      "certificate": false
+    },
+    "variants": {
+      "materials": [
+        {
+          "id": "standard-paper",
+          "name": "Standard Art Paper",
+          "price": 0,
+          "sku": "MAT-STD"
+        },
+        {
+          "id": "archival-paper",
+          "name": "Archival Quality Paper",
+          "price": 75,
+          "sku": "MAT-ARCH"
+        }
+      ],
+      "framing": [
+        {
+          "id": "unframed",
+          "name": "Unframed",
+          "price": 0
+        },
+        {
+          "id": "simple-white",
+          "name": "Simple White Frame",
+          "price": 120
+        },
+        {
+          "id": "museum-quality",
+          "name": "Museum Quality Frame with Matting",
+          "price": 250
+        }
+      ]
+    },
+    "relatedProducts": ["oil-painting-urban-twilight"],
+    "commissionInfo": {
+      "available": true,
+      "estimatedDays": 21,
+      "priceRange": {
+        "min": 400,
+        "max": 800
+      },
+      "requiresConsultation": false
+    }
+  },
+  {
+    "id": "mixed-media-convergence",
+    "title": "Convergence",
+    "description": "A bold mixed media piece combining acrylic paint, collage elements, and metallic accents to create a dynamic composition about urban energy.",
+    "price": 1200,
+    "currency": "USD",
+    "category": "mixed-media",
+    "medium": "Mixed media on canvas",
+    "dimensions": "30\" x 40\"",
+    "year": 2023,
+    "availability": "sold",
+    "featured": true,
+    "images": {
+      "thumbnail": "/images/shop/placeholder-4.jpg",
+      "gallery": [
+        "/images/shop/placeholder-4.jpg",
+        "/images/shop/placeholder-5.jpg",
+        "/images/shop/placeholder-6.jpg"
+      ]
+    },
+    "tags": ["mixed-media", "abstract", "urban", "contemporary"],
+    "shipping": {
+      "domestic": 35,
+      "international": 95
+    },
+    "specifications": {
+      "framed": true,
+      "signed": true,
+      "certificate": true
+    },
+    "commissionInfo": {
+      "available": true,
+      "estimatedDays": 60,
+      "priceRange": {
+        "min": 1500,
+        "max": 3500
+      },
+      "requiresConsultation": true
+    }
+  },
+  {
+    "id": "print-limited-golden-hour",
+    "title": "Golden Hour Dreams - Limited Print",
+    "description": "High-quality giclée print of the popular 'Golden Hour Dreams' painting, limited edition of 50 signed prints.",
+    "price": 120,
+    "currency": "USD",
+    "category": "prints",
+    "medium": "Giclée print on archival paper",
+    "dimensions": "16\" x 20\"",
+    "year": 2024,
+    "availability": "available",
+    "featured": false,
+    "edition": {
+      "total": 50,
+      "remaining": 23
+    },
+    "images": {
+      "thumbnail": "/images/shop/placeholder-7.jpg",
+      "gallery": [
+        "/images/shop/placeholder-7.jpg"
+      ]
+    },
+    "tags": ["print", "limited-edition", "affordable", "gift"],
+    "shipping": {
+      "domestic": 10,
+      "international": 25
+    },
+    "specifications": {
+      "framed": false,
+      "signed": true,
+      "certificate": true
+    },
+    "variants": {
+      "sizes": [
+        {
+          "id": "standard",
+          "name": "16\" x 20\" (Standard)",
+          "price": 0,
+          "stock": 23
+        },
+        {
+          "id": "large",
+          "name": "20\" x 24\" (Large)",
+          "price": 40,
+          "stock": 15
+        },
+        {
+          "id": "extra-large",
+          "name": "24\" x 30\" (Extra Large)",
+          "price": 80,
+          "stock": 8
+        }
+      ],
+      "framing": [
+        {
+          "id": "unframed",
+          "name": "Print Only",
+          "price": 0
+        },
+        {
+          "id": "ready-to-hang",
+          "name": "Ready to Hang Frame",
+          "price": 60
+        },
+        {
+          "id": "premium-frame",
+          "name": "Premium Frame with Matting",
+          "price": 140
+        }
+      ]
+    },
+    "customizations": [
+      {
+        "id": "edition-number",
+        "name": "Preferred Edition Number",
+        "type": "select",
+        "required": false,
+        "options": [
+          { "id": "random", "name": "Any Available Number", "price": 0 },
+          { "id": "low-number", "name": "Low Number (1-10) if available", "price": 25 },
+          { "id": "specific", "name": "Specific Number (please specify in notes)", "price": 15 }
+        ]
+      },
+      {
+        "id": "gift-message",
+        "name": "Gift Message",
+        "type": "textarea",
+        "required": false,
+        "placeholder": "Include a gift message to be printed on elegant card...",
+        "maxLength": 300
+      }
+    ]
+  },
+  {
+    "id": "sketchbook-urban-studies",
+    "title": "Urban Studies Sketchbook",
+    "description": "Collection of 30 original sketches documenting city life, architecture, and people. Bound in a high-quality presentation book.",
+    "price": 450,
+    "currency": "USD",
+    "category": "collections",
+    "medium": "Various sketching media",
+    "dimensions": "9\" x 12\" book",
+    "year": 2024,
+    "availability": "available",
+    "featured": false,
+    "images": {
+      "thumbnail": "/images/shop/placeholder-8.jpg",
+      "gallery": [
+        "/images/shop/placeholder-8.jpg",
+        "/images/shop/placeholder-9.jpg"
+      ]
+    },
+    "tags": ["sketches", "collection", "urban", "studies"],
+    "shipping": {
+      "domestic": 12,
+      "international": 30
+    },
+    "specifications": {
+      "framed": false,
+      "signed": true,
+      "certificate": false
+    },
+    "customizations": [
+      {
+        "id": "binding-style",
+        "name": "Binding Style",
+        "type": "select",
+        "required": true,
+        "options": [
+          { "id": "spiral", "name": "Spiral Bound (Standard)", "price": 0 },
+          { "id": "hardcover", "name": "Hardcover Binding", "price": 75 },
+          { "id": "leather", "name": "Leather Bound (Premium)", "price": 150 }
+        ]
+      },
+      {
+        "id": "personalization",
+        "name": "Personalization",
+        "type": "input",
+        "required": false,
+        "placeholder": "Name to emboss on cover (optional)",
+        "maxLength": 50
+      }
+    ]
+  },
+  {
+    "id": "commission-portrait-custom",
+    "title": "Custom Portrait Commission",
+    "description": "Personalized portrait painted from your photographs. Available in various styles and mediums to capture your vision perfectly.",
+    "price": 800,
+    "currency": "USD",
+    "category": "commissions",
+    "medium": "Various (Oil, Acrylic, Charcoal)",
+    "dimensions": "Custom",
+    "year": 2024,
+    "availability": "commissioned",
+    "featured": true,
+    "images": {
+      "thumbnail": "/images/shop/placeholder-10.jpg",
+      "gallery": [
+        "/images/shop/placeholder-10.jpg",
+        "/images/shop/placeholder-11.jpg"
+      ]
+    },
+    "tags": ["portrait", "commission", "custom", "personal"],
+    "shipping": {
+      "domestic": 25,
+      "international": 75
+    },
+    "specifications": {
+      "framed": false,
+      "signed": true,
+      "certificate": true
+    },
+    "variants": {
+      "sizes": [
+        {
+          "id": "small",
+          "name": "12\" x 16\" (Head & Shoulders)",
+          "price": 0
+        },
+        {
+          "id": "medium",
+          "name": "16\" x 20\" (Half Body)",
+          "price": 200
+        },
+        {
+          "id": "large",
+          "name": "20\" x 24\" (Three-Quarter)",
+          "price": 400
+        },
+        {
+          "id": "full",
+          "name": "24\" x 36\" (Full Body)",
+          "price": 600
+        }
+      ],
+      "materials": [
+        {
+          "id": "charcoal",
+          "name": "Charcoal on Paper",
+          "price": 0
+        },
+        {
+          "id": "oil",
+          "name": "Oil on Canvas",
+          "price": 300
+        },
+        {
+          "id": "acrylic",
+          "name": "Acrylic on Canvas",
+          "price": 200
+        }
+      ]
+    },
+    "customizations": [
+      {
+        "id": "style",
+        "name": "Portrait Style",
+        "type": "select",
+        "required": true,
+        "options": [
+          { "id": "realistic", "name": "Realistic/Classical", "price": 0 },
+          { "id": "impressionistic", "name": "Impressionistic", "price": 50 },
+          { "id": "contemporary", "name": "Contemporary/Modern", "price": 75 },
+          { "id": "abstract", "name": "Abstract Interpretation", "price": 100 }
+        ]
+      },
+      {
+        "id": "background",
+        "name": "Background Style",
+        "type": "select",
+        "required": true,
+        "options": [
+          { "id": "simple", "name": "Simple/Solid Color", "price": 0 },
+          { "id": "environment", "name": "Environmental (Location)", "price": 150 },
+          { "id": "abstract-bg", "name": "Abstract Background", "price": 100 }
+        ]
+      },
+      {
+        "id": "subjects",
+        "name": "Number of Subjects",
+        "type": "select",
+        "required": true,
+        "options": [
+          { "id": "single", "name": "Single Person", "price": 0 },
+          { "id": "couple", "name": "Two People", "price": 300 },
+          { "id": "family-small", "name": "Family (3-4 people)", "price": 500 },
+          { "id": "family-large", "name": "Large Group (5+ people)", "price": 800 }
+        ]
+      },
+      {
+        "id": "special-instructions",
+        "name": "Special Instructions",
+        "type": "textarea",
+        "required": true,
+        "placeholder": "Describe the mood, pose, clothing, or any specific details you'd like included...",
+        "maxLength": 1000
+      }
+    ],
+    "commissionInfo": {
+      "available": true,
+      "estimatedDays": 35,
+      "priceRange": {
+        "min": 800,
+        "max": 2500
+      },
+      "requiresConsultation": true
+    }
+  }
+]

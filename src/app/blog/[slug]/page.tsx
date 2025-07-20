@@ -2,44 +2,50 @@ import { notFound } from 'next/navigation';
 import { getPostBySlug, getPostSlugs } from '@/lib/markdown';
 import { draftMode } from 'next/headers';
 import { MDXContent } from '@/components/MDXContent';
+import { generateBlogMetadata } from '@/lib/seo';
+import { StructuredData, generateArticleSchema, generateBreadcrumbSchema } from '@/components/StructuredData';
 
 interface BlogPostProps {
-  params: {
-    slug: string;
-  };
+  params: Promise<{ slug: string }>;
 }
 
 export default async function BlogPost({ params }: BlogPostProps) {
-  const { slug } = params;
-  const draft = await draftMode();
-  const isDraftMode = draft.isEnabled;
-  
-  const post = await getPostBySlug(slug, isDraftMode);
-  
+  const { slug } = await params;
+  const { isEnabled: isDraft } = await draftMode();
+  const post = await getPostBySlug(slug, isDraft);
+
   if (!post) {
     notFound();
   }
 
-  return (
-    <div className="max-w-4xl mx-auto px-6 py-12">
-      {post.isDraft && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4 mb-8">
-          <div className="flex">
-            <div className="ml-3">
-              <p className="text-sm text-yellow-700">
-                <strong>Draft Mode:</strong> This post is currently in draft mode and not visible to the public.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+  // Generate structured data
+  const articleSchema = generateArticleSchema({
+    title: post.title,
+    description: post.excerpt,
+    author: post.author,
+    publishedAt: post.publishedAt,
+    url: `/blog/${slug}`,
+    image: post.coverImage,
+    tags: post.tags,
+  });
 
-      <article>
+  const breadcrumbSchema = generateBreadcrumbSchema([
+    { name: 'Home', url: '/' },
+    { name: 'Blog', url: '/blog' },
+    { name: post.title, url: `/blog/${slug}` },
+  ]);
+
+  return (
+    <>
+      <StructuredData data={articleSchema} />
+      <StructuredData data={breadcrumbSchema} />
+      
+      <article className="max-w-4xl mx-auto px-4 py-8">
         <header className="mb-8">
           <h1 className="text-4xl font-bold text-gray-900 mb-4">
             {post.title}
           </h1>
-          
+
           <div className="text-sm text-gray-500 mb-4 flex items-center gap-4">
             <time dateTime={post.publishedAt}>
               {new Date(post.publishedAt).toLocaleDateString('en-US', {
@@ -69,7 +75,7 @@ export default async function BlogPost({ params }: BlogPostProps) {
           <MDXContent code={post.code} />
         </div>
       </article>
-    </div>
+    </>
   );
 }
 
@@ -83,7 +89,7 @@ export async function generateStaticParams() {
 
 // Generate metadata for SEO
 export async function generateMetadata({ params }: BlogPostProps) {
-  const { slug } = params;
+  const { slug } = await params;
   const post = await getPostBySlug(slug);
   
   if (!post) {
@@ -92,16 +98,13 @@ export async function generateMetadata({ params }: BlogPostProps) {
     };
   }
   
-  return {
-    title: `${post.title} | Blog`,
+  return generateBlogMetadata({
+    title: post.title,
     description: post.excerpt,
-    openGraph: {
-      title: post.title,
-      description: post.excerpt,
-      type: 'article',
-      publishedTime: post.publishedAt,
-      authors: post.author ? [post.author] : undefined,
-      images: post.coverImage ? [post.coverImage] : undefined,
-    },
-  };
+    publishedAt: post.publishedAt,
+    author: post.author,
+    tags: post.tags,
+    coverImage: post.coverImage,
+    slug,
+  });
 }

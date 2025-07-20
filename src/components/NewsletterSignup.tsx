@@ -20,6 +20,14 @@ export function NewsletterSignup({ className = "" }: NewsletterSignupProps) {
       return;
     }
 
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setStatus('error');
+      setMessage('Please enter a valid email address');
+      return;
+    }
+
     setStatus('loading');
     
     try {
@@ -33,16 +41,31 @@ export function NewsletterSignup({ className = "" }: NewsletterSignupProps) {
 
       if (response.ok) {
         setStatus('success');
-        setMessage('Thank you for subscribing!');
+        setMessage('Thank you for subscribing! Check your email for confirmation.');
         setEmail('');
       } else {
-        throw new Error('Subscription failed');
+        // Handle specific error cases
+        if (response.status === 409) {
+          setStatus('error');
+          setMessage('This email is already subscribed to our newsletter.');
+        } else if (response.status === 400) {
+          setStatus('error');
+          setMessage('Please enter a valid email address.');
+        } else {
+          setStatus('error');
+          setMessage('Something went wrong. Please try again later.');
+        }
       }
     } catch (error) {
       console.error('Newsletter subscription error:', error);
       setStatus('error');
-      setMessage('Something went wrong. Please try again.');
+      setMessage('Network error. Please check your connection and try again.');
     }
+  };
+
+  const resetForm = () => {
+    setStatus('idle');
+    setMessage('');
   };
 
   return (
@@ -51,14 +74,17 @@ export function NewsletterSignup({ className = "" }: NewsletterSignupProps) {
         <input
           type="email"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            if (status === 'error') resetForm();
+          }}
           placeholder="Enter your email"
-          className="flex-1 px-4 py-3 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="flex-1 px-4 py-3 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 border border-gray-300"
           disabled={status === 'loading'}
         />
         <button
           type="submit"
-          disabled={status === 'loading'}
+          disabled={status === 'loading' || status === 'success'}
           className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {status === 'loading' ? 'Subscribing...' : 'Subscribe'}
@@ -66,11 +92,22 @@ export function NewsletterSignup({ className = "" }: NewsletterSignupProps) {
       </form>
       
       {message && (
-        <p className={`text-sm mt-4 text-center ${
+        <div className={`text-sm mt-4 text-center ${
           status === 'success' ? 'text-green-400' : 'text-red-400'
         }`}>
-          {message}
-        </p>
+          <p>{message}</p>
+          {status === 'success' && (
+            <button
+              onClick={() => {
+                setStatus('idle');
+                setMessage('');
+              }}
+              className="text-green-300 hover:text-green-200 underline mt-2 text-xs"
+            >
+              Subscribe another email
+            </button>
+          )}
+        </div>
       )}
       
       {status === 'idle' && (

@@ -1,0 +1,387 @@
+// This is your Prisma schema file
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  phone         String?
+  accounts      Account[]
+  sessions      Session[]
+  
+  // Customer-specific fields
+  orders        Order[]
+  addresses     Address[]
+  wishlist      WishlistItem[]
+  viewHistory   ProductView[]
+  searchQueries SearchQuery[]
+  
+  // Profile information
+  firstName     String?
+  lastName      String?
+  dateOfBirth   DateTime?
+  preferences   Json? // Store customer preferences as JSON
+  
+  // Timestamps
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Address {
+  id          String  @id @default(cuid())
+  userId      String
+  type        String  // 'shipping', 'billing'
+  isDefault   Boolean @default(false)
+  
+  firstName   String
+  lastName    String
+  company     String?
+  address1    String
+  address2    String?
+  city        String
+  state       String
+  postalCode  String
+  country     String
+  phone       String?
+  
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders      Order[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Order {
+  id              String   @id @default(cuid())
+  orderNumber     String   @unique
+  userId          String?
+  userEmail       String
+  
+  // Order details
+  status          String   // OrderStatus enum values
+  type            String   // OrderType enum values
+  
+  // Pricing
+  subtotal        Float
+  shipping        Float
+  tax             Float
+  total           Float
+  currency        String   @default("USD")
+  
+  // Payment
+  paymentIntentId String?
+  paymentStatus   String
+  paymentMethod   String?
+  
+  // Shipping
+  shippingAddressId String?
+  billingAddressId  String?
+  shippingAddress   Address? @relation(fields: [shippingAddressId], references: [id])
+  trackingNumber    String?
+  estimatedDelivery DateTime?
+  
+  // Special instructions
+  specialInstructions String?
+  giftMessage        String?
+  
+  // Relations
+  user      User?       @relation(fields: [userId], references: [id])
+  items     OrderItem[]
+  timeline  OrderTimelineEntry[]
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model OrderItem {
+  id              String  @id @default(cuid())
+  orderId         String
+  productId       String
+  quantity        Int
+  unitPrice       Float
+  totalPrice      Float
+  
+  // Product details (snapshot at time of order)
+  productTitle    String
+  productImage    String
+  
+  // Variants and customizations (stored as JSON)
+  selectedVariant Json?
+  customizations  Json?
+  notes          String?
+  
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+}
+
+model OrderTimelineEntry {
+  id            String   @id @default(cuid())
+  orderId       String
+  status        String
+  message       String
+  details       String?
+  trackingNumber String?
+  timestamp     DateTime @default(now())
+  
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  
+  // Product details (for quick access)
+  productTitle String
+  productImage String
+  productPrice Float
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  
+  @@unique([userId, productId])
+}
+
+// New models for Phase 4: Product Recommendations & Search
+
+model ProductView {
+  id        String   @id @default(cuid())
+  userId    String?  // Optional for guest users
+  productId String
+  sessionId String?  // For guest tracking
+  
+  // Analytics data
+  source    String?  // 'search', 'recommendation', 'category', 'direct'
+  referrer  String?
+  duration  Int?     // Time spent viewing in seconds
+  
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+}
+
+model ProductAnalytics {
+  id           String   @id @default(cuid())
+  productId    String   @unique
+  
+  // View metrics
+  totalViews   Int      @default(0)
+  uniqueViews  Int      @default(0)
+  avgViewTime  Float    @default(0)
+  
+  // Engagement metrics
+  wishlistAdds Int      @default(0)
+  cartAdds     Int      @default(0)
+  purchases    Int      @default(0)
+  
+  // Performance metrics
+  conversionRate Float  @default(0) // cart adds / views
+  popularityScore Float @default(0) // Calculated score for recommendations
+  
+  // Timestamps
+  lastCalculated DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model SearchQuery {
+  id        String   @id @default(cuid())
+  query     String
+  userId    String?
+  sessionId String?
+  
+  // Results
+  resultCount Int
+  clickedResults Json? // Array of product IDs that were clicked
+  
+  // Analytics
+  source    String?  // 'autocomplete', 'manual', 'filter'
+  filters   Json?    // Applied filters
+  sortBy    String?  // Sort option used
+  
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  createdAt DateTime @default(now())
+}
+
+model ProductRecommendation {
+  id                String   @id @default(cuid())
+  sourceProductId   String   // Product that triggered recommendation
+  recommendedProductId String // Product being recommended
+  
+  // Recommendation type and scoring
+  type          String   // 'similar', 'frequently_bought_together', 'viewed_together'
+  score         Float    // Recommendation strength (0-1)
+  clickCount    Int      @default(0)
+  conversionCount Int    @default(0)
+  
+  // Metadata
+  reason        String?  // Human-readable reason for recommendation
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@unique([sourceProductId, recommendedProductId, type])
+}
+
+// Phase 4: Inventory Management Models
+
+model ProductInventory {
+  id                String   @id @default(cuid())
+  productId         String   @unique
+  
+  // Stock levels
+  currentStock      Int      @default(0)
+  reservedStock     Int      @default(0) // Stock reserved during checkout
+  availableStock    Int      @default(0) // currentStock - reservedStock
+  
+  // Thresholds
+  lowStockThreshold Int      @default(5)
+  minStockLevel     Int      @default(0)
+  maxStockLevel     Int?     // Optional max capacity
+  
+  // Status tracking
+  stockStatus       String   @default("in_stock") // 'in_stock', 'low_stock', 'out_of_stock', 'discontinued'
+  isTrackingEnabled Boolean  @default(true)
+  allowBackorders   Boolean  @default(false)
+  
+  // Timestamps
+  lastRestocked     DateTime?
+  lastSold          DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  movements         StockMovement[]
+  reservations      StockReservation[]
+}
+
+model StockMovement {
+  id                String   @id @default(cuid())
+  productId         String
+  inventoryId       String
+  
+  // Movement details
+  type              String   // 'restock', 'sale', 'adjustment', 'return', 'damaged', 'transfer'
+  quantity          Int      // Positive for additions, negative for reductions
+  previousStock     Int      // Stock level before movement
+  newStock          Int      // Stock level after movement
+  
+  // Reference data
+  orderId           String?  // If related to an order
+  userId            String?  // User who made the change
+  reason            String?  // Reason for manual adjustments
+  notes             String?  // Additional notes
+  
+  // Batch/lot tracking
+  batchNumber       String?
+  expirationDate    DateTime?
+  supplier          String?
+  cost              Float?   // Cost per unit for restocking
+  
+  inventory         ProductInventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  
+  createdAt         DateTime @default(now())
+}
+
+model StockReservation {
+  id                String   @id @default(cuid())
+  productId         String
+  inventoryId       String
+  
+  // Reservation details
+  quantity          Int
+  status            String   @default("active") // 'active', 'fulfilled', 'expired', 'cancelled'
+  
+  // Reference data
+  orderId           String?  // Order this reservation is for
+  cartSessionId     String?  // Cart session for guest users
+  userId            String?  // User who made the reservation
+  
+  // Timing
+  expiresAt         DateTime // When reservation expires
+  fulfilledAt       DateTime?
+  
+  inventory         ProductInventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@index([expiresAt])
+  @@index([status])
+}
+
+model StockAlert {
+  id                String   @id @default(cuid())
+  productId         String
+  
+  // Alert details
+  type              String   // 'low_stock', 'out_of_stock', 'reorder_point', 'overstock'
+  severity          String   @default("medium") // 'low', 'medium', 'high', 'critical'
+  message           String
+  currentStock      Int
+  thresholdValue    Int?
+  
+  // Status
+  isActive          Boolean  @default(true)
+  isAcknowledged    Boolean  @default(false)
+  acknowledgedBy    String?  // User ID who acknowledged
+  acknowledgedAt    DateTime?
+  resolvedAt        DateTime?
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@index([isActive, productId])
+  @@index([type, severity])
+}
