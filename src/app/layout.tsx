@@ -10,6 +10,7 @@ import AuthProvider from '@/components/AuthProvider';
 import { StructuredData, generateOrganizationSchema } from '@/components/StructuredData';
 import { generateFeedLinks } from '@/lib/seo';
 import PerformanceMonitor, { SEOMonitor } from '@/components/PerformanceMonitor';
+import { AnalyticsProvider } from '@/components/AnalyticsProvider';
 import "./globals.css";
 
 const geistSans = Geist({
@@ -141,36 +142,38 @@ export default async function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <AuthProvider>
-          <CartProvider>
-            <ErrorBoundary 
-              showDetails={process.env.NODE_ENV === 'development'}
-              fallback={
-                <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-                  <div className="text-center">
-                    <h1 className="text-2xl font-bold text-gray-800 mb-4">
-                      Something went wrong
-                    </h1>
-                    <p className="text-gray-600">
-                      Please refresh the page or try again later.
-                    </p>
+          <AnalyticsProvider>
+            <CartProvider>
+              <ErrorBoundary 
+                showDetails={process.env.NODE_ENV === 'development'}
+                fallback={
+                  <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                    <div className="text-center">
+                      <h1 className="text-2xl font-bold text-gray-800 mb-4">
+                        Something went wrong
+                      </h1>
+                      <p className="text-gray-600">
+                        Please refresh the page or try again later.
+                      </p>
+                    </div>
                   </div>
+                }
+              >
+                {isPreview && <PreviewBanner />}
+                <div className={isPreview ? "pt-12" : ""}>
+                  <Header />
+                  <main>
+                    {children}
+                  </main>
+                  <Footer />
                 </div>
-              }
-            >
-              {isPreview && <PreviewBanner />}
-              <div className={isPreview ? "pt-12" : ""}>
-                <Header />
-                <main>
-                  {children}
-                </main>
-                <Footer />
-              </div>
-              
-              {/* Performance and SEO Monitoring (development only) */}
-              <PerformanceMonitor />
-              <SEOMonitor />
-            </ErrorBoundary>
-          </CartProvider>
+                
+                {/* Performance and SEO Monitoring (development only) */}
+                <PerformanceMonitor />
+                <SEOMonitor />
+              </ErrorBoundary>
+            </CartProvider>
+          </AnalyticsProvider>
         </AuthProvider>
       </body>
     </html>

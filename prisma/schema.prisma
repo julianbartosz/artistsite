@@ -7,7 +7,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db"
+  url      = env("DATABASE_URL")
 }
 
 model Account {
@@ -384,4 +384,77 @@ model StockAlert {
   
   @@index([isActive, productId])
   @@index([type, severity])
+}
+
+// Analytics and Marketing Models
+model CustomerProfile {
+  id               String   @id @default(cuid())
+  email            String?  @unique
+  segments         String   // JSON array of segment names
+  behaviorScore    Int      @default(0) @map("behavior_score")
+  preferences      String   // JSON object for user preferences
+  lifetimeValue    Float    @default(0) @map("lifetime_value")
+  engagementScore  Int      @default(0) @map("engagement_score")
+  lastActivity     DateTime @default(now()) @map("last_activity")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  events           AnalyticsEvent[]
+  emailCampaigns   EmailCampaign[]
+
+  @@map("customer_profiles")
+}
+
+model AnalyticsEvent {
+  id            String   @id @default(cuid())
+  eventName     String   @map("event_name")
+  userId        String?  @map("user_id")
+  sessionId     String?  @map("session_id")
+  properties    String   // JSON object for event properties
+  timestamp     DateTime @default(now())
+  pageUrl       String?  @map("page_url")
+
+  // Relations
+  customer      CustomerProfile? @relation(fields: [userId], references: [id])
+
+  @@index([eventName])
+  @@index([userId])
+  @@index([sessionId])
+  @@index([timestamp])
+  @@map("analytics_events")
+}
+
+model EmailCampaign {
+  id          String   @id @default(cuid())
+  name        String
+  type        String   // 'sequence', 'broadcast', 'automated'
+  templateId  String   @map("template_id")
+  segments    String   // JSON array of target segments
+  metrics     String   // JSON object for campaign metrics
+  status      String   @default("draft")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  promoCodes  PromoCode[]
+  customers   CustomerProfile[]
+
+  @@map("email_campaigns")
+}
+
+model PromoCode {
+  id            String    @id @default(cuid())
+  code          String    @unique
+  campaignId    String?   @map("campaign_id")
+  discountType  String    @map("discount_type") // 'percentage' or 'fixed'
+  discountValue Float     @map("discount_value")
+  usageLimit    Int?      @map("usage_limit")
+  usageCount    Int       @default(0) @map("usage_count")
+  expiresAt     DateTime? @map("expires_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  campaign      EmailCampaign? @relation(fields: [campaignId], references: [id])
+
+  @@map("promo_codes")
 }

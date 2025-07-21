@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useNewsletterTracking } from '@/components/AnalyticsProvider';
 
 interface NewsletterSignupProps {
   className?: string;
@@ -10,6 +11,12 @@ export function NewsletterSignup({ className = "" }: NewsletterSignupProps) {
   const [email, setEmail] = useState('');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
+  const { trackFormView, trackSignup } = useNewsletterTracking();
+
+  // Track form view when component mounts
+  useEffect(() => {
+    trackFormView();
+  }, [trackFormView]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,6 +50,9 @@ export function NewsletterSignup({ className = "" }: NewsletterSignupProps) {
         setStatus('success');
         setMessage('Thank you for subscribing! Check your email for confirmation.');
         setEmail('');
+        
+        // Track successful newsletter signup
+        trackSignup('form');
       } else {
         // Handle specific error cases
         if (response.status === 409) {
