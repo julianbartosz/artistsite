@@ -47,6 +47,7 @@ export default async function Home() {
             alt="Artist portrait"
             fill
             className="object-cover"
+            sizes="128px"
           />
         </div>
       </section>

@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Activity, Zap, Clock, Eye, TrendingUp } from 'lucide-react';
 import { onCLS, onFCP, onLCP, onTTFB, onINP } from 'web-vitals';
 import { usePathname } from 'next/navigation';
 
@@ -104,7 +103,7 @@ export default function PerformanceMonitor({
     setIsVisible(isDev || showPerf);
 
     // Connection information
-    const connection = (navigator as any).connection;
+    const connection = (navigator as Navigator & { connection?: { effectiveType?: string } }).connection;
     if (connection) {
       setConnectionType(connection.effectiveType || 'unknown');
     }
@@ -124,7 +123,9 @@ export default function PerformanceMonitor({
           connection: connectionType,
           timestamp: Date.now()
         })
-      }).catch(console.error);
+      }).catch(() => {
+        // Silently handle analytics errors
+      });
     }
   }, [metrics, connectionType]);
 
@@ -383,6 +384,7 @@ export function SEOMonitor() {
     timestamp: number;
   } | null>(null);
 
+  // First useEffect - always called, handles SEO analysis
   useEffect(() => {
     const analyzePageSEO = () => {
       let score = 100;
@@ -467,26 +469,28 @@ export function SEOMonitor() {
     }
   }, []);
 
-  // Only show in development or with query param
-  const isDev = process.env.NODE_ENV === 'development';
-  const showSEO = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('seo');
-  
-  if (!seoScore || (!isDev && !showSEO)) return null;
-
-  const getScoreColor = (score: number) => {
-    if (score >= 90) return 'text-green-600';
-    if (score >= 70) return 'text-yellow-600';
-    return 'text-red-600';
-  };
-
+  // Second useEffect - always called, handles production monitoring
   useEffect(() => {
+    // Only send data in production
     if (process.env.NODE_ENV !== 'production') {
       return;
     }
 
     // Monitor SEO health
     const checkSEO = () => {
-      const seoData = {
+      const seoData: {
+        url: string;
+        title: string;
+        description: string;
+        keywords: string;
+        canonical: string;
+        ogTitle: string;
+        ogDescription: string;
+        ogImage: string;
+        structuredData: unknown[];
+        timestamp: string;
+        issues?: string[];
+      } = {
         url: window.location.href,
         title: document.title,
         description: document.querySelector('meta[name="description"]')?.getAttribute('content') || '',
@@ -505,8 +509,8 @@ export function SEOMonitor() {
         try {
           const data = JSON.parse(script.textContent || '');
           seoData.structuredData.push(data);
-        } catch (e) {
-          console.warn('Invalid structured data found');
+        } catch {
+          // Ignore invalid JSON
         }
       });
 
@@ -535,8 +539,8 @@ export function SEOMonitor() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(seoData),
         keepalive: true
-      }).catch(err => {
-        console.warn('SEO monitoring failed:', err);
+      }).catch(() => {
+        // Silently handle SEO monitoring errors
       });
     };
 
@@ -549,6 +553,21 @@ export function SEOMonitor() {
       });
     }
   }, []);
+
+  // Determine visibility - moved after all hooks
+  const isDev = process.env.NODE_ENV === 'development';
+  const showSEO = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('seo');
+  
+  // Early return after all hooks are called
+  if (!seoScore || (!isDev && !showSEO)) {
+    return null;
+  }
+
+  const getScoreColor = (score: number) => {
+    if (score >= 90) return 'text-green-600';
+    if (score >= 70) return 'text-yellow-600';
+    return 'text-red-600';
+  };
 
   return (
     <div className="fixed bottom-4 left-4 bg-white border border-gray-200 rounded-lg shadow-lg p-4 max-w-sm z-50">
