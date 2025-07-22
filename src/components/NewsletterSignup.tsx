@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNewsletterTracking } from '@/components/AnalyticsProvider';
 
 interface NewsletterSignupProps {
@@ -11,12 +11,45 @@ export function NewsletterSignup({ className = "" }: NewsletterSignupProps) {
   const [email, setEmail] = useState('');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
-  const { trackFormView, trackSignup } = useNewsletterTracking();
+  
+  // Use a flag to prevent tracking on initial render
+  const [isClient, setIsClient] = useState(false);
+  
+  // Get tracking functions but handle potential errors
+  const tracking = useNewsletterTracking();
 
-  // Track form view when component mounts
+  // Ensure component is mounted on client before tracking
   useEffect(() => {
-    trackFormView();
-  }, [trackFormView]);
+    setIsClient(true);
+  }, []);
+
+  // Safe tracking wrapper with error handling
+  const safeTrackFormView = useCallback(() => {
+    if (!isClient) return;
+    
+    try {
+      tracking?.trackFormView?.();
+    } catch (error) {
+      console.warn('Analytics tracking error:', error);
+    }
+  }, [isClient, tracking]);
+
+  const safeTrackSignup = useCallback((method: string) => {
+    if (!isClient) return;
+    
+    try {
+      tracking?.trackSignup?.(method);
+    } catch (error) {
+      console.warn('Analytics tracking error:', error);
+    }
+  }, [isClient, tracking]);
+
+  // Track form view when component mounts and is ready
+  useEffect(() => {
+    if (isClient) {
+      safeTrackFormView();
+    }
+  }, [isClient, safeTrackFormView]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,8 +84,8 @@ export function NewsletterSignup({ className = "" }: NewsletterSignupProps) {
         setMessage('Thank you for subscribing! Check your email for confirmation.');
         setEmail('');
         
-        // Track successful newsletter signup
-        trackSignup('form');
+        // Track successful newsletter signup with error handling
+        safeTrackSignup('form');
       } else {
         // Handle specific error cases
         if (response.status === 409) {

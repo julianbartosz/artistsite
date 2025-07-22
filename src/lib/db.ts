@@ -5,8 +5,12 @@ const globalForPrisma = globalThis as unknown as {
 }
 
 export const prisma = globalForPrisma.prisma ?? new PrismaClient()
+export const db = prisma // Add db export for consistency
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
+
+// Force TypeScript to reload Prisma types by re-exporting the client
+export type { PrismaClient } from '@prisma/client'
 
 // Analytics event tracking types
 export interface AnalyticsEvent {

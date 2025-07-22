@@ -43,6 +43,8 @@ const mockCartFunctions = {
   toggleCart: jest.fn(),
   openCart: jest.fn(),
   closeCart: jest.fn(),
+  updateItemVariant: jest.fn(), // Add missing CartContextType method
+  getItemKey: jest.fn(() => 'mock-key'), // Add missing CartContextType method
 };
 
 describe('AddToCartButton', () => {
@@ -54,6 +56,7 @@ describe('AddToCartButton', () => {
         total: 0,
         itemCount: 0,
         isOpen: false,
+        lastUpdated: Date.now(), // Add missing lastUpdated property
       },
       ...mockCartFunctions,
     });

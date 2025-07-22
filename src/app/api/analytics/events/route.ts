@@ -6,7 +6,7 @@ const AnalyticsEventSchema = z.object({
   event_name: z.string().min(1).max(100),
   user_id: z.string().optional(),
   session_id: z.string().optional(),
-  properties: z.record(z.any()).default({}),
+  properties: z.record(z.string(), z.any()).default({}),
   page_url: z.string().url().optional(),
 })
 
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Invalid event data', details: error.errors },
+        { error: 'Invalid event data', details: error.issues },
         { status: 400 }
       )
     }

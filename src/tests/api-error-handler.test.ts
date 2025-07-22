@@ -98,20 +98,27 @@ describe('API Error Handler', () => {
 
     it('should log errors in development', async () => {
       const originalEnv = process.env.NODE_ENV;
-      process.env.NODE_ENV = 'development';
+      // Use Object.defineProperty to properly mock NODE_ENV
+      Object.defineProperty(process.env, 'NODE_ENV', {
+        value: 'development',
+        configurable: true
+      });
       
       const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
       const mockHandler = jest.fn().mockRejectedValue(
         new Error('Test error')
       );
       const wrappedHandler = withApiErrorHandler(mockHandler);
-
       await wrappedHandler(mockRequest);
-
+      
       expect(consoleSpy).toHaveBeenCalled();
-
       consoleSpy.mockRestore();
-      process.env.NODE_ENV = originalEnv;
+      
+      // Restore original NODE_ENV
+      Object.defineProperty(process.env, 'NODE_ENV', {
+        value: originalEnv,
+        configurable: true
+      });
     });
   });
 });

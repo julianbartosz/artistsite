@@ -1,6 +1,6 @@
 import { POST as contactPost } from '@/app/api/contact/route';
 import { POST as newsletterPost } from '@/app/api/newsletter/route';
-import { GET as previewGet, POST as previewPost } from '@/app/api/preview/route';
+import { GET as previewGet, DELETE as previewDelete } from '@/app/api/preview/route';
 import { NextRequest } from 'next/server';
 
 // Mock console.log and console.warn to avoid noise in tests
@@ -145,10 +145,10 @@ describe('API Integration Tests', () => {
 
     it('should disable preview mode', async () => {
       const request = new NextRequest('http://localhost:3000/api/preview', {
-        method: 'POST',
+        method: 'DELETE',
       });
 
-      const response = await previewPost(request);
+      const response = await previewDelete();
       
       expect(response.status).toBe(200);
     });

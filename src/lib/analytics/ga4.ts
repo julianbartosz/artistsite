@@ -18,6 +18,22 @@ export interface GA4EventParams {
   price?: number
   quantity?: number
   custom_parameters?: Record<string, any>
+  // Additional properties used throughout the codebase
+  items?: EcommerceItem[]
+  method?: string
+  search_term?: string
+  file_name?: string
+  file_extension?: string
+  video_title?: string
+  video_current_time?: number
+  form_name?: string
+  success?: string
+  content_type?: string
+  page_path?: string
+  artwork_id?: string
+  artwork_title?: string
+  // Allow any additional custom properties
+  [key: string]: any
 }
 
 export interface EcommerceItem {

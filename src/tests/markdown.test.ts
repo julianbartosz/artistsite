@@ -32,7 +32,7 @@ describe('Markdown Library', () => {
       // Mock file system
       fs.existsSync.mockReturnValue(true);
       fs.readdirSync.mockReturnValue(['post1.mdx', 'post2.mdx', 'draft.mdx']);
-      fs.readFileSync.mockImplementation((path) => {
+      fs.readFileSync.mockImplementation((path: string) => {
         if (path.includes('post1.mdx')) {
           return `---
 title: Test Post 1
@@ -61,7 +61,7 @@ tags: [draft]
 # Draft Content`;
       });
 
-      matter.mockImplementation((content) => {
+      matter.mockImplementation((content: string) => {
         if (content.includes('Test Post 1')) {
           return {
             data: {

@@ -8,17 +8,17 @@ import { format } from 'date-fns';
 import RichTextEditor from './RichTextEditor';
 import { Save, Eye, Calendar, Tag, Globe, FileText } from 'lucide-react';
 
-// Validation schema
+// Validation schema - make tags and featured required to match form interface
 const blogPostSchema = z.object({
   title: z.string().min(1, 'Title is required').max(200, 'Title too long'),
   slug: z.string().min(1, 'Slug is required').regex(/^[a-z0-9-]+$/, 'Invalid slug format'),
   excerpt: z.string().min(1, 'Excerpt is required').max(500, 'Excerpt too long'),
   content: z.string().min(1, 'Content is required'),
-  tags: z.string().transform(str => str.split(',').map(tag => tag.trim()).filter(Boolean)),
+  tags: z.array(z.string()),
   category: z.string().min(1, 'Category is required'),
   publishedAt: z.string().optional(),
   status: z.enum(['draft', 'published', 'scheduled']),
-  featured: z.boolean().default(false),
+  featured: z.boolean(),
   metaTitle: z.string().max(60, 'Meta title too long').optional(),
   metaDescription: z.string().max(160, 'Meta description too long').optional(),
 });
@@ -50,8 +50,17 @@ export default function BlogPostEditor({
   } = useForm<BlogPostFormData>({
     resolver: zodResolver(blogPostSchema),
     defaultValues: {
+      title: '',
+      slug: '',
+      excerpt: '',
+      content: '',
+      category: '',
       status: 'draft',
       featured: false,
+      tags: [],
+      publishedAt: undefined,
+      metaTitle: undefined,
+      metaDescription: undefined,
       ...initialData
     }
   });
@@ -81,7 +90,7 @@ export default function BlogPostEditor({
   const handlePreview = () => {
     const currentData = watch();
     if (onPreview) {
-      onPreview(currentData as BlogPostFormData);
+      onPreview(currentData);
     }
   };
 

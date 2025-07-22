@@ -37,7 +37,9 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
       description: 'The requested product could not be found.',
     };
   }
-
+  
+  const mainImage = product.images.gallery[0] || product.images.thumbnail;
+  
   return {
     title: `${product.title} - Art Shop`,
     description: product.description,
@@ -46,7 +48,7 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
       description: product.description,
       images: [
         {
-          url: product.images.large,
+          url: mainImage,
           width: 1200,
           height: 630,
           alt: product.title,
@@ -58,7 +60,7 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
       card: 'summary_large_image',
       title: product.title,
       description: product.description,
-      images: [product.images.large],
+      images: [mainImage],
     },
   };
 }

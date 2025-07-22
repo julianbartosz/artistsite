@@ -42,7 +42,11 @@ describe('ErrorBoundary Component', () => {
 
   it('shows error details in development mode', () => {
     const originalEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'development';
+    // Use Object.defineProperty to properly mock NODE_ENV
+    Object.defineProperty(process.env, 'NODE_ENV', {
+      value: 'development',
+      configurable: true
+    });
     
     render(
       <ErrorBoundary>
@@ -52,6 +56,10 @@ describe('ErrorBoundary Component', () => {
     
     expect(screen.getByText(/Test error/)).toBeInTheDocument();
     
-    process.env.NODE_ENV = originalEnv;
+    // Restore original NODE_ENV
+    Object.defineProperty(process.env, 'NODE_ENV', {
+      value: originalEnv,
+      configurable: true
+    });
   });
 });

@@ -272,6 +272,144 @@ CREATE TABLE "StockAlert" (
     "updatedAt" DATETIME NOT NULL
 );
 
+-- CreateTable
+CREATE TABLE "customer_profiles" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "email" TEXT,
+    "segments" TEXT NOT NULL,
+    "behavior_score" INTEGER NOT NULL DEFAULT 0,
+    "preferences" TEXT NOT NULL,
+    "lifetime_value" REAL NOT NULL DEFAULT 0,
+    "engagement_score" INTEGER NOT NULL DEFAULT 0,
+    "last_activity" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL
+);
+
+-- CreateTable
+CREATE TABLE "analytics_events" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "event_name" TEXT NOT NULL,
+    "user_id" TEXT,
+    "session_id" TEXT,
+    "properties" TEXT NOT NULL,
+    "timestamp" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "page_url" TEXT,
+    CONSTRAINT "analytics_events_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "customer_profiles" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "email_campaigns" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "name" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "template_id" TEXT NOT NULL,
+    "segments" TEXT NOT NULL,
+    "metrics" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'draft',
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CreateTable
+CREATE TABLE "promo_codes" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "code" TEXT NOT NULL,
+    "campaign_id" TEXT,
+    "discount_type" TEXT NOT NULL,
+    "discount_value" REAL NOT NULL,
+    "usage_limit" INTEGER,
+    "usage_count" INTEGER NOT NULL DEFAULT 0,
+    "expires_at" DATETIME,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "promo_codes_campaign_id_fkey" FOREIGN KEY ("campaign_id") REFERENCES "email_campaigns" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "social_media_posts" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "platform" TEXT NOT NULL,
+    "postId" TEXT,
+    "content" TEXT NOT NULL,
+    "mediaUrls" TEXT NOT NULL,
+    "scheduledAt" DATETIME,
+    "publishedAt" DATETIME,
+    "status" TEXT NOT NULL DEFAULT 'draft',
+    "engagement" TEXT NOT NULL,
+    "campaignId" TEXT,
+    "hashtags" TEXT,
+    "mentions" TEXT,
+    "createdBy" TEXT,
+    "notes" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
+CREATE TABLE "ad_campaigns" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "name" TEXT NOT NULL,
+    "platform" TEXT NOT NULL,
+    "campaignId" TEXT,
+    "type" TEXT NOT NULL,
+    "objective" TEXT NOT NULL,
+    "targetAudience" TEXT NOT NULL,
+    "budgetType" TEXT NOT NULL,
+    "budgetAmount" REAL NOT NULL,
+    "bidStrategy" TEXT NOT NULL,
+    "bidAmount" REAL,
+    "adSets" TEXT NOT NULL,
+    "creatives" TEXT NOT NULL,
+    "startDate" DATETIME NOT NULL,
+    "endDate" DATETIME,
+    "performance" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'draft',
+    "createdBy" TEXT,
+    "notes" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
+CREATE TABLE "marketing_attribution" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "orderId" TEXT NOT NULL,
+    "userId" TEXT,
+    "firstTouch" TEXT NOT NULL,
+    "lastTouch" TEXT NOT NULL,
+    "touchpoints" TEXT NOT NULL,
+    "primaryChannel" TEXT NOT NULL,
+    "attribution" TEXT NOT NULL,
+    "attributedRevenue" REAL NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CreateTable
+CREATE TABLE "marketing_budgets" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "channel" TEXT NOT NULL,
+    "period" TEXT NOT NULL,
+    "periodStart" DATETIME NOT NULL,
+    "periodEnd" DATETIME NOT NULL,
+    "allocatedBudget" REAL NOT NULL,
+    "spentBudget" REAL NOT NULL DEFAULT 0,
+    "remainingBudget" REAL NOT NULL DEFAULT 0,
+    "targetRevenue" REAL,
+    "actualRevenue" REAL NOT NULL DEFAULT 0,
+    "targetRoi" REAL,
+    "actualRoi" REAL NOT NULL DEFAULT 0,
+    "status" TEXT NOT NULL DEFAULT 'active',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
+CREATE TABLE "_CustomerProfileToEmailCampaign" (
+    "A" TEXT NOT NULL,
+    "B" TEXT NOT NULL,
+    CONSTRAINT "_CustomerProfileToEmailCampaign_A_fkey" FOREIGN KEY ("A") REFERENCES "customer_profiles" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "_CustomerProfileToEmailCampaign_B_fkey" FOREIGN KEY ("B") REFERENCES "email_campaigns" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "Account_provider_providerAccountId_key" ON "Account"("provider", "providerAccountId");
 
@@ -313,3 +451,48 @@ CREATE INDEX "StockAlert_isActive_productId_idx" ON "StockAlert"("isActive", "pr
 
 -- CreateIndex
 CREATE INDEX "StockAlert_type_severity_idx" ON "StockAlert"("type", "severity");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "customer_profiles_email_key" ON "customer_profiles"("email");
+
+-- CreateIndex
+CREATE INDEX "analytics_events_event_name_idx" ON "analytics_events"("event_name");
+
+-- CreateIndex
+CREATE INDEX "analytics_events_user_id_idx" ON "analytics_events"("user_id");
+
+-- CreateIndex
+CREATE INDEX "analytics_events_session_id_idx" ON "analytics_events"("session_id");
+
+-- CreateIndex
+CREATE INDEX "analytics_events_timestamp_idx" ON "analytics_events"("timestamp");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "promo_codes_code_key" ON "promo_codes"("code");
+
+-- CreateIndex
+CREATE INDEX "social_media_posts_platform_publishedAt_idx" ON "social_media_posts"("platform", "publishedAt");
+
+-- CreateIndex
+CREATE INDEX "social_media_posts_status_idx" ON "social_media_posts"("status");
+
+-- CreateIndex
+CREATE INDEX "ad_campaigns_platform_status_idx" ON "ad_campaigns"("platform", "status");
+
+-- CreateIndex
+CREATE INDEX "ad_campaigns_startDate_endDate_idx" ON "ad_campaigns"("startDate", "endDate");
+
+-- CreateIndex
+CREATE INDEX "marketing_attribution_orderId_idx" ON "marketing_attribution"("orderId");
+
+-- CreateIndex
+CREATE INDEX "marketing_attribution_primaryChannel_idx" ON "marketing_attribution"("primaryChannel");
+
+-- CreateIndex
+CREATE INDEX "marketing_budgets_channel_periodStart_idx" ON "marketing_budgets"("channel", "periodStart");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "_CustomerProfileToEmailCampaign_AB_unique" ON "_CustomerProfileToEmailCampaign"("A", "B");
+
+-- CreateIndex
+CREATE INDEX "_CustomerProfileToEmailCampaign_B_index" ON "_CustomerProfileToEmailCampaign"("B");

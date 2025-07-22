@@ -350,6 +350,215 @@ class PerformanceBenchmark {
   }
 }
 
+// Comprehensive Load Testing System
+const fetch = require('node-fetch');
+const { performance } = require('perf_hooks');
+
+class LoadTester {
+  constructor(baseUrl = 'http://localhost:3000') {
+    this.baseUrl = baseUrl;
+    this.results = [];
+  }
+
+  async runLoadTest(endpoint, options = {}) {
+    const {
+      concurrent = 10,
+      duration = 60,
+      rampUp = 10,
+      thinkTime = 100
+    } = options;
+
+    console.log(`🚀 Starting load test for ${endpoint}`);
+    console.log(`Concurrent users: ${concurrent}, Duration: ${duration}s`);
+
+    const url = `${this.baseUrl}${endpoint}`;
+    const endTime = Date.now() + (duration * 1000);
+    const results = [];
+    const errors = [];
+
+    // Gradual ramp-up of users
+    const userPromises = [];
+    for (let i = 0; i < concurrent; i++) {
+      setTimeout(() => {
+        userPromises.push(this.simulateUser(url, endTime, thinkTime, results, errors));
+      }, (i * rampUp * 1000) / concurrent);
+    }
+
+    await Promise.all(userPromises);
+
+    // Calculate metrics
+    const totalRequests = results.length;
+    const avgResponseTime = results.reduce((sum, r) => sum + r.responseTime, 0) / totalRequests;
+    const minResponseTime = Math.min(...results.map(r => r.responseTime));
+    const maxResponseTime = Math.max(...results.map(r => r.responseTime));
+    
+    // Calculate percentiles
+    const sortedTimes = results.map(r => r.responseTime).sort((a, b) => a - b);
+    const p50 = sortedTimes[Math.floor(sortedTimes.length * 0.5)];
+    const p95 = sortedTimes[Math.floor(sortedTimes.length * 0.95)];
+    const p99 = sortedTimes[Math.floor(sortedTimes.length * 0.99)];
+
+    const errorRate = (errors.length / totalRequests) * 100;
+    const throughput = totalRequests / duration;
+
+    const testResults = {
+      endpoint,
+      concurrent,
+      duration,
+      totalRequests,
+      avgResponseTime: Math.round(avgResponseTime),
+      minResponseTime,
+      maxResponseTime,
+      p50ResponseTime: p50,
+      p95ResponseTime: p95,
+      p99ResponseTime: p99,
+      errorRate: Math.round(errorRate * 100) / 100,
+      throughput: Math.round(throughput * 100) / 100,
+      errors: errors.slice(0, 10), // Keep only first 10 errors
+      timestamp: new Date().toISOString()
+    };
+
+    this.results.push(testResults);
+    console.log(`✅ Load test completed for ${endpoint}`);
+    this.printResults(testResults);
+
+    return testResults;
+  }
+
+  async simulateUser(url, endTime, thinkTime, results, errors) {
+    while (Date.now() < endTime) {
+      const startTime = performance.now();
+      
+      try {
+        const response = await fetch(url, {
+          timeout: 30000,
+          headers: {
+            'User-Agent': 'LoadTester/1.0'
+          }
+        });
+        
+        const responseTime = performance.now() - startTime;
+        
+        results.push({
+          responseTime,
+          status: response.status,
+          timestamp: Date.now()
+        });
+
+        if (!response.ok) {
+          errors.push({
+            status: response.status,
+            responseTime,
+            timestamp: Date.now()
+          });
+        }
+      } catch (error) {
+        const responseTime = performance.now() - startTime;
+        errors.push({
+          error: error.message,
+          responseTime,
+          timestamp: Date.now()
+        });
+      }
+
+      // Think time between requests
+      if (thinkTime > 0) {
+        await new Promise(resolve => setTimeout(resolve, thinkTime));
+      }
+    }
+  }
+
+  printResults(results) {
+    console.log('\n📊 Load Test Results:');
+    console.log(`Endpoint: ${results.endpoint}`);
+    console.log(`Total Requests: ${results.totalRequests}`);
+    console.log(`Average Response Time: ${results.avgResponseTime}ms`);
+    console.log(`Min/Max Response Time: ${results.minResponseTime}ms / ${results.maxResponseTime}ms`);
+    console.log(`P50/P95/P99: ${results.p50ResponseTime}ms / ${results.p95ResponseTime}ms / ${results.p99ResponseTime}ms`);
+    console.log(`Error Rate: ${results.errorRate}%`);
+    console.log(`Throughput: ${results.throughput} req/s`);
+    console.log('');
+  }
+
+  async runFullSuite() {
+    const endpoints = [
+      '/',
+      '/shop',
+      '/portfolio',
+      '/contact',
+      '/api/health',
+      '/api/analytics/events'
+    ];
+
+    console.log('🎯 Starting comprehensive load test suite...\n');
+
+    const allResults = [];
+    for (const endpoint of endpoints) {
+      const results = await this.runLoadTest(endpoint, {
+        concurrent: 5,
+        duration: 30,
+        rampUp: 5
+      });
+      allResults.push(results);
+      
+      // Brief pause between tests
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    // Generate summary report
+    this.generateSummaryReport(allResults);
+    return allResults;
+  }
+
+  generateSummaryReport(allResults) {
+    console.log('\n🎯 LOAD TEST SUMMARY REPORT');
+    console.log('=' * 50);
+    
+    const totalRequests = allResults.reduce((sum, r) => sum + r.totalRequests, 0);
+    const avgResponseTime = allResults.reduce((sum, r) => sum + r.avgResponseTime, 0) / allResults.length;
+    const maxErrorRate = Math.max(...allResults.map(r => r.errorRate));
+    const avgThroughput = allResults.reduce((sum, r) => sum + r.throughput, 0);
+
+    console.log(`Total Requests Across All Endpoints: ${totalRequests}`);
+    console.log(`Average Response Time: ${Math.round(avgResponseTime)}ms`);
+    console.log(`Maximum Error Rate: ${maxErrorRate}%`);
+    console.log(`Total Throughput: ${Math.round(avgThroughput * 100) / 100} req/s`);
+
+    console.log('\nPer-Endpoint Results:');
+    allResults.forEach(result => {
+      const status = result.errorRate > 5 ? '❌' : result.avgResponseTime > 1000 ? '⚠️' : '✅';
+      console.log(`${status} ${result.endpoint}: ${result.avgResponseTime}ms avg, ${result.errorRate}% errors`);
+    });
+
+    // Performance assessment
+    console.log('\n📈 Performance Assessment:');
+    if (avgResponseTime < 500 && maxErrorRate < 1) {
+      console.log('✅ Excellent - System performs well under load');
+    } else if (avgResponseTime < 1000 && maxErrorRate < 5) {
+      console.log('⚠️ Good - Minor performance issues under load');
+    } else {
+      console.log('❌ Poor - Significant performance issues detected');
+    }
+
+    // Save results to file
+    const reportData = {
+      summary: {
+        totalRequests,
+        avgResponseTime: Math.round(avgResponseTime),
+        maxErrorRate,
+        avgThroughput: Math.round(avgThroughput * 100) / 100,
+        timestamp: new Date().toISOString()
+      },
+      details: allResults
+    };
+
+    const fs = require('fs');
+    const reportPath = `load-test-report-${Date.now()}.json`;
+    fs.writeFileSync(reportPath, JSON.stringify(reportData, null, 2));
+    console.log(`\n📄 Detailed report saved to: ${reportPath}`);
+  }
+}
+
 // Run benchmark if called directly
 if (require.main === module) {
   const benchmark = new PerformanceBenchmark();
@@ -357,6 +566,20 @@ if (require.main === module) {
     console.error('❌ Benchmark failed:', error.message);
     process.exit(1);
   });
+
+  const baseUrl = process.env.BENCHMARK_URL || 'http://localhost:3000';
+  const loadTester = new LoadTester(baseUrl);
+  
+  const endpoint = process.argv[2] || 'suite';
+  
+  if (endpoint === 'suite') {
+    loadTester.runFullSuite().catch(console.error);
+  } else {
+    loadTester.runLoadTest(endpoint, {
+      concurrent: parseInt(process.argv[3]) || 10,
+      duration: parseInt(process.argv[4]) || 60
+    }).catch(console.error);
+  }
 }
 
-module.exports = PerformanceBenchmark;
+module.exports = { PerformanceBenchmark, LoadTester };

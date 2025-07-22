@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { Activity, Zap, Clock, Eye, TrendingUp } from 'lucide-react';
 import { onCLS, onFCP, onLCP, onTTFB, onINP } from 'web-vitals';
+import { usePathname } from 'next/navigation';
 
 interface WebVitalsMetrics {
   cls: number | null;
@@ -45,6 +46,7 @@ export default function PerformanceMonitor({
 
   const [isVisible, setIsVisible] = useState(false);
   const [connectionType, setConnectionType] = useState<string>('unknown');
+  const pathname = usePathname();
 
   useEffect(() => {
     // Collect Web Vitals - using correct function names
@@ -125,6 +127,141 @@ export default function PerformanceMonitor({
       }).catch(console.error);
     }
   }, [metrics, connectionType]);
+
+  useEffect(() => {
+    // Only run in production or when explicitly enabled
+    if (process.env.NODE_ENV !== 'production' && !process.env.NEXT_PUBLIC_ENABLE_MONITORING) {
+      return;
+    }
+
+    // Collect Core Web Vitals and send to monitoring endpoint
+    const script = document.createElement('script');
+    script.textContent = `
+      (function() {
+        let performanceData = {
+          url: window.location.href,
+          pathname: '${pathname}',
+          userAgent: navigator.userAgent,
+          timestamp: new Date().toISOString()
+        };
+        
+        // Device type detection
+        const userAgent = navigator.userAgent;
+        if (/Mobi|Android/i.test(userAgent)) {
+          performanceData.deviceType = 'mobile';
+        } else if (/Tablet|iPad/i.test(userAgent)) {
+          performanceData.deviceType = 'tablet';
+        } else {
+          performanceData.deviceType = 'desktop';
+        }
+
+        // Connection info
+        if (navigator.connection) {
+          performanceData.connectionType = navigator.connection.effectiveType;
+          performanceData.downlink = navigator.connection.downlink;
+        }
+
+        // Collect Web Vitals
+        if ('PerformanceObserver' in window) {
+          // Largest Contentful Paint
+          new PerformanceObserver((list) => {
+            const entries = list.getEntries();
+            const lastEntry = entries[entries.length - 1];
+            performanceData.largestContentfulPaint = lastEntry.startTime;
+          }).observe({ entryTypes: ['largest-contentful-paint'] });
+
+          // First Input Delay
+          new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+              performanceData.firstInputDelay = entry.processingStart - entry.startTime;
+            }
+          }).observe({ entryTypes: ['first-input'] });
+
+          // Cumulative Layout Shift
+          let clsValue = 0;
+          new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+              if (!entry.hadRecentInput) {
+                clsValue += entry.value;
+              }
+            }
+            performanceData.cumulativeLayoutShift = clsValue;
+          }).observe({ entryTypes: ['layout-shift'] });
+        }
+
+        // Navigation Timing
+        if (performance.getEntriesByType) {
+          const navigation = performance.getEntriesByType('navigation')[0];
+          if (navigation) {
+            performanceData.timeToFirstByte = navigation.responseStart - navigation.requestStart;
+            performanceData.pageLoadTime = navigation.loadEventEnd - navigation.loadEventStart;
+            performanceData.domInteractive = navigation.domInteractive - navigation.navigationStart;
+          }
+        }
+
+        // Paint Timing
+        if (performance.getEntriesByType) {
+          const paints = performance.getEntriesByType('paint');
+          paints.forEach(paint => {
+            if (paint.name === 'first-contentful-paint') {
+              performanceData.firstContentfulPaint = paint.startTime;
+            }
+            if (paint.name === 'first-paint') {
+              performanceData.firstPaint = paint.startTime;
+            }
+          });
+        }
+
+        // Memory usage
+        if (performance.memory) {
+          performanceData.memoryUsage = performance.memory.usedJSHeapSize;
+          performanceData.totalJSHeapSize = performance.memory.totalJSHeapSize;
+        }
+
+        // Send data after page is fully loaded
+        function sendPerformanceData() {
+          if (Object.keys(performanceData).length > 5) { // Basic data threshold
+            fetch('/api/analytics/performance', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(performanceData),
+              keepalive: true
+            }).catch(err => {
+              console.warn('Performance tracking failed:', err);
+            });
+          }
+        }
+
+        // Send data when page is fully loaded
+        if (document.readyState === 'complete') {
+          setTimeout(sendPerformanceData, 1000);
+        } else {
+          window.addEventListener('load', () => {
+            setTimeout(sendPerformanceData, 1000);
+          });
+        }
+
+        // Send data before page unload
+        window.addEventListener('beforeunload', sendPerformanceData);
+        
+        // Send data on visibility change (tab switch)
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'hidden') {
+            sendPerformanceData();
+          }
+        });
+      })();
+    `;
+    
+    document.head.appendChild(script);
+
+    return () => {
+      // Cleanup
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+    };
+  }, [pathname]);
 
   if (!isVisible) return null;
 
@@ -341,6 +478,77 @@ export function SEOMonitor() {
     if (score >= 70) return 'text-yellow-600';
     return 'text-red-600';
   };
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'production') {
+      return;
+    }
+
+    // Monitor SEO health
+    const checkSEO = () => {
+      const seoData = {
+        url: window.location.href,
+        title: document.title,
+        description: document.querySelector('meta[name="description"]')?.getAttribute('content') || '',
+        keywords: document.querySelector('meta[name="keywords"]')?.getAttribute('content') || '',
+        canonical: document.querySelector('link[rel="canonical"]')?.getAttribute('href') || '',
+        ogTitle: document.querySelector('meta[property="og:title"]')?.getAttribute('content') || '',
+        ogDescription: document.querySelector('meta[property="og:description"]')?.getAttribute('content') || '',
+        ogImage: document.querySelector('meta[property="og:image"]')?.getAttribute('content') || '',
+        structuredData: [],
+        timestamp: new Date().toISOString()
+      };
+
+      // Extract structured data
+      const structuredDataScripts = document.querySelectorAll('script[type="application/ld+json"]');
+      structuredDataScripts.forEach(script => {
+        try {
+          const data = JSON.parse(script.textContent || '');
+          seoData.structuredData.push(data);
+        } catch (e) {
+          console.warn('Invalid structured data found');
+        }
+      });
+
+      // Check for SEO issues
+      const issues = [];
+      if (!seoData.title || seoData.title.length < 30) {
+        issues.push('Title too short or missing');
+      }
+      if (!seoData.description || seoData.description.length < 120) {
+        issues.push('Meta description too short or missing');
+      }
+      if (!seoData.canonical) {
+        issues.push('Canonical URL missing');
+      }
+      if (!seoData.ogImage) {
+        issues.push('Open Graph image missing');
+      }
+
+      if (issues.length > 0) {
+        seoData.issues = issues;
+      }
+
+      // Send SEO data
+      fetch('/api/analytics/seo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(seoData),
+        keepalive: true
+      }).catch(err => {
+        console.warn('SEO monitoring failed:', err);
+      });
+    };
+
+    // Check SEO after page load
+    if (document.readyState === 'complete') {
+      setTimeout(checkSEO, 2000);
+    } else {
+      window.addEventListener('load', () => {
+        setTimeout(checkSEO, 2000);
+      });
+    }
+  }, []);
 
   return (
     <div className="fixed bottom-4 left-4 bg-white border border-gray-200 rounded-lg shadow-lg p-4 max-w-sm z-50">

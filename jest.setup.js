@@ -87,14 +87,19 @@ jest.mock('next/navigation', () => ({
   },
 }))
 
-// Mock Next.js image component
+// Mock Next.js Image component
 jest.mock('next/image', () => ({
   __esModule: true,
-  default: function MockImage(props) {
+  default: (props) => {
     // eslint-disable-next-line @next/next/no-img-element
     return <img {...props} />
   },
 }))
+
+// Mock environment variables
+process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = 'pk_test_mock'
+process.env.NEXTAUTH_SECRET = 'test-secret'
+process.env.NEXTAUTH_URL = 'http://localhost:3000'
 
 // Mock fetch globally
 global.fetch = jest.fn()
@@ -127,4 +132,9 @@ afterAll(() => {
   console.error = originalError
   console.log = originalLog
   console.group = originalGroup
+})
+
+// Reset mocks between tests
+beforeEach(() => {
+  jest.clearAllMocks()
 })

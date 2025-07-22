@@ -458,3 +458,133 @@ model PromoCode {
 
   @@map("promo_codes")
 }
+
+// Marketing Channel Models
+model SocialMediaPost {
+  id            String   @id @default(cuid())
+  platform      String   // 'facebook', 'instagram', 'twitter', 'linkedin', 'tiktok'
+  postId        String?  // Platform-specific post ID
+  content       String   // Post content/caption
+  mediaUrls     String   // JSON array of image/video URLs
+  
+  // Scheduling
+  scheduledAt   DateTime?
+  publishedAt   DateTime?
+  status        String   @default("draft") // 'draft', 'scheduled', 'published', 'failed'
+  
+  // Engagement metrics
+  engagement    String   // JSON object with likes, comments, shares, reach, clicks
+  
+  // Campaign tracking
+  campaignId    String?
+  hashtags      String?  // JSON array of hashtags used
+  mentions      String?  // JSON array of mentions
+  
+  // Meta data
+  createdBy     String?  // User ID who created the post
+  notes         String?  // Internal notes
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@index([platform, publishedAt])
+  @@index([status])
+  @@map("social_media_posts")
+}
+
+model AdCampaign {
+  id            String   @id @default(cuid())
+  name          String
+  platform      String   // 'google', 'facebook', 'instagram', 'linkedin', 'twitter'
+  campaignId    String?  // Platform-specific campaign ID
+  
+  // Campaign details
+  type          String   // 'search', 'display', 'video', 'shopping', 'social'
+  objective     String   // 'awareness', 'traffic', 'conversions', 'sales'
+  targetAudience String  // JSON object with targeting criteria
+  
+  // Budget and bidding
+  budgetType    String   // 'daily', 'lifetime'
+  budgetAmount  Float
+  bidStrategy   String   // 'cpc', 'cpm', 'cpa', 'roas'
+  bidAmount     Float?
+  
+  // Creative assets
+  adSets        String   // JSON array of ad set configurations
+  creatives     String   // JSON array of ad creatives (images, videos, copy)
+  
+  // Scheduling
+  startDate     DateTime
+  endDate       DateTime?
+  
+  // Performance metrics
+  performance   String   // JSON object with impressions, clicks, conversions, cost, roas
+  
+  // Status and tracking
+  status        String   @default("draft") // 'draft', 'active', 'paused', 'completed', 'cancelled'
+  
+  // Meta data
+  createdBy     String?  // User ID who created the campaign
+  notes         String?  // Campaign notes
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@index([platform, status])
+  @@index([startDate, endDate])
+  @@map("ad_campaigns")
+}
+
+// Marketing Attribution Model
+model MarketingAttribution {
+  id            String   @id @default(cuid())
+  orderId       String   // Reference to order
+  userId        String?  // User who made the purchase
+  
+  // Attribution data
+  firstTouch    String   // JSON object with first touch point data
+  lastTouch     String   // JSON object with last touch point data
+  touchpoints   String   // JSON array of all touchpoints in customer journey
+  
+  // Channel attribution
+  primaryChannel String  // Primary attributed channel
+  attribution   String   // JSON object with attribution weights per channel
+  
+  // Revenue attribution
+  attributedRevenue Float
+  
+  createdAt     DateTime @default(now())
+  
+  @@index([orderId])
+  @@index([primaryChannel])
+  @@map("marketing_attribution")
+}
+
+// Marketing Budget Tracking
+model MarketingBudget {
+  id            String   @id @default(cuid())
+  channel       String   // 'email', 'social', 'ads', 'content', 'seo'
+  period        String   // 'monthly', 'quarterly', 'yearly'
+  periodStart   DateTime
+  periodEnd     DateTime
+  
+  // Budget allocation
+  allocatedBudget Float
+  spentBudget    Float   @default(0)
+  remainingBudget Float  @default(0)
+  
+  // Performance tracking
+  targetRevenue  Float?
+  actualRevenue  Float   @default(0)
+  targetRoi      Float?
+  actualRoi      Float   @default(0)
+  
+  // Status
+  status         String  @default("active") // 'active', 'exhausted', 'completed'
+  
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  @@index([channel, periodStart])
+  @@map("marketing_budgets")
+}

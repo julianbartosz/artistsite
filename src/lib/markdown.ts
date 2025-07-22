@@ -14,6 +14,7 @@ export interface BlogPost {
   isDraft?: boolean;
   coverImage?: string;
   author?: string;
+  readingTime?: number;
 }
 
 export interface BlogPostWithContent extends BlogPost {
