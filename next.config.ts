@@ -15,7 +15,7 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   
   // Server external packages
-  serverExternalPackages: ['@vercel/otel'],
+  serverExternalPackages: ['@vercel/otel', 'web-vitals'],
   
   // Production source maps for better debugging
   productionBrowserSourceMaps: true,
@@ -84,8 +84,14 @@ const nextConfig: NextConfig = {
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
   
-  // Minimal webpack configuration - only essential overrides
+  // Fixed webpack configuration to handle client-side libraries properly
   webpack: (config, { isServer, dev }) => {
+    // Add path alias for better imports
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@': path.resolve(__dirname, 'src'),
+    };
+
     // Only add essential fallbacks for client-side builds
     if (!isServer) {
       config.resolve.fallback = {
@@ -98,19 +104,35 @@ const nextConfig: NextConfig = {
       };
     }
 
-    // Add path alias for better imports
-    config.resolve.alias = {
-      ...config.resolve.alias,
-      '@': path.resolve(__dirname, 'src'),
-    };
+    // Fix for "self is not defined" error during server-side builds
+    if (isServer) {
+      // Define globals that are expected by client-side libraries
+      config.plugins = config.plugins || [];
+      const { DefinePlugin } = require('webpack');
+      config.plugins.push(
+        new DefinePlugin({
+          'typeof window': JSON.stringify('undefined'),
+          'typeof document': JSON.stringify('undefined'),
+          'typeof self': JSON.stringify('undefined'),
+        })
+      );
+      
+      // Externalize client-side only packages during server builds
+      config.externals = config.externals || [];
+      if (Array.isArray(config.externals)) {
+        config.externals.push('web-vitals');
+      }
+    }
 
     // Performance optimizations for production
     if (!dev) {
-      // Enable gzip compression
+      // Enable proper code splitting
       config.optimization = {
         ...config.optimization,
         splitChunks: {
           chunks: 'all',
+          minSize: 20000,
+          maxSize: 244000,
           cacheGroups: {
             default: {
               minChunks: 2,
@@ -133,6 +155,12 @@ const nextConfig: NextConfig = {
             markdown: {
               test: /[\\/]node_modules[\\/](mdx-bundler|@mdx-js|remark|rehype)[\\/]/,
               name: 'markdown',
+              priority: 10,
+              chunks: 'async',
+            },
+            analytics: {
+              test: /[\\/]node_modules[\\/](web-vitals|ga4)[\\/]/,
+              name: 'analytics',
               priority: 10,
               chunks: 'async',
             },

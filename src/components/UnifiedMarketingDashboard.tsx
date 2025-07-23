@@ -165,7 +165,7 @@ function OverviewTab({ overview }: { overview: MarketingOverview | null }) {
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-4">Channel Performance</h3>
           <div className="space-y-4">
-            {overview.topPerformingChannels.map((channel, index) => (
+            {overview.topPerformingChannels?.filter(channel => channel && channel.channel)?.map((channel, index) => (
               <div key={channel.channel} className="flex items-center justify-between">
                 <div className="flex items-center">
                   <div className={`w-3 h-3 rounded-full mr-3 ${
@@ -176,11 +176,15 @@ function OverviewTab({ overview }: { overview: MarketingOverview | null }) {
                   <span className="font-medium capitalize">{channel.channel}</span>
                 </div>
                 <div className="text-right">
-                  <div className="font-semibold">${channel.revenue.toLocaleString()}</div>
-                  <div className="text-sm text-gray-500">{channel.roi.toFixed(1)}x ROI</div>
+                  <div className="font-semibold">${(channel.revenue || 0).toLocaleString()}</div>
+                  <div className="text-sm text-gray-500">
+                    {channel.roi !== null && channel.roi !== undefined ? 
+                      (isFinite(channel.roi) ? channel.roi.toFixed(1) : '∞') : '0.0'
+                    }x ROI
+                  </div>
                 </div>
               </div>
-            ))}
+            )) || <div className="text-gray-500">No channel data available</div>}
           </div>
         </div>
 
@@ -190,27 +194,30 @@ function OverviewTab({ overview }: { overview: MarketingOverview | null }) {
             <div className="flex justify-between items-center">
               <span>📧 Email Campaigns</span>
               <div className="text-right">
-                <div className="font-semibold">{overview.campaignPerformance.email.sent} sent</div>
+                <div className="font-semibold">{overview.campaignPerformance?.email?.sent || 0} sent</div>
                 <div className="text-sm text-gray-500">
-                  {((overview.campaignPerformance.email.opened / overview.campaignPerformance.email.sent) * 100).toFixed(1)}% open rate
+                  {overview.campaignPerformance?.email?.sent > 0 ? 
+                    ((overview.campaignPerformance.email.opened / overview.campaignPerformance.email.sent) * 100).toFixed(1) : 
+                    '0.0'
+                  }% open rate
                 </div>
               </div>
             </div>
             <div className="flex justify-between items-center">
               <span>📱 Social Media</span>
               <div className="text-right">
-                <div className="font-semibold">{overview.campaignPerformance.social.posts} posts</div>
+                <div className="font-semibold">{overview.campaignPerformance?.social?.posts || 0} posts</div>
                 <div className="text-sm text-gray-500">
-                  {overview.campaignPerformance.social.reach.toLocaleString()} reach
+                  {(overview.campaignPerformance?.social?.reach || 0).toLocaleString()} reach
                 </div>
               </div>
             </div>
             <div className="flex justify-between items-center">
               <span>🎯 Paid Ads</span>
               <div className="text-right">
-                <div className="font-semibold">{overview.campaignPerformance.ads.conversions} conversions</div>
+                <div className="font-semibold">{overview.campaignPerformance?.ads?.conversions || 0} conversions</div>
                 <div className="text-sm text-gray-500">
-                  {overview.campaignPerformance.ads.roas.toFixed(1)}x ROAS
+                  {(overview.campaignPerformance?.ads?.roas || 0).toFixed(1)}x ROAS
                 </div>
               </div>
             </div>

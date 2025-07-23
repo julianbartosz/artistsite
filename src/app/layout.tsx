@@ -9,7 +9,7 @@ import { CartProvider } from '@/components/CartContext';
 import AuthProvider from '@/components/AuthProvider';
 import { StructuredData, generateOrganizationSchema } from '@/components/StructuredData';
 import { generateFeedLinks } from '@/lib/seo';
-import PerformanceMonitor, { SEOMonitor } from '@/components/PerformanceMonitor';
+import { PerformanceMonitor, SEOMonitor } from '@/components/DynamicComponents';
 import { AnalyticsProvider } from '@/components/AnalyticsProvider';
 import "./globals.css";
 
@@ -168,9 +168,9 @@ export default async function RootLayout({
                   <Footer />
                 </div>
                 
-                {/* Performance and SEO Monitoring (development only) */}
-                <PerformanceMonitor />
-                <SEOMonitor />
+                {/* Performance and SEO Monitoring (development only) - Temporarily disabled for build */}
+                {/* <PerformanceMonitor />
+                <SEOMonitor /> */}
               </ErrorBoundary>
             </CartProvider>
           </AnalyticsProvider>

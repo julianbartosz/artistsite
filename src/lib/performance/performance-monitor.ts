@@ -335,14 +335,14 @@ export class PerformanceMonitor {
         }
       });
       return acc;
-    }, {});
-
-    const averages = {} as PerformanceMetrics;
+    }, {} as Record<string, number>);
+    
+    const averages = {} as any;
     Object.keys(totals).forEach(key => {
-      averages[key as keyof PerformanceMetrics] = totals[key] / events.length;
+      (averages as any)[key] = totals[key] / events.length;
     });
-
-    return averages;
+    
+    return averages as PerformanceMetrics;
   }
 
   private static async triggerPerformanceAlert(
