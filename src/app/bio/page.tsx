@@ -110,10 +110,10 @@ export default function BioPage() {
                 <div>
                   <h3 className="text-xl font-semibold text-gray-900 mb-3">Selected Exhibitions</h3>
                   <div className="space-y-2 text-gray-700">
-                    <p><strong>2024</strong> - "Urban Abstractions" - Solo Exhibition, Gallery Modern</p>
-                    <p><strong>2023</strong> - "New Voices in Contemporary Art" - Group Show, MoMA PS1</p>
-                    <p><strong>2022</strong> - "Light and Shadow" - Solo Exhibition, Tribeca Gallery</p>
-                    <p><strong>2021</strong> - "Emerging Artists" - Group Show, Whitney Biennial</p>
+                    <p><strong>2024</strong> - &ldquo;Urban Abstractions&rdquo; - Solo Exhibition, Gallery Modern</p>
+                    <p><strong>2023</strong> - &ldquo;New Voices in Contemporary Art&rdquo; - Group Show, MoMA PS1</p>
+                    <p><strong>2022</strong> - &ldquo;Light and Shadow&rdquo; - Solo Exhibition, Tribeca Gallery</p>
+                    <p><strong>2021</strong> - &ldquo;Emerging Artists&rdquo; - Group Show, Whitney Biennial</p>
                   </div>
                 </div>
                 
@@ -187,10 +187,10 @@ export default function BioPage() {
             <div>
               <h3 className="text-xl font-semibold text-gray-900 mb-4">Press & Publications</h3>
               <div className="space-y-2 text-gray-700">
-                <p><em>Artforum</em> - "Rising Stars of 2024"</p>
-                <p><em>ARTnews</em> - "Urban Abstractions Review"</p>
-                <p><em>Art in America</em> - "New York Studio Visits"</p>
-                <p><em>Hyperallergic</em> - "Contemporary Landscape Painting"</p>
+                <p><em>Artforum</em> - &ldquo;Rising Stars of 2024&rdquo;</p>
+                <p><em>ARTnews</em> - &ldquo;Urban Abstractions Review&rdquo;</p>
+                <p><em>Art in America</em> - &ldquo;New York Studio Visits&rdquo;</p>
+                <p><em>Hyperallergic</em> - &ldquo;Contemporary Landscape Painting&rdquo;</p>
               </div>
             </div>
           </div>
@@ -203,7 +203,7 @@ export default function BioPage() {
           <h2 className="text-3xl font-bold text-gray-900 mb-6">Connect With My Work</h2>
           <p className="text-lg text-gray-600 mb-8 max-w-2xl mx-auto">
             Interested in learning more about my artistic practice, available works, 
-            or commission opportunities? I'd love to hear from you.
+            or commission opportunities? I&rsquo;d love to hear from you.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link 

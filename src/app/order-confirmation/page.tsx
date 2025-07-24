@@ -124,7 +124,7 @@ function OrderConfirmationContent() {
 
         {/* Quick Actions */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">What's Next?</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">What&apos;s Next?</h2>
           <div className="grid md:grid-cols-3 gap-4">
             <div className="text-center p-4 border border-gray-200 rounded-lg">
               <div className="text-2xl text-blue-600 mb-2">📧</div>
@@ -157,7 +157,7 @@ function OrderConfirmationContent() {
             {order.giftMessage && (
               <div>
                 <p className="text-sm text-gray-600 mb-1">Gift Message:</p>
-                <p className="text-gray-900 italic">"{order.giftMessage}"</p>
+                <p className="text-gray-900 italic">&ldquo;{order.giftMessage}&rdquo;</p>
               </div>
             )}
           </div>

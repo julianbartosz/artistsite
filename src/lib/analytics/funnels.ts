@@ -51,6 +51,31 @@ export class ConversionFunnels {
     ],
   }
 
+  private static initialized = false
+  private static syncTimeout: NodeJS.Timeout | null = null
+
+  /**
+   * Initialize the analytics system
+   */
+  static initialize(): void {
+    if (this.initialized || typeof window === 'undefined') return
+    
+    this.initialized = true
+    
+    // Try to sync any pending events on initialization
+    this.syncPendingEvents()
+    
+    // Listen for online/offline events to handle connectivity changes
+    window.addEventListener('online', () => {
+      this.syncPendingEvents()
+    })
+    
+    // Sync pending events before page unload
+    window.addEventListener('beforeunload', () => {
+      this.syncPendingEvents()
+    })
+  }
+
   /**
    * Track a funnel step
    */
@@ -83,7 +108,9 @@ export class ConversionFunnels {
       }
       return await response.json()
     } catch (error) {
-      console.error('Error analyzing funnel performance:', error)
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error analyzing funnel performance:', error)
+      }
       throw error
     }
   }
@@ -103,7 +130,9 @@ export class ConversionFunnels {
       }
       return await response.json()
     } catch (error) {
-      console.error('Error identifying dropoff points:', error)
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error identifying dropoff points:', error)
+      }
       throw error
     }
   }
@@ -188,7 +217,9 @@ export class ConversionFunnels {
       }
       return await response.json()
     } catch (error) {
-      console.error('Error calculating step timing:', error)
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error calculating step timing:', error)
+      }
       return {}
     }
   }
@@ -202,26 +233,139 @@ export class ConversionFunnels {
     userId?: string, 
     sessionId?: string
   ): Promise<void> {
-    try {
-      await fetch('/api/analytics/events', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          event_name: step,
-          user_id: userId,
-          session_id: sessionId,
-          properties: {
-            funnel_name: funnel,
-            step_name: step,
-            timestamp: new Date().toISOString(),
+    const eventData = {
+      event_name: step,
+      user_id: userId,
+      session_id: sessionId,
+      properties: {
+        funnel_name: funnel,
+        step_name: step,
+        timestamp: new Date().toISOString(),
+      },
+      page_url: typeof window !== 'undefined' ? window.location.href : '',
+    }
+
+    // Try multiple endpoints to avoid content blocker issues
+    const endpoints = ['/api/events', '/api/analytics/events']
+    
+    for (const endpoint of endpoints) {
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
           },
-          page_url: typeof window !== 'undefined' ? window.location.href : '',
-        }),
-      })
+          body: JSON.stringify(eventData),
+        })
+        
+        if (response.ok) {
+          // Successfully sent to this endpoint
+          return
+        }
+      } catch (error) {
+        // Continue to next endpoint if this one fails
+        if (process.env.NODE_ENV === 'development') {
+          console.debug(`Failed to send to ${endpoint}:`, error)
+        }
+      }
+    }
+
+    // If all endpoints fail, store in localStorage as fallback
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const fallbackEvents = JSON.parse(localStorage.getItem('pending_events') || '[]')
+        fallbackEvents.push({
+          ...eventData,
+          timestamp: Date.now(),
+        })
+        
+        // Keep only last 50 events to avoid storage bloat
+        if (fallbackEvents.length > 50) {
+          fallbackEvents.splice(0, fallbackEvents.length - 50)
+        }
+        
+        localStorage.setItem('pending_events', JSON.stringify(fallbackEvents))
+        
+        // Try to send pending events periodically
+        this.schedulePendingEventSync()
+      }
     } catch (error) {
-      console.warn('Failed to store funnel event:', error)
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('Failed to store funnel event and fallback failed:', error)
+      }
+    }
+  }
+
+  /**
+   * Schedule periodic sync of pending events
+   */
+  private static schedulePendingEventSync(): void {
+    if (typeof window === 'undefined') return
+    
+    // Clear any existing timeout
+    if (this.syncTimeout) {
+      clearTimeout(this.syncTimeout)
+    }
+    
+    // Schedule sync in 30 seconds
+    this.syncTimeout = setTimeout(async () => {
+      await this.syncPendingEvents()
+    }, 30000)
+  }
+
+  /**
+   * Sync pending events from localStorage
+   */
+  private static async syncPendingEvents(): Promise<void> {
+    if (typeof window === 'undefined' || !window.localStorage) return
+
+    try {
+      const pendingEvents = JSON.parse(localStorage.getItem('pending_events') || '[]')
+      if (pendingEvents.length === 0) return
+
+      const endpoints = ['/api/events', '/api/analytics/events']
+      const successfulEvents: number[] = []
+
+      for (let i = 0; i < pendingEvents.length; i++) {
+        const event = pendingEvents[i]
+        
+        for (const endpoint of endpoints) {
+          try {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(event),
+            })
+            
+            if (response.ok) {
+              successfulEvents.push(i)
+              break // Move to next event
+            }
+          } catch {
+            // Continue to next endpoint
+            continue
+          }
+        }
+      }
+
+      // Remove successfully sent events
+      if (successfulEvents.length > 0) {
+        const remainingEvents = pendingEvents.filter((_: unknown, index: number) => !successfulEvents.includes(index))
+        localStorage.setItem('pending_events', JSON.stringify(remainingEvents))
+      }
+
+      // Schedule next sync if there are still pending events
+      const stillPending = JSON.parse(localStorage.getItem('pending_events') || '[]')
+      if (stillPending.length > 0) {
+        this.schedulePendingEventSync()
+      }
+    } catch (error) {
+      // Silently handle sync errors to avoid console spam
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('Failed to sync pending events:', error)
+      }
     }
   }
 
@@ -229,7 +373,7 @@ export class ConversionFunnels {
    * Get or create session ID
    */
   private static getSessionId(): string {
-    if (typeof window === 'undefined') return ''
+    if (typeof window === 'undefined' || typeof sessionStorage === 'undefined') return ''
     
     let sessionId = sessionStorage.getItem('analytics_session_id')
     if (!sessionId) {
@@ -274,7 +418,9 @@ export class ConversionFunnels {
       }
       return await response.json()
     } catch (error) {
-      console.error('Error fetching advanced funnel analysis:', error)
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error fetching advanced funnel analysis:', error)
+      }
       throw error
     }
   }

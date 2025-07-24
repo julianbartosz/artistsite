@@ -1,3 +1,5 @@
+'use client';
+
 import dynamic from 'next/dynamic';
 
 // Dynamic imports for performance optimization
@@ -10,7 +12,6 @@ export const RichTextEditor = dynamic(() => import('./RichTextEditor'), {
       </div>
     </div>
   ),
-  ssr: false, // Editor should only load on client
 });
 
 export const BlogPostEditor = dynamic(() => import('./BlogPostEditor'), {
@@ -26,7 +27,6 @@ export const BlogPostEditor = dynamic(() => import('./BlogPostEditor'), {
       </div>
     </div>
   ),
-  ssr: false,
 });
 
 export const AdminDashboard = dynamic(() => import('@/app/admin/AdminDashboard'), {
@@ -43,16 +43,17 @@ export const AdminDashboard = dynamic(() => import('@/app/admin/AdminDashboard')
       </div>
     </div>
   ),
-  ssr: false,
 });
 
 // Chart components for analytics (loaded only when needed)
 export const AnalyticsChart = dynamic(() => import('./AnalyticsChart'), {
   loading: () => <div className="h-64 bg-gray-100 rounded animate-pulse" />,
-  ssr: false,
 });
 
 export const PerformanceMonitor = dynamic(() => import('./PerformanceMonitor'), {
   loading: () => <div className="h-32 bg-gray-100 rounded animate-pulse" />,
-  ssr: false,
+});
+
+export const SEOMonitor = dynamic(() => import('./PerformanceMonitor').then(mod => ({ default: mod.SEOMonitor })), {
+  loading: () => <div className="h-24 bg-gray-100 rounded animate-pulse" />,
 });

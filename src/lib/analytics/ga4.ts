@@ -1,8 +1,11 @@
 // Google Analytics 4 Integration
+type GtagCommand = 'config' | 'event' | 'js' | 'consent'
+type GtagArguments = [command: GtagCommand, ...args: unknown[]]
+
 declare global {
   interface Window {
-    gtag: (...args: any[]) => void
-    dataLayer: any[]
+    gtag: (...args: GtagArguments) => void
+    dataLayer: unknown[]
   }
 }
 
@@ -17,7 +20,6 @@ export interface GA4EventParams {
   item_category?: string
   price?: number
   quantity?: number
-  custom_parameters?: Record<string, any>
   // Additional properties used throughout the codebase
   items?: EcommerceItem[]
   method?: string
@@ -33,7 +35,7 @@ export interface GA4EventParams {
   artwork_id?: string
   artwork_title?: string
   // Allow any additional custom properties
-  [key: string]: any
+  [key: string]: string | number | boolean | EcommerceItem[] | undefined
 }
 
 export interface EcommerceItem {
@@ -44,9 +46,10 @@ export interface EcommerceItem {
   price: number
   quantity: number
   currency?: string
+  [key: string]: string | number | undefined
 }
 
-export interface PurchaseData {
+export interface PurchaseData extends Record<string, unknown> {
   transaction_id: string
   value: number
   currency: string
@@ -77,19 +80,24 @@ export class GA4Analytics {
 
     // Initialize dataLayer
     window.dataLayer = window.dataLayer || []
-    window.gtag = function() {
-      window.dataLayer.push(arguments)
+    window.gtag = function(...args: GtagArguments) {
+      window.dataLayer.push(args)
     }
 
-    // Configure GA4
+    // Configure GA4 with proper browser checks
     window.gtag('js', new Date())
     window.gtag('config', measurementId, {
-      page_title: document.title,
-      page_location: window.location.href,
+      page_title: typeof document !== 'undefined' ? document.title : '',
+      page_location: typeof window !== 'undefined' ? window.location.href : '',
     })
 
     this.isInitialized = true
-    console.log('🔍 GA4 Analytics initialized:', measurementId)
+
+    if (process.env.NODE_ENV === 'development') {
+      // Only log in development
+      // eslint-disable-next-line no-console
+      console.log('🔍 GA4 Analytics initialized:', measurementId)
+    }
   }
 
   /**
@@ -117,8 +125,10 @@ export class GA4Analytics {
 
     window.gtag('event', eventName, eventData)
     
-    // Also store in our local analytics
-    this.storeLocalEvent(eventName, eventData)
+    // Also store in our local analytics with better error handling
+    this.storeLocalEvent(eventName, eventData).catch(() => {
+      // Silently fail for analytics - don't interrupt user experience
+    })
   }
 
   /**
@@ -175,7 +185,7 @@ export class GA4Analytics {
   /**
    * Set user properties
    */
-  static setUserProperties(properties: Record<string, any>): void {
+  static setUserProperties(properties: Record<string, string | number | boolean>): void {
     if (!this.isReady()) return
 
     window.gtag('config', this.measurementId, {
@@ -261,12 +271,15 @@ export class GA4Analytics {
   /**
    * Store event in local analytics database
    */
-  private static async storeLocalEvent(eventName: string, properties: any): Promise<void> {
+  private static async storeLocalEvent(eventName: string, properties: Record<string, unknown>): Promise<void> {
+    // Skip if running on server
+    if (typeof window === 'undefined') return
+
     try {
       const sessionId = this.getSessionId()
       const userId = this.getUserId()
 
-      await fetch('/api/analytics/events', {
+      const response = await fetch('/api/analytics/events', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -279,8 +292,16 @@ export class GA4Analytics {
           page_url: window.location.href,
         }),
       })
+
+      // Don't throw errors for analytics failures
+      if (!response.ok && process.env.NODE_ENV === 'development') {
+        console.warn(`Analytics API returned ${response.status}: ${response.statusText}`)
+      }
     } catch (error) {
-      console.warn('Failed to store local analytics event:', error)
+      // Only log in development, never throw
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('Failed to store local analytics event:', error)
+      }
     }
   }
 
@@ -288,6 +309,11 @@ export class GA4Analytics {
    * Get or create session ID
    */
   private static getSessionId(): string {
+    // Return empty string if running on server
+    if (typeof window === 'undefined' || typeof sessionStorage === 'undefined') {
+      return ''
+    }
+
     let sessionId = sessionStorage.getItem('analytics_session_id')
     if (!sessionId) {
       sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`

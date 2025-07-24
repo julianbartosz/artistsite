@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { onCLS, onFCP, onLCP, onTTFB, onINP } from 'web-vitals';
 import { usePathname } from 'next/navigation';
 
 interface WebVitalsMetrics {
@@ -48,44 +47,52 @@ export default function PerformanceMonitor({
   const pathname = usePathname();
 
   useEffect(() => {
-    // Collect Web Vitals - using correct function names
-    onCLS((metric) => {
-      setMetrics(prev => ({
-        ...prev,
-        webVitals: { ...prev.webVitals, cls: metric.value }
-      }));
-    });
+    // Only run on client side
+    if (typeof window === 'undefined') return;
 
-    onINP((metric) => { // Changed from onFID to onINP
-      setMetrics(prev => ({
-        ...prev,
-        webVitals: { ...prev.webVitals, inp: metric.value }
-      }));
-    });
+    // Dynamically import web-vitals to avoid server-side execution
+    import('web-vitals').then(({ onCLS, onFCP, onLCP, onTTFB, onINP }) => {
+      // Collect Web Vitals - using correct function names
+      onCLS((metric) => {
+        setMetrics(prev => ({
+          ...prev,
+          webVitals: { ...prev.webVitals, cls: metric.value }
+        }));
+      });
 
-    onFCP((metric) => {
-      setMetrics(prev => ({
-        ...prev,
-        webVitals: { ...prev.webVitals, fcp: metric.value }
-      }));
-    });
+      onINP((metric) => { // Changed from onFID to onINP
+        setMetrics(prev => ({
+          ...prev,
+          webVitals: { ...prev.webVitals, inp: metric.value }
+        }));
+      });
 
-    onLCP((metric) => {
-      setMetrics(prev => ({
-        ...prev,
-        webVitals: { ...prev.webVitals, lcp: metric.value }
-      }));
-    });
+      onFCP((metric) => {
+        setMetrics(prev => ({
+          ...prev,
+          webVitals: { ...prev.webVitals, fcp: metric.value }
+        }));
+      });
 
-    onTTFB((metric) => {
-      setMetrics(prev => ({
-        ...prev,
-        webVitals: { ...prev.webVitals, ttfb: metric.value }
-      }));
+      onLCP((metric) => {
+        setMetrics(prev => ({
+          ...prev,
+          webVitals: { ...prev.webVitals, lcp: metric.value }
+        }));
+      });
+
+      onTTFB((metric) => {
+        setMetrics(prev => ({
+          ...prev,
+          webVitals: { ...prev.webVitals, ttfb: metric.value }
+        }));
+      });
+    }).catch(() => {
+      // Silently handle web-vitals import errors
     });
 
     // Collect Navigation Timing metrics
-    if (typeof window !== 'undefined' && window.performance) {
+    if (window.performance) {
       const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
       const resources = performance.getEntriesByType('resource');
       
@@ -111,6 +118,8 @@ export default function PerformanceMonitor({
 
   // Send metrics to analytics (in production)
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
     if (metrics && process.env.NODE_ENV === 'production') {
       // Send to analytics service
       fetch('/api/analytics/performance', {
@@ -130,6 +139,9 @@ export default function PerformanceMonitor({
   }, [metrics, connectionType]);
 
   useEffect(() => {
+    // Skip if running on server
+    if (typeof window === 'undefined') return;
+    
     // Only run in production or when explicitly enabled
     if (process.env.NODE_ENV !== 'production' && !process.env.NEXT_PUBLIC_ENABLE_MONITORING) {
       return;

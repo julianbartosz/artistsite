@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, ReactNode } from 'react'
-import { GA4Analytics } from '@/lib/analytics/ga4'
+import { GA4Analytics, type EcommerceItem } from '@/lib/analytics/ga4'
 import { ConversionFunnels } from '@/lib/analytics/funnels'
 import { useSession } from 'next-auth/react'
 import { usePathname } from 'next/navigation'
@@ -40,6 +40,9 @@ export function AnalyticsProvider({ children }: AnalyticsProviderProps) {
     if (measurementId) {
       GA4Analytics.initialize(measurementId)
     }
+
+    // Initialize ConversionFunnels system
+    ConversionFunnels.initialize()
 
     // Set user properties if user is logged in
     if (session?.user) {
@@ -129,12 +132,12 @@ export function useEcommerceTracking() {
       analytics.trackEcommerceFunnel.addToCart(productId, session?.user?.id)
     },
     
-    trackBeginCheckout: (items: any[], total: number) => {
+    trackBeginCheckout: (items: EcommerceItem[], total: number) => {
       analytics.trackBeginCheckout(items, total)
       analytics.trackEcommerceFunnel.beginCheckout(session?.user?.id)
     },
     
-    trackPurchase: (transactionId: string, items: any[], total: number, shipping?: number, tax?: number) => {
+    trackPurchase: (transactionId: string, items: EcommerceItem[], total: number, shipping?: number, tax?: number) => {
       analytics.trackPurchase({
         transaction_id: transactionId,
         value: total,
