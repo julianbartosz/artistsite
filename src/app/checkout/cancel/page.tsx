@@ -26,7 +26,7 @@ export default function CheckoutCancelPage() {
               No worries! Your items are still in your cart and no payment was processed.
             </p>
             <p className="text-sm text-gray-500">
-              You can continue shopping or try the checkout process again whenever you're ready.
+              You can continue shopping or try the checkout process again whenever you&apos;re ready.
             </p>
           </div>
 

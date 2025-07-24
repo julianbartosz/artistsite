@@ -32,6 +32,16 @@ export default function AddToCartButton({
   const isCommissionOnly = product.availability === 'commissioned';
   const isSoldOut = product.availability === 'sold' || product.availability === 'reserved';
 
+  // Helper function to generate item key - moved before usage
+  const generateItemKey = (productId: string, variant?: CartItemVariant): string => {
+    if (!variant) return productId;
+    const parts = [productId];
+    if (variant.size) parts.push(`size:${variant.size.id}`);
+    if (variant.framing) parts.push(`frame:${variant.framing.id}`);
+    if (variant.material) parts.push(`material:${variant.material.id}`);
+    return parts.join('|');
+  };
+
   // Check stock for selected variant
   const isInStock = () => {
     if (!selectedVariant.size?.id) return true;
@@ -46,15 +56,6 @@ export default function AddToCartButton({
     const currentKey = generateItemKey(product.id, selectedVariant);
     return itemKey === currentKey;
   });
-
-  const generateItemKey = (productId: string, variant?: CartItemVariant): string => {
-    if (!variant) return productId;
-    const parts = [productId];
-    if (variant.size) parts.push(`size:${variant.size.id}`);
-    if (variant.framing) parts.push(`frame:${variant.framing.id}`);
-    if (variant.material) parts.push(`material:${variant.material.id}`);
-    return parts.join('|');
-  };
 
   const handleVariantChange = (variant: CartItemVariant, customizationValues: Record<string, string>) => {
     setSelectedVariant(variant);
@@ -94,7 +95,11 @@ export default function AddToCartButton({
       }, 100);
       
     } catch (error) {
-      console.error('Failed to add item to cart:', error);
+      // Only log in development
+      if (process.env.NODE_ENV === 'development') {
+        // eslint-disable-next-line no-console
+        console.error('Failed to add item to cart:', error);
+      }
       alert('Sorry, there was an error adding this item to your cart. Please try again.');
     } finally {
       setIsAdding(false);
@@ -146,7 +151,10 @@ export default function AddToCartButton({
         throw new Error(result.error || 'Failed to submit commission request');
       }
     } catch (error) {
-      console.error('Commission submission error:', error);
+      if (process.env.NODE_ENV === 'development') {
+        // eslint-disable-next-line no-console
+        console.error('Commission submission error:', error);
+      }
       alert('Sorry, there was an error submitting your commission request. Please try again.');
     } finally {
       setIsSubmittingCommission(false);

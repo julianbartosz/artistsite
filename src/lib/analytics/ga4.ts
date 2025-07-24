@@ -92,6 +92,7 @@ export class GA4Analytics {
     })
 
     this.isInitialized = true
+
     if (process.env.NODE_ENV === 'development') {
       // Only log in development
       // eslint-disable-next-line no-console
@@ -124,8 +125,10 @@ export class GA4Analytics {
 
     window.gtag('event', eventName, eventData)
     
-    // Also store in our local analytics
-    this.storeLocalEvent(eventName, eventData)
+    // Also store in our local analytics with better error handling
+    this.storeLocalEvent(eventName, eventData).catch(() => {
+      // Silently fail for analytics - don't interrupt user experience
+    })
   }
 
   /**
@@ -276,7 +279,7 @@ export class GA4Analytics {
       const sessionId = this.getSessionId()
       const userId = this.getUserId()
 
-      await fetch('/api/analytics/events', {
+      const response = await fetch('/api/analytics/events', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -289,10 +292,14 @@ export class GA4Analytics {
           page_url: window.location.href,
         }),
       })
+
+      // Don't throw errors for analytics failures
+      if (!response.ok && process.env.NODE_ENV === 'development') {
+        console.warn(`Analytics API returned ${response.status}: ${response.statusText}`)
+      }
     } catch (error) {
+      // Only log in development, never throw
       if (process.env.NODE_ENV === 'development') {
-        // Only warn in development
-        // eslint-disable-next-line no-console
         console.warn('Failed to store local analytics event:', error)
       }
     }

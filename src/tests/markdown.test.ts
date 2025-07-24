@@ -1,4 +1,7 @@
 import { getAllPosts, getPostBySlug, getPostSlugs } from '@/lib/markdown';
+import fs from 'fs';
+import { bundleMDX } from 'mdx-bundler';
+import matter from 'gray-matter';
 
 // Mock the file system and MDX content
 jest.mock('fs', () => ({
@@ -18,9 +21,10 @@ jest.mock('mdx-bundler', () => ({
 
 jest.mock('gray-matter', () => jest.fn());
 
-const fs = require('fs');
-const { bundleMDX } = require('mdx-bundler');
-const matter = require('gray-matter');
+// Cast the mocked modules for TypeScript
+const mockFs = fs as jest.Mocked<typeof fs>;
+const mockBundleMDX = bundleMDX as jest.MockedFunction<typeof bundleMDX>;
+const mockMatter = matter as jest.MockedFunction<typeof matter>;
 
 describe('Markdown Library', () => {
   beforeEach(() => {
@@ -30,9 +34,9 @@ describe('Markdown Library', () => {
   describe('getAllPosts', () => {
     it('should return all posts with correct metadata', async () => {
       // Mock file system
-      fs.existsSync.mockReturnValue(true);
-      fs.readdirSync.mockReturnValue(['post1.mdx', 'post2.mdx', 'draft.mdx']);
-      fs.readFileSync.mockImplementation((path: string) => {
+      mockFs.existsSync.mockReturnValue(true);
+      (mockFs.readdirSync as jest.Mock).mockReturnValue(['post1.mdx', 'post2.mdx', 'draft.mdx']);
+      (mockFs.readFileSync as jest.Mock).mockImplementation((path: any) => {
         if (path.includes('post1.mdx')) {
           return `---
 title: Test Post 1
@@ -61,7 +65,7 @@ tags: [draft]
 # Draft Content`;
       });
 
-      matter.mockImplementation((content: string) => {
+      mockMatter.mockImplementation((content: any) => {
         if (content.includes('Test Post 1')) {
           return {
             data: {
@@ -71,7 +75,11 @@ tags: [draft]
               tags: ['test', 'blog'],
             },
             content: '# Test Content 1',
-          };
+            orig: content,
+            language: '',
+            matter: '',
+            stringify: jest.fn(),
+          } as any;
         }
         if (content.includes('Test Post 2')) {
           return {
@@ -82,7 +90,11 @@ tags: [draft]
               tags: ['test'],
             },
             content: '# Test Content 2',
-          };
+            orig: content,
+            language: '',
+            matter: '',
+            stringify: jest.fn(),
+          } as any;
         }
         return {
           data: {
@@ -93,11 +105,14 @@ tags: [draft]
             tags: ['draft'],
           },
           content: '# Draft Content',
-        };
+          orig: content,
+          language: '',
+          matter: '',
+          stringify: jest.fn(),
+        } as any;
       });
 
       const posts = await getAllPosts();
-
       expect(posts).toHaveLength(2); // Should exclude drafts
       expect(posts[0].title).toBe('Test Post 2'); // Should be sorted by date desc
       expect(posts[1].title).toBe('Test Post 1');
@@ -106,7 +121,7 @@ tags: [draft]
     });
 
     it('should handle empty directory', async () => {
-      fs.existsSync.mockReturnValue(false);
+      mockFs.existsSync.mockReturnValue(false);
       
       const posts = await getAllPosts();
       
@@ -114,9 +129,9 @@ tags: [draft]
     });
 
     it('should include drafts when specified', async () => {
-      fs.existsSync.mockReturnValue(true);
-      fs.readdirSync.mockReturnValue(['draft.mdx']);
-      fs.readFileSync.mockReturnValue(`---
+      mockFs.existsSync.mockReturnValue(true);
+      (mockFs.readdirSync as jest.Mock).mockReturnValue(['draft.mdx']);
+      (mockFs.readFileSync as jest.Mock).mockReturnValue(`---
 title: Draft Post
 publishedAt: 2024-01-03
 excerpt: Draft excerpt
@@ -125,7 +140,7 @@ tags: [draft]
 ---
 # Draft Content`);
 
-      matter.mockReturnValue({
+      mockMatter.mockReturnValue({
         data: {
           title: 'Draft Post',
           publishedAt: '2024-01-03',
@@ -134,7 +149,11 @@ tags: [draft]
           tags: ['draft'],
         },
         content: '# Draft Content',
-      });
+        orig: '',
+        language: '',
+        matter: '',
+        stringify: jest.fn(),
+      } as any);
 
       const posts = await getAllPosts(true);
       
@@ -145,8 +164,8 @@ tags: [draft]
 
   describe('getPostBySlug', () => {
     it('should return post with rendered content', async () => {
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(`---
+      mockFs.existsSync.mockReturnValue(true);
+      (mockFs.readFileSync as jest.Mock).mockReturnValue(`---
 title: Test Post
 publishedAt: 2024-01-01
 excerpt: Test excerpt
@@ -156,7 +175,7 @@ tags: [test]
 
 This is a test post.`);
 
-      matter.mockReturnValue({
+      mockMatter.mockReturnValue({
         data: {
           title: 'Test Post',
           publishedAt: '2024-01-01',
@@ -164,10 +183,23 @@ This is a test post.`);
           tags: ['test'],
         },
         content: '# Test Content\n\nThis is a test post.',
-      });
+        orig: '',
+        language: '',
+        matter: '',
+        stringify: jest.fn(),
+      } as any);
 
-      bundleMDX.mockResolvedValue({
+      (mockBundleMDX as jest.Mock).mockResolvedValue({
         code: 'const Component = () => <div>Rendered content</div>',
+        frontmatter: {},
+        errors: [],
+        matter: {
+          data: {},
+          content: '',
+          orig: '',
+          language: '',
+          stringify: jest.fn(),
+        },
       });
 
       const post = await getPostBySlug('test-post');
@@ -187,7 +219,7 @@ This is a test post.`);
     });
 
     it('should return null for non-existent post', async () => {
-      fs.existsSync.mockReturnValue(false);
+      mockFs.existsSync.mockReturnValue(false);
       
       const post = await getPostBySlug('non-existent');
       
@@ -195,20 +227,24 @@ This is a test post.`);
     });
 
     it('should return null for drafts unless includeDrafts is true', async () => {
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(`---
+      mockFs.existsSync.mockReturnValue(true);
+      (mockFs.readFileSync as jest.Mock).mockReturnValue(`---
 title: Draft Post
 isDraft: true
 ---
 # Draft Content`);
 
-      matter.mockReturnValue({
+      mockMatter.mockReturnValue({
         data: {
           title: 'Draft Post',
           isDraft: true,
         },
         content: '# Draft Content',
-      });
+        orig: '',
+        language: '',
+        matter: '',
+        stringify: jest.fn(),
+      } as any);
 
       const post = await getPostBySlug('draft-post');
       expect(post).toBeNull();
@@ -220,8 +256,8 @@ isDraft: true
 
   describe('getPostSlugs', () => {
     it('should return all post slugs', async () => {
-      fs.existsSync.mockReturnValue(true);
-      fs.readdirSync.mockReturnValue(['post1.mdx', 'post2.mdx', 'not-mdx.txt']);
+      mockFs.existsSync.mockReturnValue(true);
+      (mockFs.readdirSync as jest.Mock).mockReturnValue(['post1.mdx', 'post2.mdx', 'not-mdx.txt']);
 
       const slugs = await getPostSlugs();
 
@@ -229,7 +265,7 @@ isDraft: true
     });
 
     it('should return empty array when directory does not exist', async () => {
-      fs.existsSync.mockReturnValue(false);
+      mockFs.existsSync.mockReturnValue(false);
 
       const slugs = await getPostSlugs();
 

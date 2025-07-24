@@ -28,7 +28,7 @@ interface DeploymentMetrics {
 }
 
 // In-memory metrics storage (in production, use Redis or database)
-let metricsStore = {
+const metricsStore = {
   requests: [] as Array<{ timestamp: number; responseTime: number; status: number }>,
   errors: [] as Array<{ timestamp: number; error: string; severity: string }>,
   alerts: [] as Array<{ level: 'info' | 'warning' | 'error' | 'critical'; message: string; timestamp: string }>,

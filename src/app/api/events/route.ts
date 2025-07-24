@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { z } from 'zod'
 
-const AnalyticsEventSchema = z.object({
+const EventSchema = z.object({
   event_name: z.string().min(1).max(100),
   user_id: z.string().optional(),
   session_id: z.string().optional(),
@@ -27,9 +27,9 @@ export async function OPTIONS(_request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const validatedData = AnalyticsEventSchema.parse(body)
+    const validatedData = EventSchema.parse(body)
 
-    // Store the analytics event
+    // Store the event
     const event = await prisma.analyticsEvent.create({
       data: {
         eventName: validatedData.event_name,
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     if (process.env.NODE_ENV === 'development') {
-      console.error('Analytics event tracking error:', error)
+      console.error('Event tracking error:', error)
     }
     
     if (error instanceof z.ZodError) {
@@ -80,70 +80,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: 'Failed to track analytics event' },
-      { 
-        status: 500,
-        headers: corsHeaders,
-      }
-    )
-  }
-}
-
-export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url)
-    const eventName = searchParams.get('event')
-    const userId = searchParams.get('userId')
-    const sessionId = searchParams.get('sessionId')
-    const limit = parseInt(searchParams.get('limit') || '100')
-    const offset = parseInt(searchParams.get('offset') || '0')
-
-    interface WhereClause {
-      eventName?: string
-      userId?: string
-      sessionId?: string
-    }
-
-    const where: WhereClause = {}
-    if (eventName) where.eventName = eventName
-    if (userId) where.userId = userId
-    if (sessionId) where.sessionId = sessionId
-
-    const events = await prisma.analyticsEvent.findMany({
-      where,
-      orderBy: { timestamp: 'desc' },
-      take: Math.min(limit, 1000), // Cap at 1000 for performance
-      skip: offset,
-      select: {
-        id: true,
-        eventName: true,
-        userId: true,
-        sessionId: true,
-        properties: true,
-        timestamp: true,
-        pageUrl: true,
-      },
-    })
-
-    // Parse properties JSON
-    const formattedEvents = events.map(event => ({
-      ...event,
-      properties: JSON.parse(event.properties || '{}'),
-    }))
-
-    return NextResponse.json({
-      events: formattedEvents,
-      total: events.length,
-      hasMore: events.length === limit,
-    }, {
-      headers: corsHeaders,
-    })
-  } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.error('Analytics events fetch error:', error)
-    }
-    return NextResponse.json(
-      { error: 'Failed to fetch analytics events' },
+      { error: 'Failed to track event' },
       { 
         status: 500,
         headers: corsHeaders,
@@ -206,7 +143,7 @@ async function updateCustomerProfile(userId: string, eventName: string, properti
     if (process.env.NODE_ENV === 'development') {
       console.error('Customer profile update error:', error)
     }
-    // Don't throw - analytics event should still be recorded
+    // Don't throw - event should still be recorded
   }
 }
 
@@ -230,13 +167,13 @@ function calculateEngagementBonus(eventName: string): number {
   return engagementValues[eventName] || 1
 }
 
-function updateUserSegments(currentSegments: string[], eventName: string, properties: any): string[] {
+function updateUserSegments(currentSegments: string[], eventName: string, properties: EventProperties): string[] {
   const segments = new Set(currentSegments)
 
   // Behavioral segments
   if (eventName === 'purchase') {
     segments.add('customer')
-    if (properties.value && parseFloat(properties.value) > 500) {
+    if (properties.value && parseFloat(String(properties.value)) > 500) {
       segments.add('high_value_customer')
     }
   }

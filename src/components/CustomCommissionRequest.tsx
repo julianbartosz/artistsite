@@ -73,7 +73,7 @@ export default function CustomCommissionRequest({
     }
 
     if (!formData.description.trim()) {
-      newErrors.description = 'Please describe what you\'re looking for';
+      newErrors.description = 'Please describe what you&apos;re looking for';
     }
 
     if (!formData.timeline) {
@@ -159,7 +159,7 @@ export default function CustomCommissionRequest({
         <p className="text-gray-600">
           {product 
             ? `Request a custom piece inspired by or similar to this artwork.`
-            : 'Share your vision and we\'ll work together to create something unique.'
+            : 'Share your vision and we&apos;ll work together to create something unique.'
           }
         </p>
         {product?.commissionInfo && (
@@ -249,12 +249,12 @@ export default function CustomCommissionRequest({
               className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
             >
               <option value="">Select size...</option>
-              <option value='8" x 10"'>8" x 10" (Small)</option>
-              <option value='11" x 14"'>11" x 14" (Medium)</option>
-              <option value='16" x 20"'>16" x 20" (Large)</option>
-              <option value='18" x 24"'>18" x 24" (Large)</option>
-              <option value='24" x 36"'>24" x 36" (Extra Large)</option>
-              <option value='30" x 40"'>30" x 40" (Extra Large)</option>
+              <option value='8&quot; x 10&quot;'>8&quot; x 10&quot; (Small)</option>
+              <option value='11&quot; x 14&quot;'>11&quot; x 14&quot; (Medium)</option>
+              <option value='16&quot; x 20&quot;'>16&quot; x 20&quot; (Large)</option>
+              <option value='18&quot; x 24&quot;'>18&quot; x 24&quot; (Large)</option>
+              <option value='24&quot; x 36&quot;'>24&quot; x 36&quot; (Extra Large)</option>
+              <option value='30&quot; x 40&quot;'>30&quot; x 40&quot; (Extra Large)</option>
               <option value="Custom">Custom Size (specify in description)</option>
             </select>
           </div>

@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { Header } from '@/components/Header';
+import { usePathname } from 'next/navigation';
 
 // Mock next/navigation
 const mockPush = jest.fn();
@@ -9,6 +10,9 @@ jest.mock('next/navigation', () => ({
     push: mockPush,
   }),
 }));
+
+// Cast the mocked function for TypeScript
+const mockUsePathname = usePathname as jest.MockedFunction<typeof usePathname>;
 
 describe('Header Component', () => {
   beforeEach(() => {
@@ -27,8 +31,7 @@ describe('Header Component', () => {
   });
 
   it('highlights active navigation item', () => {
-    const { usePathname } = require('next/navigation');
-    usePathname.mockReturnValue('/portfolio');
+    mockUsePathname.mockReturnValue('/portfolio');
     
     render(<Header />);
     
