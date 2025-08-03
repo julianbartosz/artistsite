@@ -15,6 +15,10 @@ export interface BlogPost {
   coverImage?: string;
   author?: string;
   readingTime?: number;
+  category?: string;
+  featured?: boolean;
+  metaTitle?: string;
+  metaDescription?: string;
 }
 
 export interface BlogPostWithContent extends BlogPost {
@@ -45,7 +49,11 @@ export async function getAllPosts(includePages = false): Promise<BlogPost[]> {
           tags: data.tags || [],
           isDraft: data.isDraft || false,
           coverImage: data.coverImage,
-          author: data.author || 'Artist'
+          author: data.author || 'Artist',
+          category: data.category || 'general',
+          featured: data.featured || false,
+          metaTitle: data.metaTitle,
+          metaDescription: data.metaDescription,
         } as BlogPost;
       })
   );
@@ -95,6 +103,10 @@ export async function getPostBySlug(slug: string, includeDrafts = false): Promis
       isDraft: data.isDraft || false,
       coverImage: data.coverImage,
       author: data.author || 'Artist',
+      category: data.category || 'general',
+      featured: data.featured || false,
+      metaTitle: data.metaTitle,
+      metaDescription: data.metaDescription,
       content,
       code
     };

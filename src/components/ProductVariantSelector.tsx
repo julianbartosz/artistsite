@@ -57,7 +57,7 @@ export default function ProductVariantSelector({
       [type]: {
         id: variant.id,
         name: variant.name,
-        price: variant.priceModifier
+        price: variant.price // ✅ Fixed: use 'price' instead of 'priceModifier'
       }
     }));
   };
@@ -112,12 +112,12 @@ export default function ProductVariantSelector({
               <div className="flex justify-between items-center">
                 <span className="font-medium">{variant.name}</span>
                 <span className={`text-sm ${
-                  variant.priceModifier === 0 ? 'text-gray-500' : 
-                  variant.priceModifier > 0 ? 'text-green-600' : 'text-red-600'
+                  variant.price === 0 ? 'text-gray-500' : 
+                  variant.price > 0 ? 'text-green-600' : 'text-red-600'
                 }`}>
-                  {variant.priceModifier === 0 ? 'Included' : 
-                   variant.priceModifier > 0 ? `+${formatPrice(variant.priceModifier)}` : 
-                   formatPrice(variant.priceModifier)}
+                  {variant.price === 0 ? 'Included' : 
+                   variant.price > 0 ? `+${formatPrice(variant.price)}` : 
+                   formatPrice(variant.price)}
                 </span>
               </div>
               {variant.stock !== undefined && (

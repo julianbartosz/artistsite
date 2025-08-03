@@ -130,7 +130,31 @@ export function getProductsByCategory(category: string): Product[] {
 }
 
 export function getProductById(id: string): Product | undefined {
-  return products.find(product => product.id === id) as Product | undefined;
+  try {
+    const product = products.find(product => product.id === id) as Product | undefined;
+    
+    // Validate product data integrity
+    if (product) {
+      if (typeof product.price !== 'number' || product.price < 0) {
+        console.error('Invalid product price detected:', { 
+          id, 
+          price: product.price, 
+          type: typeof product.price 
+        });
+        return undefined;
+      }
+      
+      if (!product.currency) {
+        console.warn('Product missing currency, defaulting to USD:', { id });
+        product.currency = 'USD';
+      }
+    }
+    
+    return product;
+  } catch (error) {
+    console.error('Error retrieving product:', error, { id });
+    return undefined;
+  }
 }
 
 export function getProductsByTag(tag: string): Product[] {
@@ -173,11 +197,27 @@ export function calculateVariantPrice(basePrice: number, variants?: CartItemVari
   return totalPrice;
 }
 
-export function formatPrice(price: number, currency: string = 'USD'): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: currency,
-  }).format(price);
+export function formatPrice(price: number | undefined | null, currency: string = 'USD'): string {
+  // Enhanced debugging for price formatting issues
+  if (price === undefined || price === null) {
+    console.warn('formatPrice called with undefined/null price:', { price, currency });
+    return 'Price not available';
+  }
+  
+  if (isNaN(price) || price < 0) {
+    console.warn('formatPrice called with invalid price:', { price, currency, type: typeof price });
+    return 'Price not available';
+  }
+  
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency,
+    }).format(price);
+  } catch (error) {
+    console.error('Error formatting price:', error, { price, currency });
+    return 'Price not available';
+  }
 }
 
 export function getCategories(): string[] {

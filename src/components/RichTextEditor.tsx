@@ -73,6 +73,7 @@ export default function RichTextEditor({
     ],
     content,
     editable: !readOnly,
+    immediatelyRender: false, // Fix for SSR hydration mismatch
     onUpdate: ({ editor }) => {
       const html = editor.getHTML();
       onChange?.(html);

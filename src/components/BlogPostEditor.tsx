@@ -8,13 +8,13 @@ import { format } from 'date-fns';
 import RichTextEditor from './RichTextEditor';
 import { Save, Eye, Calendar, Tag, Globe, FileText } from 'lucide-react';
 
-// Validation schema - make tags and featured required to match form interface
-const blogPostSchema = z.object({
+// Form input schema (what the user types)
+const blogPostFormSchema = z.object({
   title: z.string().min(1, 'Title is required').max(200, 'Title too long'),
   slug: z.string().min(1, 'Slug is required').regex(/^[a-z0-9-]+$/, 'Invalid slug format'),
   excerpt: z.string().min(1, 'Excerpt is required').max(500, 'Excerpt too long'),
   content: z.string().min(1, 'Content is required'),
-  tags: z.array(z.string()),
+  tags: z.string(), // Keep as string for form input
   category: z.string().min(1, 'Category is required'),
   publishedAt: z.string().optional(),
   status: z.enum(['draft', 'published', 'scheduled']),
@@ -23,7 +23,22 @@ const blogPostSchema = z.object({
   metaDescription: z.string().max(160, 'Meta description too long').optional(),
 });
 
-type BlogPostFormData = z.infer<typeof blogPostSchema>;
+// Output type (what gets sent to the API)
+export interface BlogPostFormData {
+  title: string;
+  slug: string;
+  excerpt: string;
+  content: string;
+  tags: string[]; // Array for API
+  category: string;
+  publishedAt?: string;
+  status: 'draft' | 'published' | 'scheduled';
+  featured: boolean;
+  metaTitle?: string;
+  metaDescription?: string;
+}
+
+type FormInput = z.infer<typeof blogPostFormSchema>;
 
 interface BlogPostEditorProps {
   initialData?: Partial<BlogPostFormData>;
@@ -47,21 +62,20 @@ export default function BlogPostEditor({
     watch,
     setValue,
     formState: { errors, isDirty }
-  } = useForm<BlogPostFormData>({
-    resolver: zodResolver(blogPostSchema),
+  } = useForm<FormInput>({
+    resolver: zodResolver(blogPostFormSchema),
     defaultValues: {
-      title: '',
-      slug: '',
-      excerpt: '',
-      content: '',
-      category: '',
-      status: 'draft',
-      featured: false,
-      tags: [],
-      publishedAt: undefined,
-      metaTitle: undefined,
-      metaDescription: undefined,
-      ...initialData
+      title: initialData?.title || '',
+      slug: initialData?.slug || '',
+      excerpt: initialData?.excerpt || '',
+      content: initialData?.content || '',
+      category: initialData?.category || '',
+      status: initialData?.status || 'draft',
+      featured: initialData?.featured || false,
+      tags: initialData?.tags ? (Array.isArray(initialData.tags) ? initialData.tags.join(', ') : '') : '',
+      publishedAt: initialData?.publishedAt || undefined,
+      metaTitle: initialData?.metaTitle || undefined,
+      metaDescription: initialData?.metaDescription || undefined,
     }
   });
 
@@ -81,16 +95,26 @@ export default function BlogPostEditor({
     }
   }, [watchedTitle, setValue, initialData?.slug]);
 
-  const onSubmit = async (data: BlogPostFormData) => {
+  const onSubmit = async (data: FormInput) => {
     if (onSave) {
-      await onSave(data);
+      // Transform form data to API format
+      const apiData: BlogPostFormData = {
+        ...data,
+        tags: data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(Boolean) : []
+      };
+      await onSave(apiData);
     }
   };
 
   const handlePreview = () => {
     const currentData = watch();
     if (onPreview) {
-      onPreview(currentData);
+      // Transform for preview
+      const previewData: BlogPostFormData = {
+        ...currentData,
+        tags: currentData.tags ? currentData.tags.split(',').map(tag => tag.trim()).filter(Boolean) : []
+      };
+      onPreview(previewData);
     }
   };
 

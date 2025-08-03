@@ -107,19 +107,22 @@ export default async function ArtworkDetail({ params }: ArtworkDetailProps) {
               </div>
             </header>
 
-            <div className="prose prose-lg">
-              <MDXContent code={artwork.code} />
-            </div>
+            {/* MDX Content */}
+            {artwork.code && (
+              <div className="prose prose-lg">
+                <MDXContent code={artwork.code} />
+              </div>
+            )}
 
-            {/* Categories */}
-            {artwork.category && artwork.category.length > 0 && (
+            {/* Categories - Fixed to handle array properly */}
+            {Array.isArray(artwork.category) && artwork.category.length > 0 && (
               <div className="flex flex-wrap gap-2">
-                {artwork.category.map((category: string) => (
+                {artwork.category.map((category, index) => (
                   <span 
-                    key={category}
+                    key={`${category}-${index}`}
                     className="px-3 py-1 bg-gray-100 text-gray-700 text-sm rounded-full"
                   >
-                    {category}
+                    {String(category)}
                   </span>
                 ))}
               </div>

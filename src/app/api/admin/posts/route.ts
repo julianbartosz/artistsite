@@ -3,50 +3,42 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
+import { getAllPosts } from '@/lib/markdown';
+import matter from 'gray-matter';
 
-// Mock blog posts data - replace with actual database
-const mockPosts = [
-  {
-    id: '1',
-    title: 'My Latest Abstract Series',
-    slug: 'latest-abstract-series',
-    excerpt: 'Exploring color and form in my newest collection of abstract paintings.',
-    content: '<p>This is the content of my latest blog post...</p>',
-    status: 'published',
-    publishedAt: '2024-01-15T10:00:00Z',
-    views: 1245,
-    featured: true,
-    category: 'art-process',
-    tags: ['abstract', 'painting', 'color'],
-  },
-  {
-    id: '2',
-    title: 'Studio Tour and Process',
-    slug: 'studio-tour-process',
-    excerpt: 'Take a behind-the-scenes look at my creative process.',
-    content: '<p>Welcome to my studio...</p>',
-    status: 'draft',
-    publishedAt: null,
-    views: 0,
-    featured: false,
-    category: 'personal',
-    tags: ['studio', 'process'],
-  },
-];
+// Remove mock data - we'll use real MDX files
+const contentDir = join(process.cwd(), 'src', 'content', 'blog');
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    return NextResponse.json(mockPosts, {
+    // Get all posts including drafts for admin view
+    const posts = await getAllPosts(true);
+    
+    // Transform to match admin dashboard expectations
+    const adminPosts = posts.map(post => ({
+      id: post.slug, // Use slug as ID for consistency
+      title: post.title,
+      slug: post.slug,
+      status: post.isDraft ? 'draft' : 'published',
+      publishedAt: post.publishedAt,
+      views: 0, // TODO: Implement view tracking
+      featured: post.featured || false,
+      category: post.category || 'general',
+      tags: post.tags || [],
+    }));
+
+    return NextResponse.json(adminPosts, {
       headers: {
-        'Cache-Control': 'private, max-age=60', // 1 minute cache
+        'Cache-Control': 'private, max-age=60',
       },
     });
   } catch (error) {
+    // Using proper error logging would be better than console in production
     console.error('Posts API error:', error);
     return NextResponse.json({ error: 'Failed to fetch posts' }, { status: 500 });
   }
@@ -69,24 +61,49 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create new post object
+    // Create MDX frontmatter
+    const frontmatter = {
+      title: data.title,
+      excerpt: data.excerpt || '',
+      publishedAt: data.status === 'published' ? new Date().toISOString() : new Date().toISOString(),
+      isDraft: data.status !== 'published',
+      tags: data.tags || [],
+      author: session.user.name || 'Artist',
+      category: data.category || 'general',
+      featured: data.featured || false,
+      metaTitle: data.metaTitle || data.title,
+      metaDescription: data.metaDescription || data.excerpt || '',
+    };
+
+    // Create MDX content with frontmatter
+    const mdxContent = matter.stringify(data.content, frontmatter);
+
+    // Save as MDX file
+    try {
+      const filePath = join(contentDir, `${data.slug}.mdx`);
+      await writeFile(filePath, mdxContent, 'utf8');
+    } catch (fileError) {
+      console.error('Could not save MDX file:', fileError);
+      return NextResponse.json(
+        { error: 'Failed to save blog post' },
+        { status: 500 }
+      );
+    }
+
+    // Create response post object
     const newPost = {
-      id: Date.now().toString(),
-      ...data,
-      publishedAt: data.status === 'published' ? new Date().toISOString() : null,
+      id: data.slug,
+      slug: data.slug,
+      title: data.title,
+      status: data.status,
+      publishedAt: frontmatter.publishedAt,
       views: 0,
+      featured: frontmatter.featured,
+      category: frontmatter.category,
+      tags: frontmatter.tags,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-
-    // In a real implementation, save to database
-    // For now, we'll save to a JSON file as a demo
-    try {
-      const filePath = join(process.cwd(), 'src/content/blog', `${data.slug}.json`);
-      await writeFile(filePath, JSON.stringify(newPost, null, 2));
-    } catch (fileError) {
-      console.warn('Could not save to file system:', fileError);
-    }
 
     return NextResponse.json({ 
       success: true, 
