@@ -414,9 +414,9 @@ model AnalyticsEvent {
   properties    String   // JSON object for event properties
   timestamp     DateTime @default(now())
   pageUrl       String?  @map("page_url")
-
-  // Relations
-  customer      CustomerProfile? @relation(fields: [userId], references: [id])
+  
+  // Relations - Make customer relationship optional with proper cascade
+  customer      CustomerProfile? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([eventName])
   @@index([userId])

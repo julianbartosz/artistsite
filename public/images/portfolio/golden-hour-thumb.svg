@@ -1,0 +1,13 @@
+<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="goldenGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f4a261;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#e76f51;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2a9d8f;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="400" height="300" fill="url(#goldenGradient)"/>
+  <circle cx="200" cy="100" r="40" fill="#f4a261" opacity="0.7"/>
+  <text x="200" y="200" font-family="Arial, sans-serif" font-size="16" fill="white" text-anchor="middle">Golden Hour Dreams</text>
+  <text x="200" y="220" font-family="Arial, sans-serif" font-size="12" fill="white" text-anchor="middle">Oil on Linen, 2024</text>
+</svg>

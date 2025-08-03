@@ -17,7 +17,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
 
-export async function OPTIONS(_request: NextRequest) {
+export async function OPTIONS() {
   return new Response(null, {
     status: 200,
     headers: corsHeaders,
@@ -28,12 +28,18 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const validatedData = EventSchema.parse(body)
+    
+    // Ensure customer profile exists if user_id is provided
+    let validUserId: string | null = null
+    if (validatedData.user_id) {
+      validUserId = await ensureCustomerProfile(validatedData.user_id)
+    }
 
-    // Store the event
+    // Store the event with validated user ID
     const event = await prisma.analyticsEvent.create({
       data: {
         eventName: validatedData.event_name,
-        userId: validatedData.user_id,
+        userId: validUserId,
         sessionId: validatedData.session_id,
         properties: JSON.stringify(validatedData.properties),
         pageUrl: validatedData.page_url,
@@ -41,9 +47,9 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    // Update customer profile if user_id exists
-    if (validatedData.user_id) {
-      await updateCustomerProfile(validatedData.user_id, validatedData.event_name, validatedData.properties)
+    // Update customer profile if user_id exists and is valid
+    if (validUserId) {
+      await updateCustomerProfile(validUserId, validatedData.event_name, validatedData.properties)
     }
 
     return NextResponse.json({ 
@@ -54,8 +60,10 @@ export async function POST(request: NextRequest) {
       headers: corsHeaders,
     })
   } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.error('Event tracking error:', error)
+    // Only log in development
+    if (process.env.NODE_ENV === 'development' && error instanceof Error) {
+      // eslint-disable-next-line no-console
+      console.error('Event tracking error:', error.message)
     }
     
     if (error instanceof z.ZodError) {
@@ -67,8 +75,8 @@ export async function POST(request: NextRequest) {
         }
       )
     }
-
-    // Handle Prisma/database errors gracefully
+    
+    // Handle other database errors gracefully
     if (error instanceof Error && error.message.includes('DATABASE')) {
       return NextResponse.json(
         { error: 'Database temporarily unavailable' },
@@ -78,7 +86,7 @@ export async function POST(request: NextRequest) {
         }
       )
     }
-
+    
     return NextResponse.json(
       { error: 'Failed to track event' },
       { 
@@ -89,19 +97,19 @@ export async function POST(request: NextRequest) {
   }
 }
 
-interface EventProperties {
-  [key: string]: unknown
-}
-
-async function updateCustomerProfile(userId: string, eventName: string, properties: EventProperties) {
+/**
+ * Ensures a customer profile exists for the given user ID
+ * Returns the user ID if profile exists or was created, null if invalid
+ */
+async function ensureCustomerProfile(userId: string): Promise<string | null> {
   try {
-    // Find or create customer profile
+    // First, check if the customer profile exists
     let profile = await prisma.customerProfile.findUnique({
       where: { id: userId },
     })
-
+    
     if (!profile) {
-      // Create new profile
+      // Create new profile to satisfy foreign key constraint
       profile = await prisma.customerProfile.create({
         data: {
           id: userId,
@@ -113,6 +121,36 @@ async function updateCustomerProfile(userId: string, eventName: string, properti
           lastActivity: new Date(),
         },
       })
+    }
+    
+    return profile.id
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development' && error instanceof Error) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to ensure customer profile:', error.message)
+    }
+    // Return null to create event without user association
+    return null
+  }
+}
+
+interface EventProperties {
+  [key: string]: unknown
+}
+
+async function updateCustomerProfile(userId: string, eventName: string, properties: EventProperties) {
+  try {
+    // Profile should exist at this point, but double-check
+    const profile = await prisma.customerProfile.findUnique({
+      where: { id: userId },
+    })
+    
+    if (!profile) {
+      if (process.env.NODE_ENV === 'development') {
+        // eslint-disable-next-line no-console
+        console.warn(`Customer profile not found for user ${userId}`)
+      }
+      return
     }
 
     // Update engagement score based on event type
@@ -140,10 +178,11 @@ async function updateCustomerProfile(userId: string, eventName: string, properti
       },
     })
   } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.error('Customer profile update error:', error)
+    if (process.env.NODE_ENV === 'development' && error instanceof Error) {
+      // eslint-disable-next-line no-console
+      console.error('Customer profile update error:', error.message)
     }
-    // Don't throw - event should still be recorded
+    // Don't throw - event should still be recorded even if profile update fails
   }
 }
 
