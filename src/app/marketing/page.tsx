@@ -1,6 +1,6 @@
 'use client';
 
-import { UnifiedMarketingDashboard } from '@/components/UnifiedMarketingDashboard';
+import { UnifiedMarketingDashboard } from '@ui/components/marketing';
 
 export default function MarketingPage() {
   return (

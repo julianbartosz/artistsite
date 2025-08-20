@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAllProducts } from '@/lib/commerce';
+import { getAllProducts } from '@domain/shop';
 
 const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://artistsite.com';
 

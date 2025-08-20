@@ -1,11 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { SearchService } from '@/lib/search-recommendations';
 import { SearchFilters, SortOption } from '@/lib/types';
 
-export async function GET(request: NextRequest) {
+function json(data: any, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(data), {
+    ...init,
+    headers: { 'content-type': 'application/json', ...(init.headers || {}) }
+  });
+}
+
+export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    
+
     // Extract search parameters
     const query = searchParams.get('q') || '';
     const page = parseInt(searchParams.get('page') || '1');
@@ -57,14 +63,14 @@ export async function GET(request: NextRequest) {
       sessionId
     );
 
-    return NextResponse.json({
+    return json({
       success: true,
       ...results
     });
 
   } catch (error) {
     console.error('Search API error:', error);
-    return NextResponse.json(
+    return json(
       { 
         success: false, 
         error: 'Search failed',

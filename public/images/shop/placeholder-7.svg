@@ -1,0 +1,40 @@
+<svg width="400" height="300" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="sunGradient" cx="80%" cy="20%">
+      <stop offset="0%" stop-color="#FFF9C4" />
+      <stop offset="40%" stop-color="#FFE082" />
+      <stop offset="80%" stop-color="#FFB74D" />
+      <stop offset="100%" stop-color="#FF8A65" />
+    </radialGradient>
+    <linearGradient id="landscapeGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#81C784" />
+      <stop offset="100%" stop-color="#388E3C" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Sky with golden hour lighting -->
+  <rect width="400" height="200" fill="url(#sunGradient)" />
+  
+  <!-- Sun -->
+  <circle cx="320" cy="60" r="30" fill="#FFF59D" opacity="0.9" />
+  
+  <!-- Rolling hills -->
+  <path d="M0 160 Q100 140 200 160 Q300 140 400 160 L400 300 L0 300 Z" fill="url(#landscapeGradient)" />
+  <path d="M0 180 Q150 160 300 180 Q350 170 400 180 L400 300 L0 300 Z" fill="#4CAF50" opacity="0.8" />
+  
+  <!-- Trees -->
+  <ellipse cx="80" cy="170" rx="15" ry="25" fill="#2E7D32" />
+  <ellipse cx="150" cy="165" rx="12" ry="20" fill="#2E7D32" />
+  <ellipse cx="280" cy="172" rx="18" ry="30" fill="#2E7D32" />
+  
+  <!-- Light rays -->
+  <path d="M320 60 L100 180" stroke="#FFF9C4" stroke-width="2" opacity="0.4" />
+  <path d="M320 60 L150 200" stroke="#FFF9C4" stroke-width="1.5" opacity="0.3" />
+  <path d="M320 60 L250 190" stroke="#FFF9C4" stroke-width="2" opacity="0.4" />
+  
+  <!-- Print border -->
+  <rect x="10" y="10" width="380" height="280" fill="none" stroke="#E0E0E0" stroke-width="2" />
+  
+  <!-- Limited edition text -->
+  <text x="20" y="290" font-size="8" fill="#666" opacity="0.7">Limited Edition 23/50</text>
+</svg>

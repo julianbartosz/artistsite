@@ -1,5 +1,3 @@
-import { NextRequest, NextResponse } from 'next/server';
-
 interface WebVitalsMetric {
   name: string;
   value: number;
@@ -10,7 +8,15 @@ interface WebVitalsMetric {
   timestamp: number;
 }
 
-export async function POST(request: NextRequest) {
+// Lightweight json helper
+function json(data: any, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(data), {
+    ...init,
+    headers: { 'content-type': 'application/json', ...(init.headers || {}) },
+  });
+}
+
+export async function POST(request: Request) {
   try {
     const metrics: WebVitalsMetric[] = await request.json();
     
@@ -30,10 +36,10 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    return NextResponse.json({ success: true, received: metrics.length });
+    return json({ success: true, received: metrics.length });
   } catch (error) {
     console.error('Error processing performance metrics:', error);
-    return NextResponse.json(
+    return json(
       { error: 'Failed to process metrics' },
       { status: 500 }
     );
@@ -89,5 +95,5 @@ export async function GET() {
     lastUpdated: new Date().toISOString(),
   };
   
-  return NextResponse.json(sampleData);
+  return json(sampleData);
 }

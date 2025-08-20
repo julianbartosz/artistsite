@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { Metadata } from 'next';
-import { getAllPosts, BlogPost } from '@/lib/markdown';
+import { getAllPosts, BlogPost } from '@domain/content';
+import { IconPencil } from '@ui/icons';
 
 // Enable ISR with 30-minute revalidation for blog index
 export const revalidate = 1800;
@@ -54,9 +55,7 @@ async function BlogContent() {
       {posts.length === 0 ? (
         <div className="text-center py-16">
           <div className="text-gray-400 mb-4">
-            <svg className="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-            </svg>
+            <IconPencil className="mx-auto h-12 w-12" />
           </div>
           <h3 className="text-lg font-medium text-gray-900 mb-2">No posts published yet</h3>
           <p className="text-gray-600">Check back soon for new content!</p>
@@ -190,7 +189,7 @@ export default async function BlogPage() {
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Techniques & Tips</h3>
               <p className="text-gray-600">
-                Practical advice on painting, drawing, and mixed media techniques I've developed over the years.
+                Practical advice on painting, drawing, and mixed media techniques I&apos;ve developed over the years.
               </p>
             </div>
             <div>

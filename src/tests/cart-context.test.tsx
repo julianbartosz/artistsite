@@ -1,6 +1,6 @@
 import { renderHook, act } from '@testing-library/react';
-import { CartProvider, useCart } from '@/components/CartContext';
-import { Product } from '@/lib/commerce';
+import { CartProvider, useCart } from '@ui/components/cart/context/CartContext';
+import { Product } from '@domain/shop';
 
 const mockProduct: Product = {
   id: 'test-product',

@@ -1,6 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/db'
 import { z } from 'zod'
+import { AnalyticsRepository } from '@domain/analytics'
 
 const AnalyticsEventSchema = z.object({
   event_name: z.string().min(1).max(100),
@@ -17,28 +16,32 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
 
-export async function OPTIONS(_request: NextRequest) {
+function json<T>(data: T, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(data), {
+    ...init,
+    headers: { 'content-type': 'application/json', ...(init.headers || {}), ...corsHeaders },
+  })
+}
+
+export async function OPTIONS(): Promise<Response> {
   return new Response(null, {
     status: 200,
     headers: corsHeaders,
   })
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   try {
     const body = await request.json()
     const validatedData = AnalyticsEventSchema.parse(body)
 
-    // Store the analytics event
-    const event = await prisma.analyticsEvent.create({
-      data: {
-        eventName: validatedData.event_name,
-        userId: validatedData.user_id,
-        sessionId: validatedData.session_id,
-        properties: JSON.stringify(validatedData.properties),
-        pageUrl: validatedData.page_url,
-        timestamp: new Date(),
-      },
+    // Store the analytics event via repository
+    const event = await AnalyticsRepository.createEvent({
+      eventName: validatedData.event_name,
+      userId: validatedData.user_id,
+      sessionId: validatedData.session_id,
+      properties: validatedData.properties,
+      pageUrl: validatedData.page_url,
     })
 
     // Update customer profile if user_id exists
@@ -46,107 +49,53 @@ export async function POST(request: NextRequest) {
       await updateCustomerProfile(validatedData.user_id, validatedData.event_name, validatedData.properties)
     }
 
-    return NextResponse.json({ 
+    return json({ 
       success: true, 
       eventId: event.id 
     }, { 
       status: 201,
-      headers: corsHeaders,
     })
   } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.error('Analytics event tracking error:', error)
-    }
-    
+    // Swallow error (tracking failure should not break app)
     if (error instanceof z.ZodError) {
-      return NextResponse.json(
+      return json(
         { error: 'Invalid event data', details: error.issues },
         { 
           status: 400,
-          headers: corsHeaders,
         }
       )
     }
 
-    // Handle Prisma/database errors gracefully
-    if (error instanceof Error && error.message.includes('DATABASE')) {
-      return NextResponse.json(
-        { error: 'Database temporarily unavailable' },
-        { 
-          status: 503,
-          headers: corsHeaders,
-        }
-      )
-    }
-
-    return NextResponse.json(
+    return json(
       { error: 'Failed to track analytics event' },
       { 
         status: 500,
-        headers: corsHeaders,
       }
     )
   }
 }
 
-export async function GET(request: NextRequest) {
+export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
-    const eventName = searchParams.get('event')
-    const userId = searchParams.get('userId')
-    const sessionId = searchParams.get('sessionId')
+    const eventName = searchParams.get('event') || undefined
+    const userId = searchParams.get('userId') || undefined
+    const sessionId = searchParams.get('sessionId') || undefined
     const limit = parseInt(searchParams.get('limit') || '100')
     const offset = parseInt(searchParams.get('offset') || '0')
 
-    interface WhereClause {
-      eventName?: string
-      userId?: string
-      sessionId?: string
-    }
+    const events = await AnalyticsRepository.listEvents({ eventName, userId, sessionId, limit, offset })
 
-    const where: WhereClause = {}
-    if (eventName) where.eventName = eventName
-    if (userId) where.userId = userId
-    if (sessionId) where.sessionId = sessionId
-
-    const events = await prisma.analyticsEvent.findMany({
-      where,
-      orderBy: { timestamp: 'desc' },
-      take: Math.min(limit, 1000), // Cap at 1000 for performance
-      skip: offset,
-      select: {
-        id: true,
-        eventName: true,
-        userId: true,
-        sessionId: true,
-        properties: true,
-        timestamp: true,
-        pageUrl: true,
-      },
-    })
-
-    // Parse properties JSON
-    const formattedEvents = events.map(event => ({
-      ...event,
-      properties: JSON.parse(event.properties || '{}'),
-    }))
-
-    return NextResponse.json({
-      events: formattedEvents,
+    return json({
+      events,
       total: events.length,
       hasMore: events.length === limit,
-    }, {
-      headers: corsHeaders,
     })
-  } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.error('Analytics events fetch error:', error)
-    }
-    return NextResponse.json(
+  } catch {
+    return json(
       { error: 'Failed to fetch analytics events' },
       { 
         status: 500,
-        headers: corsHeaders,
       }
     )
   }
@@ -154,28 +103,16 @@ export async function GET(request: NextRequest) {
 
 interface EventProperties {
   [key: string]: unknown
+  value?: unknown
 }
 
 async function updateCustomerProfile(userId: string, eventName: string, properties: EventProperties) {
   try {
-    // Find or create customer profile
-    let profile = await prisma.customerProfile.findUnique({
-      where: { id: userId },
-    })
+    // Find or create customer profile via repository
+    let profile = await AnalyticsRepository.getCustomerProfile(userId)
 
     if (!profile) {
-      // Create new profile
-      profile = await prisma.customerProfile.create({
-        data: {
-          id: userId,
-          segments: JSON.stringify([]),
-          behaviorScore: 0,
-          preferences: JSON.stringify({}),
-          lifetimeValue: 0,
-          engagementScore: 0,
-          lastActivity: new Date(),
-        },
-      })
+      profile = await AnalyticsRepository.createCustomerProfile(userId)
     }
 
     // Update engagement score based on event type
@@ -189,24 +126,17 @@ async function updateCustomerProfile(userId: string, eventName: string, properti
     }
 
     // Update segments based on behavior
-    const currentSegments = JSON.parse(profile.segments)
+    const currentSegments = parseSegments(profile.segments)
     const newSegments = updateUserSegments(currentSegments, eventName, properties)
 
-    // Update the profile
-    await prisma.customerProfile.update({
-      where: { id: userId },
-      data: {
-        engagementScore: newEngagementScore,
-        lifetimeValue: newLifetimeValue,
-        segments: JSON.stringify(newSegments),
-        lastActivity: new Date(),
-      },
+    // Update the profile via repository
+    await AnalyticsRepository.updateCustomerProfile(userId, {
+      engagementScore: newEngagementScore,
+      lifetimeValue: newLifetimeValue,
+      segments: newSegments,
     })
-  } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.error('Customer profile update error:', error)
-    }
-    // Don't throw - analytics event should still be recorded
+  } catch {
+    // ignore profile update errors
   }
 }
 
@@ -230,13 +160,23 @@ function calculateEngagementBonus(eventName: string): number {
   return engagementValues[eventName] || 1
 }
 
-function updateUserSegments(currentSegments: string[], eventName: string, properties: any): string[] {
+function parseSegments(raw: unknown): string[] {
+  if (typeof raw !== 'string') return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter(s => typeof s === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function updateUserSegments(currentSegments: string[], eventName: string, properties: EventProperties): string[] {
   const segments = new Set(currentSegments)
 
   // Behavioral segments
   if (eventName === 'purchase') {
     segments.add('customer')
-    if (properties.value && parseFloat(properties.value) > 500) {
+    if (properties.value && parseFloat(String(properties.value)) > 500) {
       segments.add('high_value_customer')
     }
   }

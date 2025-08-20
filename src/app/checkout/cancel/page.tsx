@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useCart } from '@/components/CartContext';
+import { useCart } from '@ui/components/cart/context/CartContext';
+import { IconClose } from '@ui/icons';
 
 export default function CheckoutCancelPage() {
   const { state } = useCart();
@@ -13,9 +14,7 @@ export default function CheckoutCancelPage() {
           {/* Cancel Icon */}
           <div className="text-center mb-8">
             <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-gray-100 mb-4">
-              <svg className="h-8 w-8 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <IconClose className="h-8 w-8 text-gray-600" />
             </div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Payment Cancelled</h1>
             <p className="text-lg text-gray-600">Your order was not completed</p>

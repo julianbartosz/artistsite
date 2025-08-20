@@ -1,6 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+function json(data: any, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(data), {
+    ...init,
+    headers: { 'content-type': 'application/json', ...(init.headers || {}) },
+  })
+}
 
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   try {
     const seoData = await request.json();
     
@@ -24,10 +29,10 @@ export async function POST(request: NextRequest) {
     //   }
     // });
     
-    return NextResponse.json({ success: true });
+    return json({ success: true });
   } catch (error) {
     console.error('Error processing SEO data:', error);
-    return NextResponse.json(
+    return json(
       { error: 'Failed to process SEO data' },
       { status: 500 }
     );

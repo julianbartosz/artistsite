@@ -5,14 +5,14 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { Product } from '@/lib/commerce';
+import { Product, formatPrice } from '@domain/shop';
 import { SearchResults, SortOption } from '@/lib/types';
-import SearchBar from '@/components/SearchBar';
-import FilterSidebar from '@/components/FilterSidebar';
-import ProductRecommendations from '@/components/ProductRecommendations';
-import RecentlyViewed from '@/components/RecentlyViewed';
-import StockIndicator from '@/components/StockIndicator';
-import { formatPrice } from '@/lib/commerce';
+import SearchBar from '@ui/components/commerce/SearchBar';
+import FilterSidebar from '@ui/components/commerce/filters/FilterSidebar';
+import ProductRecommendations from '@ui/components/commerce/ProductRecommendations';
+import RecentlyViewed from '@ui/components/commerce/RecentlyViewed';
+import StockIndicator from '@ui/components/commerce/StockIndicator';
+import { IconWarning, IconSearch } from '@ui/icons';
 
 // Sort options for the dropdown
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
@@ -184,10 +184,8 @@ function ShopPageContent() {
             {/* Error State */}
             {error && (
               <div className="text-center py-12">
-                <div className="text-red-600 mb-4">
-                  <svg className="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.728-.833-2.498 0L4.316 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                  </svg>
+                <div className="mb-4">
+                  <IconWarning className="mx-auto h-12 w-12 text-red-600" />
                 </div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">Error Loading Products</h3>
                 <p className="text-gray-600 mb-4">{error}</p>
@@ -211,10 +209,8 @@ function ShopPageContent() {
                   </div>
                 ) : (
                   <div className="text-center py-16">
-                    <div className="text-gray-400 mb-4">
-                      <svg className="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                      </svg>
+                    <div className="mb-4">
+                      <IconSearch className="mx-auto h-12 w-12 text-gray-400" />
                     </div>
                     <h3 className="text-lg font-medium text-gray-900 mb-2">No products found</h3>
                     <p className="text-gray-600 mb-4">

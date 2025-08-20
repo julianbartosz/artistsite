@@ -1,7 +1,7 @@
 // ...existing code...
 
 // New interfaces for Phase 4: Advanced Catalog Features
-import { Product } from './commerce';
+import { Product } from '@domain/shop';
 
 export interface ProductView {
   id: string;

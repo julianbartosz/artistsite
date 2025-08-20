@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAllPosts } from '@/lib/markdown';
+import { getAllPosts } from '@domain/content';
 
 const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://artistsite.com';
 

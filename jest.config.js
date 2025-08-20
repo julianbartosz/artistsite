@@ -11,6 +11,11 @@ const customJestConfig = {
   moduleNameMapper: {
     // Handle module aliases (this will be automatically configured for you based on your tsconfig.json paths)
     '^@/(.*)$': '<rootDir>/src/$1',
+    '^@domain/(.*)$': '<rootDir>/src/domain/$1',
+    '^@server/(.*)$': '<rootDir>/src/server/$1',
+    '^@ui/(.*)$': '<rootDir>/src/ui/$1',
+    '^@shared/(.*)$': '<rootDir>/src/shared/$1',
+    '^@content/(.*)$': '<rootDir>/src/content/$1'
   },
   testEnvironment: 'jest-environment-jsdom',
   collectCoverageFrom: [
@@ -30,9 +35,12 @@ const customJestConfig = {
     },
   },
   testMatch: [
-    '<rootDir>/src/tests/**/*.{js,jsx,ts,tsx}',
-    '<rootDir>/src/**/__tests__/**/*.{js,jsx,ts,tsx}',
     '<rootDir>/src/**/*.{test,spec}.{js,jsx,ts,tsx}',
+  ],
+  // Ignore Playwright e2e tests so Jest doesn't attempt to run them
+  testPathIgnorePatterns: [
+    '/node_modules/',
+    '<rootDir>/src/tests/e2e/',
   ],
   moduleDirectories: ['node_modules', '<rootDir>/'],
   testTimeout: 30000,

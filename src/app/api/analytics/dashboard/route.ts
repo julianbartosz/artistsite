@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { CustomerInsights } from '@/lib/analytics/customer-insights'
+import { Marketing } from '@/domain/marketing'
+import { debug } from '@/lib/debug'
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     // Get basic analytics metrics
     const [
@@ -38,13 +39,13 @@ export async function GET(request: NextRequest) {
       }),
       
       // Customer segments
-      CustomerInsights.getCustomerSegments(),
+      Marketing.insights.getCustomerSegments(),
       
       // LTV analysis
-      CustomerInsights.calculateLifetimeValue(),
+      Marketing.insights.calculateLifetimeValue(),
       
       // Engagement trends
-      CustomerInsights.analyzeEngagementTrends()
+      Marketing.insights.analyzeEngagementTrends()
     ])
 
     // Calculate conversion metrics
@@ -77,7 +78,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(dashboardData)
 
   } catch (error) {
-    console.error('Analytics dashboard error:', error)
+    debug.error('Analytics dashboard error', error as Error)
     return NextResponse.json(
       { error: 'Failed to fetch analytics dashboard data' },
       { status: 500 }

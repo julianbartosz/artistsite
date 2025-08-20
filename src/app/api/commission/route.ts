@@ -1,4 +1,3 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { withApiErrorHandler } from '@/lib/api-error-handler';
 
 interface CommissionRequestData {
@@ -28,9 +27,19 @@ interface CommissionRequestData {
   };
 }
 
-async function handleCommissionRequest(req: NextRequest) {
+function json(data: any, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(data), {
+    ...init,
+    headers: {
+      'content-type': 'application/json',
+      ...(init.headers || {})
+    }
+  });
+}
+
+async function handleCommissionRequest(req: Request) {
   if (req.method !== 'POST') {
-    return NextResponse.json(
+    return json(
       { error: 'Method not allowed' },
       { status: 405 }
     );
@@ -43,7 +52,7 @@ async function handleCommissionRequest(req: NextRequest) {
   const missingFields = requiredFields.filter(field => !data[field]);
 
   if (missingFields.length > 0) {
-    return NextResponse.json(
+    return json(
       { error: `Missing required fields: ${missingFields.join(', ')}` },
       { status: 400 }
     );
@@ -51,7 +60,7 @@ async function handleCommissionRequest(req: NextRequest) {
 
   // Validate customer info
   if (!data.customerInfo.name || !data.customerInfo.email) {
-    return NextResponse.json(
+    return json(
       { error: 'Customer name and email are required' },
       { status: 400 }
     );
@@ -60,7 +69,7 @@ async function handleCommissionRequest(req: NextRequest) {
   // Validate email format
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(data.customerInfo.email)) {
-    return NextResponse.json(
+    return json(
       { error: 'Invalid email format' },
       { status: 400 }
     );
@@ -68,7 +77,7 @@ async function handleCommissionRequest(req: NextRequest) {
 
   // Validate budget
   if (data.budget && data.budget.min >= data.budget.max) {
-    return NextResponse.json(
+    return json(
       { error: 'Maximum budget must be higher than minimum budget' },
       { status: 400 }
     );
@@ -97,7 +106,7 @@ async function handleCommissionRequest(req: NextRequest) {
       timestamp: new Date().toISOString()
     });
 
-    return NextResponse.json({
+    return json({
       success: true,
       requestId,
       message: 'Commission request submitted successfully',
@@ -113,7 +122,7 @@ async function handleCommissionRequest(req: NextRequest) {
 
   } catch (error) {
     console.error('Failed to process commission request:', error);
-    return NextResponse.json(
+    return json(
       { error: 'Failed to submit commission request. Please try again.' },
       { status: 500 }
     );

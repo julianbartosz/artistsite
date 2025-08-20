@@ -1,0 +1,46 @@
+<svg width="400" height="300" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="portraitBg2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E8F5E8" />
+      <stop offset="100%" stop-color="#C8E6C9" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Canvas background -->
+  <rect width="400" height="300" fill="url(#portraitBg2)" />
+  
+  <!-- Multiple portrait examples in a gallery style -->
+  <rect x="50" y="40" width="80" height="100" fill="#FFF" stroke="#E0E0E0" stroke-width="1" />
+  <rect x="160" y="40" width="80" height="100" fill="#FFF" stroke="#E0E0E0" stroke-width="1" />
+  <rect x="270" y="40" width="80" height="100" fill="#FFF" stroke="#E0E0E0" stroke-width="1" />
+  
+  <!-- Simple portrait sketches -->
+  <ellipse cx="90" cy="80" rx="20" ry="25" fill="#FFDBCB" />
+  <ellipse cx="200" cy="80" rx="20" ry="25" fill="#F3E5AB" />
+  <ellipse cx="310" cy="80" rx="20" ry="25" fill="#E1BEE7" />
+  
+  <!-- Eyes for each portrait -->
+  <circle cx="85" cy="75" r="2" fill="#5D4037" />
+  <circle cx="95" cy="75" r="2" fill="#5D4037" />
+  <circle cx="195" cy="75" r="2" fill="#5D4037" />
+  <circle cx="205" cy="75" r="2" fill="#5D4037" />
+  <circle cx="305" cy="75" r="2" fill="#5D4037" />
+  <circle cx="315" cy="75" r="2" fill="#5D4037" />
+  
+  <!-- Commission text -->
+  <text x="50" y="170" font-size="12" fill="#424242" font-weight="bold">Portrait Commission Gallery</text>
+  <text x="50" y="190" font-size="10" fill="#666">Various styles and subjects available</text>
+  
+  <!-- Style examples -->
+  <text x="60" y="120" font-size="8" fill="#666">Realistic</text>
+  <text x="170" y="120" font-size="8" fill="#666">Impressionist</text>
+  <text x="285" y="120" font-size="8" fill="#666">Abstract</text>
+  
+  <!-- Process info -->
+  <rect x="50" y="210" width="300" height="60" fill="#FFF" stroke="#E0E0E0" stroke-width="1" rx="5" />
+  <text x="60" y="230" font-size="10" fill="#424242" font-weight="bold">Commission Process:</text>
+  <text x="60" y="245" font-size="8" fill="#666">1. Send reference photos</text>
+  <text x="60" y="255" font-size="8" fill="#666">2. Choose style & medium</text>
+  <text x="200" y="245" font-size="8" fill="#666">3. Approve sketch</text>
+  <text x="200" y="255" font-size="8" fill="#666">4. Receive finished artwork</text>
+</svg>

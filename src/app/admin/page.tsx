@@ -1,6 +1,6 @@
 import React, { Suspense } from 'react';
 import { Metadata } from 'next';
-import AdminDashboard from './AdminDashboard';
+import AdminDashboard from '@ui/components/admin/AdminDashboard';
 
 export const metadata: Metadata = {
   title: 'Admin Dashboard - Content Management',

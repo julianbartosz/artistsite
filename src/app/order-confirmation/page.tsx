@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import OrderTracking from '@/components/OrderTracking';
+import OrderTracking from '@ui/components/commerce/orders/OrderTracking';
 import { Order } from '@/lib/orders';
 
 function OrderConfirmationContent() {

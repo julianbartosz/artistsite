@@ -1,4 +1,3 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
@@ -15,15 +14,22 @@ async function ensureUploadDir() {
   }
 }
 
-export async function POST(request: NextRequest) {
+function json(data: any, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(data), {
+    ...init,
+    headers: { 'content-type': 'application/json', ...(init.headers || {}) }
+  });
+}
+
+export async function POST(request: Request) {
   try {
     await ensureUploadDir();
     
     const formData = await request.formData();
-    const file = formData.get('image') as File;
+    const file = formData.get('image') as File | null;
     
     if (!file) {
-      return NextResponse.json(
+      return json(
         { error: 'No image file provided' },
         { status: 400 }
       );
@@ -31,7 +37,7 @@ export async function POST(request: NextRequest) {
     
     // Validate file type
     if (!ALLOWED_TYPES.includes(file.type)) {
-      return NextResponse.json(
+      return json(
         { error: 'Invalid file type. Only JPEG, PNG, WebP, and GIF are allowed.' },
         { status: 400 }
       );
@@ -39,15 +45,14 @@ export async function POST(request: NextRequest) {
     
     // Validate file size
     if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json(
+      return json(
         { error: 'File too large. Maximum size is 10MB.' },
         { status: 400 }
       );
     }
     
     // Generate unique filename
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
+    const buffer = Buffer.from(await file.arrayBuffer());
     
     // Create hash of file content for deduplication
     const hash = crypto.createHash('md5').update(buffer).digest('hex');
@@ -63,7 +68,7 @@ export async function POST(request: NextRequest) {
     // Return public URL
     const url = `/uploads/images/${filename}`;
     
-    return NextResponse.json({
+    return json({
       success: true,
       url,
       filename,
@@ -73,7 +78,7 @@ export async function POST(request: NextRequest) {
     
   } catch (error) {
     console.error('Image upload error:', error);
-    return NextResponse.json(
+    return json(
       { error: 'Failed to upload image' },
       { status: 500 }
     );
@@ -81,7 +86,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET() {
-  return NextResponse.json(
+  return json(
     { 
       message: 'Image upload endpoint',
       maxFileSize: MAX_FILE_SIZE,

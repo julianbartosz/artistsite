@@ -1,6 +1,6 @@
 'use client'
 
-import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { ErrorBoundary } from '@ui/components/monitoring/ErrorBoundary'
 import { debug } from '@/lib/debug'
 
 export default function GlobalError({

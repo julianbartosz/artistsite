@@ -1,5 +1,3 @@
-import { NextRequest, NextResponse } from 'next/server';
-
 interface DeploymentMetrics {
   environment: string;
   version: string;
@@ -34,28 +32,30 @@ const metricsStore = {
   alerts: [] as Array<{ level: 'info' | 'warning' | 'error' | 'critical'; message: string; timestamp: string }>,
 };
 
-export async function GET(req: NextRequest) {
+function json(data: any, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(data), {
+    ...init,
+    headers: {
+      'content-type': 'application/json',
+      ...(init.headers || {}),
+    },
+  });
+}
+
+export async function GET(_req: Request) {
   try {
     const now = Date.now();
-    const oneHourAgo = now - (60 * 60 * 1000);
-    
-    // Filter recent metrics
+    const oneHourAgo = now - 60 * 60 * 1000;
     const recentRequests = metricsStore.requests.filter(r => r.timestamp > oneHourAgo);
     const recentErrors = metricsStore.errors.filter(e => e.timestamp > oneHourAgo);
-    
-    // Calculate performance metrics
-    const averageResponseTime = recentRequests.length > 0
-      ? recentRequests.reduce((sum, r) => sum + r.responseTime, 0) / recentRequests.length
+    const averageResponseTime = recentRequests.length
+      ? recentRequests.reduce((s, r) => s + r.responseTime, 0) / recentRequests.length
       : 0;
-    
     const requestsPerMinute = recentRequests.length / 60;
-    const errorRate = recentRequests.length > 0 
-      ? (recentErrors.length / recentRequests.length) * 100 
+    const errorRate = recentRequests.length
+      ? (recentErrors.length / recentRequests.length) * 100
       : 0;
-
-    // Get system info
     const memUsage = process.memoryUsage();
-    
     const metrics: DeploymentMetrics = {
       environment: process.env.NODE_ENV || 'development',
       version: process.env.npm_package_version || '1.0.0',
@@ -73,75 +73,54 @@ export async function GET(req: NextRequest) {
       infrastructure: {
         containerStatus: 'running',
         memoryUsage: Math.round((memUsage.heapUsed / memUsage.heapTotal) * 100),
-        cpuUsage: Math.round(process.cpuUsage().system / 1000000), // Convert to percentage
-        diskUsage: 0, // Would need additional monitoring for real disk usage
+        cpuUsage: Math.round(process.cpuUsage().system / 1000000),
+        diskUsage: 0,
       },
-      alerts: metricsStore.alerts.slice(-10), // Last 10 alerts
+      alerts: metricsStore.alerts.slice(-10),
     };
-
-    // Generate alerts based on metrics
-    if (metrics.performance.errorRate > 5) {
+    if (metrics.performance.errorRate > 5)
       metricsStore.alerts.push({
         level: 'warning',
         message: `High error rate detected: ${metrics.performance.errorRate}%`,
         timestamp: new Date().toISOString(),
       });
-    }
-
-    if (metrics.infrastructure.memoryUsage > 85) {
+    if (metrics.infrastructure.memoryUsage > 85)
       metricsStore.alerts.push({
         level: 'critical',
         message: `High memory usage: ${metrics.infrastructure.memoryUsage}%`,
         timestamp: new Date().toISOString(),
       });
-    }
-
-    return NextResponse.json(metrics);
+    return json(metrics);
   } catch (error) {
     console.error('Monitoring endpoint error:', error);
-    return NextResponse.json(
-      { error: 'Failed to retrieve monitoring data' },
-      { status: 500 }
-    );
+    return json({ error: 'Failed to retrieve monitoring data' }, { status: 500 });
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const body = await req.json();
     const timestamp = Date.now();
-
-    // Log request metrics
-    if (body.type === 'request') {
+    if (body.type === 'request')
       metricsStore.requests.push({
         timestamp,
         responseTime: body.responseTime || 0,
         status: body.status || 200,
       });
-    }
-
-    // Log error metrics
-    if (body.type === 'error') {
+    if (body.type === 'error')
       metricsStore.errors.push({
         timestamp,
         error: body.message || 'Unknown error',
         severity: body.severity || 'error',
       });
-    }
-
-    // Clean up old metrics (keep last 24 hours)
-    const twentyFourHoursAgo = timestamp - (24 * 60 * 60 * 1000);
+    const twentyFourHoursAgo = timestamp - 24 * 60 * 60 * 1000;
     metricsStore.requests = metricsStore.requests.filter(r => r.timestamp > twentyFourHoursAgo);
     metricsStore.errors = metricsStore.errors.filter(e => e.timestamp > twentyFourHoursAgo);
-    metricsStore.alerts = metricsStore.alerts.filter(a => 
-      new Date(a.timestamp).getTime() > twentyFourHoursAgo
+    metricsStore.alerts = metricsStore.alerts.filter(
+      a => new Date(a.timestamp).getTime() > twentyFourHoursAgo
     );
-
-    return NextResponse.json({ received: true });
-  } catch (error) {
-    return NextResponse.json(
-      { error: 'Invalid monitoring data' },
-      { status: 400 }
-    );
+    return json({ received: true });
+  } catch {
+    return json({ error: 'Invalid monitoring data' }, { status: 400 });
   }
 }

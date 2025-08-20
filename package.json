@@ -37,11 +37,21 @@
     "performance:benchmark:staging": "BENCHMARK_URL=https://staging.artistsite.com npm run performance:benchmark",
     "performance:benchmark:prod": "BENCHMARK_URL=https://artistsite.com npm run performance:benchmark",
     "performance:monitor": "node -e \"require('./src/lib/performance/performance-monitor.ts').PerformanceMonitor.getOptimizationRecommendations().then(console.log)\"",
-    "ci:pipeline": "npm run lint && npm run type-check && npm run test:ci && npm run build",
-    "ci:full": "npm run lint && npm run type-check && npm run test:full && npm run security:scan && npm run build",
+    "bundle:guard": "node scripts/bundle-guard.js",
+    "ci:pipeline": "npm run lint && npm run type-check && npm run verify:barrels && npm run codemod:imports -- --check && npm run lint:deadcode && npm run test:ci && npm run build && npm run bundle:guard",
+    "ci:full": "npm run lint && npm run type-check && npm run verify:barrels && npm run codemod:imports -- --check && npm run test:full && npm run lint:deadcode && npm run security:scan && npm run build && npm run bundle:guard",
     "monitoring:dashboard": "echo 'Visit http://localhost:3000/debug/monitoring for monitoring dashboard'",
-    "precommit": "npm run lint && npm run type-check && npm run test:ci",
-    "playwright:install": "playwright install"
+    "precommit": "npm run lint && npm run type-check && npm run verify:barrels && npm run codemod:imports -- --check && npm run lint:deadcode && npm run test:ci",
+    "playwright:install": "playwright install",
+    "depgraph:json": "depcruise src --config .dependency-cruiser.cjs --output-type json > docs/dep-graph/dependency-graph.json",
+    "depgraph:dot": "depcruise src --config .dependency-cruiser.cjs --output-type dot > docs/dep-graph/dependency-graph.dot",
+    "depgraph:svg": "depcruise src --config .dependency-cruiser.cjs --output-type dot | dot -T svg > docs/dep-graph/dependency-graph.svg",
+    "depgraph:all": "mkdir -p docs/dep-graph && npm run depgraph:json && npm run depgraph:dot || true && (command -v dot >/dev/null 2>&1 && npm run depgraph:svg || echo 'graphviz not installed: skipping svg')",
+    "depgraph:check": "depcruise src --config .dependency-cruiser.cjs --output-type err",
+    "depgraph:orphans": "depcruise src --config .dependency-cruiser.cjs --output-type err | grep orphan || true",
+    "codemod:imports": "node scripts/codemod-rewrite-imports.js",
+    "lint:deadcode": "knip --strict",
+    "verify:barrels": "node scripts/verify-barrel-imports.js --check"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.10.0",
@@ -101,6 +111,10 @@
     "jest-environment-jsdom": "^30.0.4",
     "playwright": "^1.54.1",
     "postcss": "^8",
-    "typescript": "^5"
+    "typescript": "^5",
+    "dependency-cruiser": "^16.9.0",
+    "whatwg-fetch": "^3.6.20",
+    "glob": "^8.1.0",
+    "knip": "^5.34.0"
   }
 }

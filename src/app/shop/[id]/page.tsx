@@ -1,7 +1,7 @@
 import React from 'react';
 import { notFound } from 'next/navigation';
 import { Metadata } from 'next';
-import { getProductById, getAllProducts } from '@/lib/commerce';
+import { getProductById, getAllProducts } from '@domain/shop';
 import ProductPageClient from './ProductPageClient';
 
 interface ProductPageProps {

@@ -1,0 +1,30 @@
+<svg width="400" height="300" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="skyGradient2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FF9800" />
+      <stop offset="70%" stop-color="#FF5722" />
+      <stop offset="100%" stop-color="#3F51B5" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Evening sky -->
+  <rect width="400" height="200" fill="url(#skyGradient2)" />
+  
+  <!-- Different building arrangement -->
+  <rect x="20" y="150" width="60" height="150" fill="#1A1A1A" />
+  <rect x="100" y="130" width="80" height="170" fill="#2C2C2C" />
+  <rect x="200" y="110" width="50" height="190" fill="#1A1A1A" />
+  <rect x="270" y="140" width="70" height="160" fill="#2C2C2C" />
+  <rect x="360" y="120" width="40" height="180" fill="#1A1A1A" />
+  
+  <!-- More windows -->
+  <rect x="30" y="170" width="6" height="10" fill="#FFCC80" opacity="0.9" />
+  <rect x="45" y="180" width="6" height="10" fill="#FFB74D" opacity="0.7" />
+  <rect x="110" y="150" width="8" height="12" fill="#FFCC80" opacity="0.8" />
+  <rect x="125" y="170" width="8" height="12" fill="#FFB74D" opacity="0.6" />
+  <rect x="210" y="130" width="6" height="10" fill="#FFCC80" opacity="0.9" />
+  <rect x="280" y="160" width="8" height="12" fill="#FFB74D" opacity="0.8" />
+  
+  <!-- Street -->
+  <rect x="0" y="280" width="400" height="20" fill="#424242" />
+</svg>

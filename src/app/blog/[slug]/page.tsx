@@ -1,9 +1,10 @@
 import { notFound } from 'next/navigation';
-import { getPostBySlug, getPostSlugs } from '@/lib/markdown';
+import { getPostBySlug, getPostSlugs } from '@domain/content';
 import { draftMode } from 'next/headers';
-import { MDXContent } from '@/components/MDXContent';
+import { MDXContent } from '@ui/components/content/MDXContent';
 import { generateBlogMetadata } from '@/lib/seo';
-import { StructuredData, generateArticleSchema, generateBreadcrumbSchema } from '@/components/StructuredData';
+import { StructuredData } from '@ui/components/content/seo';
+import { generateArticleSchema, generateBreadcrumbSchema } from '@domain/seo';
 
 interface BlogPostProps {
   params: Promise<{ slug: string }>;

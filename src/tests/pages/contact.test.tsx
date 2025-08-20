@@ -5,7 +5,9 @@ import ContactPage from '@/app/contact/page';
 // Mock Next.js Image component
 jest.mock('next/image', () => {
   return function MockImage({ src, alt, ...props }: any) {
-    return <img src={src} alt={alt} {...props} />;
+    // Remove boolean-only props like fill that cause DOM warnings
+    const { fill, priority, sizes, ...rest } = props;
+    return <img src={src} alt={alt} {...rest} />;
   };
 });
 
@@ -21,6 +23,20 @@ const localStorageMock = {
 };
 Object.defineProperty(window, 'localStorage', {
   value: localStorageMock
+});
+
+// Preserve original console.error and suppress expected contact form error noise
+const originalConsoleError = console.error;
+let consoleErrorSpy: jest.SpyInstance;
+beforeAll(() => {
+  consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation((...args) => {
+    if (typeof args[0] === 'string' && args[0].includes('Contact form error:')) return;
+    // @ts-expect-error allow passthrough of variadic args in mock
+    originalConsoleError(...args);
+  });
+});
+afterAll(() => {
+  consoleErrorSpy.mockRestore();
 });
 
 describe('Contact Page', () => {
@@ -47,7 +63,8 @@ describe('Contact Page', () => {
       
       expect(screen.getByText(/hello@artistsite.com/i)).toBeInTheDocument();
       expect(screen.getByText(/new york, ny/i)).toBeInTheDocument();
-      expect(screen.getByText(/@artistsite/i)).toBeInTheDocument();
+      // Refined matcher to exact handle to avoid matching the email address
+      expect(screen.getByText(/^@artistsite$/i)).toBeInTheDocument();
     });
 
     it('shows response time information', () => {

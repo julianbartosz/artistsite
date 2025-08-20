@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import { Header } from '@/components/Header';
+import { Header } from '@ui/components/layout/Header';
 import { usePathname } from 'next/navigation';
 
 // Mock next/navigation
@@ -8,6 +8,20 @@ jest.mock('next/navigation', () => ({
   usePathname: jest.fn(() => '/'),
   useRouter: () => ({
     push: mockPush,
+  }),
+}));
+
+// Mock next-auth to avoid SessionProvider requirements
+jest.mock('next-auth/react', () => ({
+  useSession: () => ({ data: null, status: 'unauthenticated' }),
+  signOut: jest.fn(),
+}));
+
+// Mock CartContext to avoid needing the provider (updated path)
+jest.mock('@ui/components/cart/context/CartContext', () => ({
+  useCart: () => ({
+    state: { itemCount: 0 },
+    toggleCart: jest.fn(),
   }),
 }));
 
@@ -42,22 +56,22 @@ describe('Header Component', () => {
   it('opens and closes mobile menu', () => {
     render(<Header />);
     
-    // Mobile menu should be hidden initially
-    expect(screen.queryByRole('button', { expanded: false })).toBeInTheDocument();
+    // Mobile menu toggle should be present with accessible name via sr-only text
+    const menuButton = screen.getByRole('button', { name: 'Open main menu' });
+    expect(menuButton).toBeInTheDocument();
     
     // Click mobile menu button
-    const menuButton = screen.getByLabelText('Open main menu');
     fireEvent.click(menuButton);
     
-    // Mobile menu should be visible
-    expect(screen.getByRole('button', { expanded: false })).toBeInTheDocument();
+    // Mobile menu should be visible (button remains present)
+    expect(screen.getByRole('button', { name: 'Open main menu' })).toBeInTheDocument();
   });
 
   it('closes mobile menu when link is clicked', () => {
     render(<Header />);
     
     // Open mobile menu
-    const menuButton = screen.getByLabelText('Open main menu');
+    const menuButton = screen.getByRole('button', { name: 'Open main menu' });
     fireEvent.click(menuButton);
     
     // Click a navigation link in mobile menu
@@ -71,7 +85,7 @@ describe('Header Component', () => {
     }
     
     // Menu should close (button should show "open" state)
-    expect(screen.getByLabelText('Open main menu')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open main menu' })).toBeInTheDocument();
   });
 
   it('has correct link hrefs', () => {

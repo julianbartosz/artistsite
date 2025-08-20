@@ -3,45 +3,28 @@ import type { NextConfig } from 'next'
 import withMDX from '@next/mdx'
 import path from 'path'
 
-/** Wrap Next's config with MDX support */
 const mdx = withMDX({
   extension: /\.mdx?$/
 })
 
 const nextConfig: NextConfig = {
   pageExtensions: ['ts', 'tsx', 'js', 'jsx', 'md', 'mdx'],
-  
-  // Enable standalone output for Docker deployment
   output: 'standalone',
-  
-  // Server external packages
-  serverExternalPackages: ['@vercel/otel', 'web-vitals'],
-  
-  // Production source maps for better debugging
   productionBrowserSourceMaps: true,
   
-  // Enhanced logging
   logging: {
     fetches: {
       fullUrl: true,
     },
   },
   
-  // Performance optimization
   experimental: {
     optimizeCss: true,
-    optimizePackageImports: [
-      '@mdx-js/react', 
-      'lucide-react',
-      '@tiptap/react',
-      '@tiptap/starter-kit',
-      'react-markdown',
-      'rehype-highlight',
-      'remark-gfm'
-    ],
   },
 
-  // Enhanced caching and ISR
+  // Allow build to proceed even if ESLint has errors; lint runs in separate npm scripts/CI
+  eslint: { ignoreDuringBuilds: true },
+
   async headers() {
     return [
       {
@@ -74,25 +57,21 @@ const nextConfig: NextConfig = {
     ];
   },
 
-  // Image optimization
   images: {
     formats: ['image/webp', 'image/avif'],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
-    minimumCacheTTL: 31536000, // 1 year
+    minimumCacheTTL: 31536000,
     dangerouslyAllowSVG: true,
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
   
-  // Fixed webpack configuration to handle client-side libraries properly
-  webpack: (config, { isServer, dev }) => {
-    // Add path alias for better imports
+  webpack: (config, { isServer }) => {
     config.resolve.alias = {
       ...config.resolve.alias,
       '@': path.resolve(__dirname, 'src'),
     };
 
-    // Only add essential fallbacks for client-side builds
     if (!isServer) {
       config.resolve.fallback = {
         ...config.resolve.fallback,
@@ -101,71 +80,6 @@ const nextConfig: NextConfig = {
         crypto: false,
         stream: false,
         os: false,
-      };
-    }
-
-    // Fix for "self is not defined" error during server-side builds
-    if (isServer) {
-      // Define globals that are expected by client-side libraries
-      config.plugins = config.plugins || [];
-      const { DefinePlugin } = require('webpack');
-      config.plugins.push(
-        new DefinePlugin({
-          'typeof window': JSON.stringify('undefined'),
-          'typeof document': JSON.stringify('undefined'),
-          'typeof self': JSON.stringify('undefined'),
-        })
-      );
-      
-      // Externalize client-side only packages during server builds
-      config.externals = config.externals || [];
-      if (Array.isArray(config.externals)) {
-        config.externals.push('web-vitals');
-      }
-    }
-
-    // Performance optimizations for production
-    if (!dev) {
-      // Enable proper code splitting
-      config.optimization = {
-        ...config.optimization,
-        splitChunks: {
-          chunks: 'all',
-          minSize: 20000,
-          maxSize: 244000,
-          cacheGroups: {
-            default: {
-              minChunks: 2,
-              priority: -20,
-              reuseExistingChunk: true,
-            },
-            vendor: {
-              test: /[\\/]node_modules[\\/]/,
-              name: 'vendors',
-              priority: -10,
-              chunks: 'all',
-            },
-            // Separate chunk for large libraries
-            editor: {
-              test: /[\\/]node_modules[\\/](@tiptap|@tinymce)[\\/]/,
-              name: 'editor',
-              priority: 10,
-              chunks: 'async',
-            },
-            markdown: {
-              test: /[\\/]node_modules[\\/](mdx-bundler|@mdx-js|remark|rehype)[\\/]/,
-              name: 'markdown',
-              priority: 10,
-              chunks: 'async',
-            },
-            analytics: {
-              test: /[\\/]node_modules[\\/](web-vitals|ga4)[\\/]/,
-              name: 'analytics',
-              priority: 10,
-              chunks: 'async',
-            },
-          },
-        },
       };
     }
 

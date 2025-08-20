@@ -1,12 +1,13 @@
 import { render, screen } from '@testing-library/react';
-import { Footer } from '@/components/Footer';
+import { Footer } from '@ui/components/layout/Footer';
 
 describe('Footer Component', () => {
   it('renders footer content correctly', () => {
     render(<Footer />);
     
-    expect(screen.getByText(/© 2024 Artist Site/)).toBeInTheDocument();
-    expect(screen.getByText('All rights reserved.')).toBeInTheDocument();
+    const year = new Date().getFullYear();
+    expect(screen.getByText(new RegExp(`©\\s+${year}\\s+Artist Site`))).toBeInTheDocument();
+    expect(screen.getByText(/All rights reserved\./)).toBeInTheDocument();
   });
 
   it('renders social media links', () => {

@@ -1,0 +1,35 @@
+<svg width="400" height="300" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="energyGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF5722" />
+      <stop offset="30%" stop-color="#FF9800" />
+      <stop offset="60%" stop-color="#FFC107" />
+      <stop offset="100%" stop-color="#4CAF50" />
+    </linearGradient>
+    <pattern id="collagePattern" patternUnits="userSpaceOnUse" width="50" height="50">
+      <rect width="50" height="50" fill="#E3F2FD" />
+      <circle cx="25" cy="25" r="10" fill="#1976D2" opacity="0.3" />
+    </pattern>
+  </defs>
+  
+  <!-- Base collage background -->
+  <rect width="400" height="300" fill="url(#collagePattern)" />
+  
+  <!-- Dynamic geometric shapes -->
+  <polygon points="50,50 150,80 120,180 20,150" fill="url(#energyGradient)" opacity="0.8" />
+  <polygon points="200,30 350,60 320,120 180,90" fill="#E91E63" opacity="0.7" />
+  <polygon points="250,150 380,180 350,250 220,220" fill="#673AB7" opacity="0.6" />
+  
+  <!-- Metallic accents -->
+  <circle cx="100" cy="200" r="20" fill="#CFD8DC" stroke="#90A4AE" stroke-width="2" />
+  <rect x="280" y="100" width="30" height="30" fill="#ECEFF1" stroke="#B0BEC5" stroke-width="1" transform="rotate(45 295 115)" />
+  
+  <!-- Paint splashes -->
+  <circle cx="80" cy="120" r="15" fill="#FF5722" opacity="0.6" />
+  <circle cx="320" cy="180" r="12" fill="#4CAF50" opacity="0.7" />
+  <circle cx="180" cy="250" r="18" fill="#FF9800" opacity="0.5" />
+  
+  <!-- Energy lines -->
+  <path d="M0 0 Q200 150 400 0" stroke="#FFC107" stroke-width="3" fill="none" opacity="0.8" />
+  <path d="M0 300 Q200 150 400 300" stroke="#FF5722" stroke-width="2" fill="none" opacity="0.6" />
+</svg>

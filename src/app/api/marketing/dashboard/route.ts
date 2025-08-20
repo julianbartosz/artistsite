@@ -1,17 +1,24 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
 // Type assertion to access marketing models until TypeScript recognizes them
 const dbWithMarketing = db as any;
 
-export async function POST(request: NextRequest) {
+// Standard JSON response helper
+function json(data: any, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(data), {
+    ...init,
+    headers: { 'content-type': 'application/json', ...(init.headers || {}) },
+  });
+}
+
+export async function POST(request: Request) {
   try {
     const { dateRange, channels } = await request.json();
-    
+
     // Calculate date filter
     const now = new Date();
     let startDate: Date;
-    
+
     switch (dateRange) {
       case '7d':
         startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -42,10 +49,10 @@ export async function POST(request: NextRequest) {
     // Calculate ROI
     overview.roi = overview.totalCost > 0 ? overview.totalRevenue / overview.totalCost : 0;
 
-    return NextResponse.json(overview);
+    return json(overview);
   } catch (error) {
     console.error('Error generating marketing dashboard:', error);
-    return NextResponse.json(
+    return json(
       { error: 'Failed to load dashboard data' },
       { status: 500 }
     );

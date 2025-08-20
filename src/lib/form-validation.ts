@@ -12,8 +12,10 @@ export interface ValidationErrors {
 }
 
 export const validateEmail = (email: string): boolean => {
-  // More comprehensive email validation regex that rejects consecutive dots
-  const emailRegex = /^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?@[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}$/;
+  // RFC-like email validation allowing + tags and disallowing consecutive dots
+  // - Local part: alphanumerics separated by ._%+- but not starting/ending with a dot and no consecutive dots
+  // - Domain: labels of alphanumerics/hyphens separated by dots; at least one dot
+  const emailRegex = /^[A-Za-z0-9]+([._%+\-][A-Za-z0-9]+)*@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
   return emailRegex.test(email);
 };
 

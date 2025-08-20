@@ -1,14 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { CustomerInsights } from '@/lib/analytics/customer-insights'
+import { Marketing } from '@/domain/marketing'
 
-export async function GET(request: NextRequest) {
+function json(data: any, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(data), { ...init, headers: { 'content-type': 'application/json', ...(init.headers || {}) } })
+}
+
+export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const includeCustomers = searchParams.get('includeCustomers') === 'true'
     const limit = parseInt(searchParams.get('limit') || '100')
 
     // Get customer segments - returns string[] not objects
-    const segments = await CustomerInsights.getCustomerSegments()
+    const segments = await Marketing.insights.getCustomerSegments()
 
     // Optionally include customer details for each segment
     if (includeCustomers) {
@@ -16,11 +19,11 @@ export async function GET(request: NextRequest) {
         segments.map(async (segmentName) => ({
           id: segmentName,
           name: segmentName,
-          customers: await CustomerInsights.getSegmentCustomers(segmentName, limit),
+          customers: await Marketing.insights.getSegmentCustomers(segmentName, limit),
         }))
       )
 
-      return NextResponse.json({ segments: segmentsWithCustomers })
+      return json({ segments: segmentsWithCustomers })
     }
 
     // Transform string segments to objects for consistent API response
@@ -29,9 +32,9 @@ export async function GET(request: NextRequest) {
       name: segmentName
     }))
 
-    return NextResponse.json({ segments: segmentObjects })
+    return json({ segments: segmentObjects })
   } catch (error) {
-    return NextResponse.json(
+    return json(
       { error: `Failed to fetch customer segments: ${error instanceof Error ? error.message : 'Unknown error'}` },
       { status: 500 }
     )

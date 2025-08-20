@@ -1,6 +1,7 @@
 // src/lib/api-error-handler.ts
 import { debug } from './debug'
 
+// Removed NextResponse usage to ensure compatibility with plain Request/Response in tests
 export interface ApiErrorResponse {
   error: string
   message: string
@@ -62,6 +63,14 @@ export function handleApiError(error: unknown, request?: Request): ApiErrorRespo
   }
 }
 
+// Lightweight json helper (avoid NextResponse.json for test environment)
+function json(data: any, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(data), {
+    ...init,
+    headers: { 'content-type': 'application/json', ...(init.headers || {}) },
+  })
+}
+
 // Enhanced API route wrapper with error handling
 export function withApiErrorHandler<T extends unknown[]>(
   handler: (...args: T) => Promise<Response>
@@ -79,10 +88,9 @@ export function withApiErrorHandler<T extends unknown[]>(
         headers: Object.fromEntries(request?.headers || [])
       })
       
-      return Response.json(errorResponse, { 
+      return json(errorResponse, { 
         status: errorResponse.status,
         headers: {
-          'Content-Type': 'application/json',
           'X-Error-ID': `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
         }
       })

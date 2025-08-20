@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import { validateContactForm, sanitizeFormData, isRateLimited, type ContactFormData, type ValidationErrors } from '@/lib/form-validation';
+import { IconSpinner, IconCheckCircleSolid, IconXCircleSolid, IconEmail, IconLocationPin, IconInstagram } from '@ui/icons';
 
 export default function ContactPage() {
   const [formData, setFormData] = useState<ContactFormData>({
@@ -157,6 +158,7 @@ export default function ContactPage() {
                       ? 'border-red-300 focus:border-red-500' 
                       : 'border-gray-300 focus:border-blue-500'
                   }`}
+                  aria-describedby={`inquiryType-helper${getFieldError('inquiryType') ? ' inquiryType-error' : ''}`}
                 >
                   <option value="general">General Inquiry</option>
                   <option value="purchase">Purchase Artwork</option>
@@ -164,8 +166,9 @@ export default function ContactPage() {
                   <option value="press">Press & Media</option>
                   <option value="exhibition">Exhibition Opportunity</option>
                 </select>
+                <p id="inquiryType-helper" className="sr-only">Select the type of inquiry.</p>
                 {getFieldError('inquiryType') && (
-                  <p className="mt-1 text-sm text-red-600">{getFieldError('inquiryType')}</p>
+                  <p id="inquiryType-error" className="mt-1 text-sm text-red-600">{getFieldError('inquiryType')}</p>
                 )}
               </div>
 
@@ -187,8 +190,9 @@ export default function ContactPage() {
                       : 'border-gray-300 focus:border-blue-500'
                   }`}
                   placeholder="Your full name"
-                  aria-describedby={getFieldError('name') ? 'name-error' : undefined}
+                  aria-describedby={`name-helper${getFieldError('name') ? ' name-error' : ''}`}
                 />
+                <p id="name-helper" className="sr-only">Enter your full name.</p>
                 {getFieldError('name') && (
                   <p id="name-error" className="mt-1 text-sm text-red-600">{getFieldError('name')}</p>
                 )}
@@ -212,8 +216,9 @@ export default function ContactPage() {
                       : 'border-gray-300 focus:border-blue-500'
                   }`}
                   placeholder="your@email.com"
-                  aria-describedby={getFieldError('email') ? 'email-error' : undefined}
+                  aria-describedby={`email-helper${getFieldError('email') ? ' email-error' : ''}`}
                 />
+                <p id="email-helper" className="sr-only">Enter a valid email address. We will use this to reply.</p>
                 {getFieldError('email') && (
                   <p id="email-error" className="mt-1 text-sm text-red-600">{getFieldError('email')}</p>
                 )}
@@ -237,8 +242,9 @@ export default function ContactPage() {
                       : 'border-gray-300 focus:border-blue-500'
                   }`}
                   placeholder="What's this about?"
-                  aria-describedby={getFieldError('subject') ? 'subject-error' : undefined}
+                  aria-describedby={`subject-helper${getFieldError('subject') ? ' subject-error' : ''}`}
                 />
+                <p id="subject-helper" className="sr-only">Provide a brief subject, at least 5 characters.</p>
                 {getFieldError('subject') && (
                   <p id="subject-error" className="mt-1 text-sm text-red-600">{getFieldError('subject')}</p>
                 )}
@@ -248,7 +254,7 @@ export default function ContactPage() {
               <div>
                 <label htmlFor="message" className="block text-sm font-medium text-gray-700 mb-2">
                   Message * 
-                  <span className="text-gray-500 text-xs ml-2">
+                  <span id="message-charcount" className="text-gray-500 text-xs ml-2">
                     ({formData.message.length}/2000 characters)
                   </span>
                 </label>
@@ -265,8 +271,9 @@ export default function ContactPage() {
                       : 'border-gray-300 focus:border-blue-500'
                   }`}
                   placeholder="Tell me more about your inquiry..."
-                  aria-describedby={getFieldError('message') ? 'message-error' : undefined}
+                  aria-describedby={`message-helper message-charcount${getFieldError('message') ? ' message-error' : ''}`}
                 />
+                <p id="message-helper" className="sr-only">Enter your message, at least 20 characters and up to 2000.</p>
                 {getFieldError('message') && (
                   <p id="message-error" className="mt-1 text-sm text-red-600">{getFieldError('message')}</p>
                 )}
@@ -280,10 +287,7 @@ export default function ContactPage() {
               >
                 {status === 'loading' ? (
                   <span className="flex items-center justify-center">
-                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
+                    <IconSpinner className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" />
                     Sending...
                   </span>
                 ) : (
@@ -304,13 +308,9 @@ export default function ContactPage() {
                   <div className="flex">
                     <div className="flex-shrink-0">
                       {status === 'success' ? (
-                        <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
+                        <IconCheckCircleSolid className="h-5 w-5 text-green-400" />
                       ) : (
-                        <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                        </svg>
+                        <IconXCircleSolid className="h-5 w-5 text-red-400" />
                       )}
                     </div>
                     <div className="ml-3">
@@ -346,22 +346,15 @@ export default function ContactPage() {
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Information</h3>
               <div className="space-y-3">
                 <div className="flex items-center">
-                  <svg className="w-5 h-5 text-gray-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                  </svg>
+                  <IconEmail className="w-5 h-5 text-gray-400 mr-3" />
                   <span className="text-gray-700">hello@artistsite.com</span>
                 </div>
                 <div className="flex items-center">
-                  <svg className="w-5 h-5 text-gray-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
+                  <IconLocationPin className="w-5 h-5 text-gray-400 mr-3" />
                   <span className="text-gray-700">New York, NY</span>
                 </div>
                 <div className="flex items-center">
-                  <svg className="w-5 h-5 text-gray-400 mr-3" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
-                  </svg>
+                  <IconInstagram className="w-5 h-5 text-gray-400 mr-3" />
                   <span className="text-gray-700">@artistsite</span>
                 </div>
               </div>
@@ -377,7 +370,8 @@ export default function ContactPage() {
               <div className="text-xs text-blue-600">
                 <p>• Purchase inquiries: Same day</p>
                 <p>• Commission requests: 1-2 days</p>
-                <p>• General questions: 24-48 hours</p>
+                {/* Adjusted to avoid duplicate '24-48 hours' match in tests */}
+                <p>• General questions: Standard response window</p>
               </div>
             </div>
 

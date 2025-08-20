@@ -1,0 +1,38 @@
+<svg width="400" height="300" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="skyGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFB86C" />
+      <stop offset="50%" stop-color="#FF8A80" />
+      <stop offset="100%" stop-color="#8E24AA" />
+    </linearGradient>
+    <linearGradient id="buildingGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#424242" />
+      <stop offset="100%" stop-color="#212121" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Sky background -->
+  <rect width="400" height="200" fill="url(#skyGradient)" />
+  
+  <!-- Buildings silhouette -->
+  <rect x="0" y="140" width="80" height="160" fill="url(#buildingGradient)" />
+  <rect x="90" y="120" width="60" height="180" fill="url(#buildingGradient)" />
+  <rect x="160" y="100" width="70" height="200" fill="url(#buildingGradient)" />
+  <rect x="240" y="130" width="55" height="170" fill="url(#buildingGradient)" />
+  <rect x="305" y="110" width="95" height="190" fill="url(#buildingGradient)" />
+  
+  <!-- Windows with warm light -->
+  <rect x="10" y="160" width="8" height="12" fill="#FFF3E0" opacity="0.8" />
+  <rect x="25" y="170" width="8" height="12" fill="#FFF3E0" opacity="0.6" />
+  <rect x="45" y="155" width="8" height="12" fill="#FFE0B2" opacity="0.9" />
+  
+  <rect x="100" y="140" width="8" height="12" fill="#FFF3E0" opacity="0.7" />
+  <rect x="115" y="160" width="8" height="12" fill="#FFE0B2" opacity="0.8" />
+  
+  <rect x="180" y="120" width="8" height="12" fill="#FFF3E0" opacity="0.6" />
+  <rect x="195" y="140" width="8" height="12" fill="#FFE0B2" opacity="0.9" />
+  <rect x="210" y="130" width="8" height="12" fill="#FFF3E0" opacity="0.7" />
+  
+  <!-- Street level -->
+  <rect x="0" y="280" width="400" height="20" fill="#37474F" />
+</svg>

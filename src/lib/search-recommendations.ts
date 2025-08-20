@@ -1,5 +1,6 @@
-import { PrismaClient } from '@prisma/client';
-import { Product } from './commerce';
+import 'server-only'
+import type { Product } from '@domain/shop'
+import { getAllProducts } from '@domain/shop'
 import { 
   SearchFilters, 
   SortOption, 
@@ -9,9 +10,7 @@ import {
   ProductView,
   SearchQuery 
 } from './types';
-import { getAllProducts } from './commerce';
-
-const prisma = new PrismaClient();
+import { prisma } from '@/lib/db';
 
 export class SearchService {
   /**

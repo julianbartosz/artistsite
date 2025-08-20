@@ -307,7 +307,7 @@ export class TestAutomation {
 
   // Load testing integration
   static async runLoadTestSuite(): Promise<void> {
-    const { PerformanceMonitor } = await import('@/lib/performance/performance-monitor');
+    const { PerformanceMonitor } = await import('@domain/performance');
     
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
     const endpoints = [

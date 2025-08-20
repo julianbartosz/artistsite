@@ -8,7 +8,7 @@ import {
   getCategories,
   calculateTotal,
   type Product,
-} from '@/lib/commerce';
+} from '@domain/shop';
 
 describe('Commerce Library', () => {
   describe('getAllProducts', () => {

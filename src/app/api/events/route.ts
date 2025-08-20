@@ -1,4 +1,3 @@
-import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { z } from 'zod'
 
@@ -17,6 +16,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
 
+function json(data: any, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(data), { ...init, headers: { 'content-type': 'application/json', ...(init.headers || {}), ...corsHeaders } })
+}
+
 export async function OPTIONS() {
   return new Response(null, {
     status: 200,
@@ -24,7 +27,7 @@ export async function OPTIONS() {
   })
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   try {
     const body = await request.json()
     const validatedData = EventSchema.parse(body)
@@ -52,12 +55,11 @@ export async function POST(request: NextRequest) {
       await updateCustomerProfile(validUserId, validatedData.event_name, validatedData.properties)
     }
 
-    return NextResponse.json({ 
+    return json({ 
       success: true, 
       eventId: event.id 
     }, { 
       status: 201,
-      headers: corsHeaders,
     })
   } catch (error) {
     // Only log in development
@@ -67,31 +69,28 @@ export async function POST(request: NextRequest) {
     }
     
     if (error instanceof z.ZodError) {
-      return NextResponse.json(
+      return json(
         { error: 'Invalid event data', details: error.issues },
         { 
           status: 400,
-          headers: corsHeaders,
         }
       )
     }
     
     // Handle other database errors gracefully
     if (error instanceof Error && error.message.includes('DATABASE')) {
-      return NextResponse.json(
+      return json(
         { error: 'Database temporarily unavailable' },
         { 
           status: 503,
-          headers: corsHeaders,
         }
       )
     }
     
-    return NextResponse.json(
+    return json(
       { error: 'Failed to track event' },
       { 
         status: 500,
-        headers: corsHeaders,
       }
     )
   }

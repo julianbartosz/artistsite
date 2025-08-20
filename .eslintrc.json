@@ -1,18 +1,81 @@
 {
-  "extends": [
-    "next/core-web-vitals",
-    "next/typescript"
-  ],
+  "extends": ["next/core-web-vitals", "next/typescript"],
   "rules": {
     "@typescript-eslint/no-unused-vars": "warn",
     "@typescript-eslint/no-explicit-any": "warn",
     "react-hooks/exhaustive-deps": "warn",
     "no-console": "warn"
   },
+  "overrides": [
+    {
+      "files": [
+        "src/ui/components/**/*.{ts,tsx}",
+        "src/app/**/*.{ts,tsx}",
+        "src/components/**/*.{ts,tsx}"
+      ],
+      "excludedFiles": [
+        "src/app/api/**/*.{ts,tsx}",
+        "src/app/**/route.ts",
+        "src/app/**/route.tsx"
+      ],
+      "rules": {
+        "no-restricted-syntax": [
+          "error",
+            {
+              "selector": "JSXOpeningElement[name.name=\"svg\"]",
+              "message": "Extract SVGs into icon components. Use @ui/icons/* or @ui/illustrations/* instead."
+            }
+        ]
+      }
+    },
+    {
+      "files": [
+        "src/ui/components/**/*.{ts,tsx}",
+        "src/components/**/*.{ts,tsx}"
+      ],
+      "excludedFiles": [],
+      "rules": {
+        "no-restricted-syntax": [
+          "error",
+          {
+            "selector": "JSXOpeningElement[name.name=\"svg\"]",
+            "message": "Extract SVGs into icon components. Use @ui/icons/* or @ui/illustrations/* instead."
+          }
+        ],
+        "max-lines": [
+          "error",
+          { "max": 200, "skipComments": true, "skipBlankLines": true }
+        ]
+      }
+    },
+    {
+      "files": ["src/ui/**/*.{ts,tsx}", "src/app/**/*.{ts,tsx}", "src/tests/**/*.{ts,tsx}"],
+      "excludedFiles": ["src/app/api/**/*.{ts,tsx}", "src/app/**/route.ts", "src/app/**/route.tsx"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              "@server/*",
+              "@/server/*",
+              "**/server/*",
+              "@/components/*",
+              "@domain/security/*",
+              "@domain/performance/*",
+              "@/lib/security/*",
+              "@/lib/performance/*",
+              "@/lib/commerce",
+              "@ui/components/content/seo/*" // disallow deprecated direct schema builder imports (domain moved)
+            ]
+          }
+        ]
+      }
+    }
+  ],
   "ignorePatterns": [
     "node_modules/**",
     ".next/**",
-    "out/**", 
+    "out/**",
     "build/**",
     "coverage/**",
     "*.config.js",

@@ -1,0 +1,27 @@
+<svg width="400" height="300" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="mixedMedia3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#795548" />
+      <stop offset="50%" stop-color="#FF5722" />
+      <stop offset="100%" stop-color="#FFC107" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Textured background -->
+  <rect width="400" height="300" fill="#FFF8E1" />
+  
+  <!-- Collage elements -->
+  <circle cx="120" cy="120" r="50" fill="url(#mixedMedia3)" opacity="0.8" />
+  <rect x="220" y="80" width="80" height="60" fill="#8BC34A" opacity="0.6" transform="rotate(15 260 110)" />
+  <polygon points="50,200 100,170 150,210 100,240" fill="#E91E63" opacity="0.7" />
+  
+  <!-- Texture lines -->
+  <path d="M0 50 L400 80" stroke="#795548" stroke-width="2" opacity="0.4" />
+  <path d="M0 150 L400 130" stroke="#795548" stroke-width="1" opacity="0.3" />
+  <path d="M0 250 L400 270" stroke="#795548" stroke-width="2" opacity="0.4" />
+  
+  <!-- Splatter effects -->
+  <circle cx="300" cy="200" r="8" fill="#FF5722" opacity="0.8" />
+  <circle cx="80" cy="80" r="6" fill="#FFC107" opacity="0.7" />
+  <circle cx="320" cy="120" r="4" fill="#8BC34A" opacity="0.6" />
+</svg>

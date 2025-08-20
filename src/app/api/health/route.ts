@@ -1,5 +1,3 @@
-import { NextRequest, NextResponse } from 'next/server';
-
 interface SystemMetrics {
   timestamp: string;
   environment: string;
@@ -30,7 +28,17 @@ let requestCount = 0;
 let errorCount24h = 0;
 let criticalErrors = 0;
 
-export async function GET(req: NextRequest) {
+function json(data: any, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(data), {
+    ...init,
+    headers: {
+      'content-type': 'application/json',
+      ...(init.headers || {}),
+    },
+  });
+}
+
+export async function GET(req: Request) {
   const startTime = Date.now();
   requestCount++;
 
@@ -100,7 +108,7 @@ export async function GET(req: NextRequest) {
       metrics.performance.responseTime < 2000 &&
       !externalServices.some(service => service.includes('unreachable'));
 
-    return NextResponse.json({
+    return json({
       status: isHealthy ? 'healthy' : 'degraded',
       ...metrics,
     }, { 
@@ -116,7 +124,7 @@ export async function GET(req: NextRequest) {
     console.error('Health check failed:', error);
     criticalErrors++;
     
-    return NextResponse.json({
+    return json({
       status: 'unhealthy',
       timestamp: new Date().toISOString(),
       error: 'Health check failed',
@@ -126,7 +134,7 @@ export async function GET(req: NextRequest) {
 }
 
 // Metrics endpoint for monitoring systems
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const body = await req.json();
     
@@ -137,8 +145,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ received: true });
+    return json({ received: true });
   } catch (error) {
-    return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+    return json({ error: 'Invalid request' }, { status: 400 });
   }
 }

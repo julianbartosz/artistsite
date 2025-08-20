@@ -1,0 +1,45 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "entry": [
+    "next.config.ts",
+    "src/app/**/*.{ts,tsx}",
+    "src/ui/**/*.{ts,tsx}",
+    "src/domain/**/*.{ts,tsx}",
+    "src/server/**/*.{ts,tsx}",
+    "src/components/**/*.{ts,tsx}"
+  ],
+  "project": [
+    "src/**/*.{ts,tsx,js,jsx}"
+  ],
+  "ignoreDependencies": [
+    "@testing-library/jest-dom",
+    "@auth/prisma-adapter",
+    "@heroicons/react",
+    "@hookform/resolvers",
+    "@mdx-js/loader",
+    "@mdx-js/react",
+    "@next/mdx",
+    "@prisma/client",
+    "@tailwindcss/typography",
+    "@tiptap/extension-character-count",
+    "@tiptap/extension-image",
+    "@tiptap/extension-link",
+    "@tiptap/extension-placeholder",
+    "@tiptap/react",
+    "@tiptap/starter-kit",
+    "@types/bcryptjs",
+    "clsx",
+    "critters",
+    "date-fns",
+    "lucide-react",
+    "mdx-bundler",
+    "next-sitemap",
+    "prisma",
+    "react-hook-form",
+    "schema-dts",
+    "stripe",
+    "swr",
+    "tailwind-merge",
+    "web-vitals"
+  ]
+}

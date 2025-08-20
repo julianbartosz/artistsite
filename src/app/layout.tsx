@@ -1,16 +1,16 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { draftMode } from 'next/headers';
-import { PreviewBanner } from '@/components/PreviewBanner';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { Header } from '@/components/Header';
-import { Footer } from '@/components/Footer';
-import { CartProvider } from '@/components/CartContext';
-import AuthProvider from '@/components/AuthProvider';
-import { StructuredData, generateOrganizationSchema } from '@/components/StructuredData';
+import { PreviewBanner } from '@ui/components/layout/PreviewBanner';
+import { ErrorBoundary } from '@ui/components/monitoring/ErrorBoundary';
+import { Header } from '@ui/components/layout/Header';
+import { Footer } from '@ui/components/layout/Footer';
+import { CartProvider } from '@ui/components/cart/context/CartContext';
+import AuthProvider from '@ui/components/auth/AuthProvider';
+import { StructuredData } from '@ui/components/content/seo';
+import { generateOrganizationSchema } from '@domain/seo';
 import { generateFeedLinks } from '@/lib/seo';
-import { PerformanceMonitor, SEOMonitor } from '@/components/DynamicComponents';
-import { AnalyticsProvider } from '@/components/AnalyticsProvider';
+import { AnalyticsProvider } from '@ui/components/analytics/AnalyticsProvider';
 import "./globals.css";
 
 const geistSans = Geist({
@@ -89,6 +89,7 @@ export default async function RootLayout({
     isPreview = draft.isEnabled;
   } catch (error) {
     // Enhanced error handling with proper typing
+    // eslint-disable-next-line no-console
     console.error('Draft mode check failed:', error);
     isPreview = false;
   }

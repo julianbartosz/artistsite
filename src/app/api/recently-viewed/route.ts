@@ -1,10 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
-import { getAllProducts } from '@/lib/commerce';
+import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/db';
+import { getAllProducts } from '@domain/shop';
 
-const prisma = new PrismaClient();
-
-export async function GET(request: NextRequest) {
+export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId');
@@ -38,19 +36,11 @@ export async function GET(request: NextRequest) {
       .map(id => allProducts.find(p => p.id === id))
       .filter(Boolean);
 
-    return NextResponse.json({
-      success: true,
-      products
-    });
-
+    return NextResponse.json({ success: true, products });
   } catch (error) {
-    console.error('Recently viewed API error:', error);
+    console.error('Failed to get recently viewed products:', error);
     return NextResponse.json(
-      { 
-        success: false, 
-        error: 'Failed to get recently viewed products',
-        products: []
-      },
+      { success: false, error: 'Failed to get recently viewed products' },
       { status: 500 }
     );
   }

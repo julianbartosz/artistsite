@@ -1,4 +1,4 @@
-import { getAllPosts, getPostBySlug, getPostSlugs } from '@/lib/markdown';
+import { getAllPosts, getPostBySlug, getPostSlugs } from '@domain/content';
 import fs from 'fs';
 import { bundleMDX } from 'mdx-bundler';
 import matter from 'gray-matter';

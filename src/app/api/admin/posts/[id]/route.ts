@@ -1,36 +1,33 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { writeFile, unlink } from 'fs/promises';
 import { join } from 'path';
-import { getPostBySlug } from '@/lib/markdown';
+import { getPostBySlug } from '@domain/content';
 import matter from 'gray-matter';
 
 const contentDir = join(process.cwd(), 'src', 'content', 'blog');
 
+function json(data: any, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(data), {
+    ...init,
+    headers: { 'content-type': 'application/json', ...(init.headers || {}) },
+  });
+}
+
 export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  request: Request,
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (!session?.user) return json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { id } = await params;
+    const { id } = await context.params;
     const data = await request.json();
-    
-    // Get existing post
-    const existingPost = await getPostBySlug(id, true);
-    if (!existingPost) {
-      return NextResponse.json(
-        { error: 'Post not found' },
-        { status: 404 }
-      );
-    }
 
-    // Update frontmatter
+    const existingPost = await getPostBySlug(id, true, { bundle: false });
+    if (!existingPost) return json({ error: 'Post not found' }, { status: 404 });
+
     const frontmatter = {
       title: data.title || existingPost.title,
       excerpt: data.excerpt || existingPost.excerpt,
@@ -44,15 +41,13 @@ export async function PATCH(
       metaDescription: data.metaDescription || data.excerpt || existingPost.excerpt,
     };
 
-    // Create updated MDX content
     const mdxContent = matter.stringify(data.content || existingPost.content, frontmatter);
 
-    // Save updated MDX file
     const filePath = join(contentDir, `${id}.mdx`);
     await writeFile(filePath, mdxContent, 'utf8');
 
     const updatedPost = {
-      id: id,
+      id,
       slug: id,
       title: frontmatter.title,
       status: frontmatter.isDraft ? 'draft' : 'published',
@@ -64,55 +59,34 @@ export async function PATCH(
       updatedAt: new Date().toISOString(),
     };
 
-    return NextResponse.json({ 
-      success: true, 
-      post: updatedPost 
-    });
+    return json({ success: true, post: updatedPost });
 
   } catch (error) {
     console.error('Update post error:', error);
-    return NextResponse.json(
-      { error: 'Failed to update post' },
-      { status: 500 }
-    );
+    return json({ error: 'Failed to update post' }, { status: 500 });
   }
 }
 
 export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  _request: Request,
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (!session?.user) return json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { id } = await params;
-    
-    // Check if post exists
-    const existingPost = await getPostBySlug(id, true);
-    if (!existingPost) {
-      return NextResponse.json(
-        { error: 'Post not found' },
-        { status: 404 }
-      );
-    }
+    const { id } = await context.params;
 
-    // Delete the MDX file
+    const existingPost = await getPostBySlug(id, true, { bundle: false });
+    if (!existingPost) return json({ error: 'Post not found' }, { status: 404 });
+
     const filePath = join(contentDir, `${id}.mdx`);
     await unlink(filePath);
 
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Post deleted successfully' 
-    });
+    return json({ success: true, message: 'Post deleted successfully' });
 
   } catch (error) {
     console.error('Delete post error:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete post' },
-      { status: 500 }
-    );
+    return json({ error: 'Failed to delete post' }, { status: 500 });
   }
 }

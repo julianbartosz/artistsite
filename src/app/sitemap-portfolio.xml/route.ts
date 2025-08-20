@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAllArtworks } from '@/lib/portfolio';
+import { getAllArtworks } from '@domain/content';
 
 const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://artistsite.com';
 

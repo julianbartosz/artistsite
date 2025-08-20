@@ -1,64 +1,55 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { 
   Order, 
-  CreateOrderRequest, 
   OrderManager, 
   OrderItem,
   OrderTimeline 
-} from '@/lib/orders';
-import { getAllProducts } from '@/lib/commerce';
-import { OrderEmailService } from '@/lib/email';
+} from '@/lib/orders'
+import { getAllProducts } from '@domain/shop'
+import { CreateOrderRequestSchema, GetOrdersQuerySchema } from '@shared/validation/orders'
+import { debug } from '@/lib/debug'
 
 // In-memory order storage (replace with database in production)
-const orders: Map<string, Order> = new Map();
+const orders: Map<string, Order> = new Map()
 
-export async function POST(request: NextRequest) {
+function json(data: any, init: ResponseInit = {}) { 
+  return new Response(JSON.stringify(data), { 
+    ...init, 
+    headers: { 
+      'content-type': 'application/json', 
+      ...(init.headers || {}) 
+    } 
+  }) 
+}
+
+export async function POST(request: Request) {
   try {
-    const body: CreateOrderRequest = await request.json();
-    
-    // Validate required fields
-    if (!body.customerEmail || !body.items || body.items.length === 0) {
-      return NextResponse.json(
-        { error: 'Customer email and items are required' },
-        { status: 400 }
-      );
-    }
+    const body = (await request.json()) as unknown
+    const parsed = CreateOrderRequestSchema.parse(body)
 
     // Validate shipping address
-    const addressErrors = OrderManager.validateShippingAddress(body.shippingAddress);
+    const addressErrors = OrderManager.validateShippingAddress(parsed.shippingAddress)
     if (addressErrors.length > 0) {
-      return NextResponse.json(
+      return json(
         { error: 'Invalid shipping address', details: addressErrors },
         { status: 400 }
-      );
+      )
     }
 
     // Get all products for validation
-    const products = await getAllProducts();
-    
+    const products = await getAllProducts()
+
     // Convert cart items to order items with full product data
-    const orderItems: OrderItem[] = [];
-    for (const item of body.items) {
-      const product = products.find(p => p.id === item.productId);
+    const orderItems: OrderItem[] = []
+    for (const item of parsed.items) {
+      const product = products.find((p) => p.id === item.productId)
       if (!product) {
-        return NextResponse.json(
-          { error: `Product not found: ${item.productId}` },
-          { status: 400 }
-        );
+        return json({ error: `Product not found: ${item.productId}` }, { status: 400 })
       }
+      let unitPrice = product.price
+      if (item.selectedVariant) unitPrice += item.selectedVariant.priceModifier || 0
+      if (item.customizations) unitPrice += item.customizations.reduce((sum, c) => sum + (c.priceModifier || 0), 0)
 
-      // Calculate item pricing
-      let unitPrice = product.price;
-      if (item.selectedVariant) {
-        unitPrice += item.selectedVariant.priceModifier || 0;
-      }
-      if (item.customizations) {
-        unitPrice += item.customizations.reduce((sum, custom) => 
-          sum + (custom.priceModifier || 0), 0
-        );
-      }
-
-      const orderItem: OrderItem = {
+      orderItems.push({
         id: crypto.randomUUID(),
         productId: item.productId,
         product,
@@ -66,30 +57,18 @@ export async function POST(request: NextRequest) {
         selectedVariant: item.selectedVariant,
         customizations: item.customizations,
         unitPrice,
-        totalPrice: unitPrice * item.quantity
-      };
-
-      orderItems.push(orderItem);
+        totalPrice: unitPrice * item.quantity,
+      })
     }
 
-    // Calculate shipping cost
-    const shippingCost = OrderManager.calculateShippingCost(
-      orderItems,
-      body.shippingAddress,
-      body.shippingMethod
-    );
-
-    // Calculate totals
-    const totals = OrderManager.calculateOrderTotals(orderItems, shippingCost);
+    // Calculate shipping and totals
+    const shippingCost = OrderManager.calculateShippingCost(orderItems, parsed.shippingAddress, parsed.shippingMethod)
+    const totals = OrderManager.calculateOrderTotals(orderItems, shippingCost)
 
     // Create initial timeline
     const initialTimeline: OrderTimeline[] = [
-      OrderManager.createTimelineEntry(
-        'pending',
-        OrderManager.getStatusMessage('pending'),
-        'Order created and awaiting payment confirmation'
-      )
-    ];
+      OrderManager.createTimelineEntry('pending', OrderManager.getStatusMessage('pending'), 'Order created and awaiting payment confirmation'),
+    ]
 
     // Create the order
     const order: Order = {
@@ -97,88 +76,64 @@ export async function POST(request: NextRequest) {
       orderNumber: OrderManager.generateOrderNumber(),
       type: 'standard',
       status: 'pending',
-      customerEmail: body.customerEmail,
-      customerId: body.customerId,
+      customerEmail: parsed.customerEmail,
+      customerId: parsed.customerId,
       items: orderItems,
       subtotal: totals.subtotal,
       shipping: totals.shipping,
       tax: totals.tax,
       total: totals.total,
       currency: 'USD',
-      shippingAddress: body.shippingAddress,
-      billingAddress: body.billingAddress || body.shippingAddress,
+      shippingAddress: parsed.shippingAddress,
+      billingAddress: parsed.billingAddress || parsed.shippingAddress,
       paymentStatus: 'pending',
-      shippingMethod: body.shippingMethod || 'standard',
+      shippingMethod: parsed.shippingMethod || 'standard',
       timeline: initialTimeline,
-      specialInstructions: body.specialInstructions,
-      giftMessage: body.giftMessage,
+      specialInstructions: parsed.specialInstructions,
+      giftMessage: parsed.giftMessage,
       createdAt: new Date(),
-      updatedAt: new Date()
-    };
+      updatedAt: new Date(),
+    }
 
     // Store the order
-    orders.set(order.id, order);
+    orders.set(order.id, order)
 
-    console.log(`Order created: ${order.orderNumber} for ${order.customerEmail}`);
-
-    return NextResponse.json({
+    return json({
       success: true,
-      order: {
-        id: order.id,
-        orderNumber: order.orderNumber,
-        status: order.status,
-        total: order.total,
-        currency: order.currency
-      }
-    });
-
+      order: { id: order.id, orderNumber: order.orderNumber, status: order.status, total: order.total, currency: order.currency },
+    })
   } catch (error) {
-    console.error('Error creating order:', error);
-    return NextResponse.json(
-      { error: 'Failed to create order' },
-      { status: 500 }
-    );
+    debug.error('Error creating order', error as Error)
+    return json({ error: 'Failed to create order' }, { status: 500 })
   }
 }
 
-export async function GET(request: NextRequest) {
+export async function GET(request: Request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const customerEmail = searchParams.get('customerEmail');
-    const customerId = searchParams.get('customerId');
-    const status = searchParams.get('status');
+    const { searchParams } = new URL(request.url)
+    const parsed = GetOrdersQuerySchema.safeParse({
+      customerEmail: searchParams.get('customerEmail') ?? undefined,
+      customerId: searchParams.get('customerId') ?? undefined,
+      status: searchParams.get('status') ?? undefined,
+    })
 
-    if (!customerEmail && !customerId) {
-      return NextResponse.json(
-        { error: 'Customer email or ID is required' },
-        { status: 400 }
-      );
+    if (!parsed.success) {
+      return json({ error: 'Invalid query', details: parsed.error.flatten() }, { status: 400 })
     }
 
-    // Filter orders by customer
-    const customerOrders = Array.from(orders.values()).filter(order => {
-      const matchesCustomer = customerEmail 
-        ? order.customerEmail === customerEmail 
-        : order.customerId === customerId;
-      
-      const matchesStatus = status ? order.status === status : true;
-      
-      return matchesCustomer && matchesStatus;
-    });
+    const { customerEmail, customerId, status } = parsed.data
 
-    // Sort by creation date (newest first)
-    customerOrders.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    const customerOrders = Array.from(orders.values()).filter((order) => {
+      const matchesCustomer = customerEmail ? order.customerEmail === customerEmail : order.customerId === customerId
+      const matchesStatus = status ? order.status === status : true
+      return matchesCustomer && matchesStatus
+    })
 
-    return NextResponse.json({
-      success: true,
-      orders: customerOrders
-    });
+    customerOrders.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
 
+    return json({ success: true, orders: customerOrders })
   } catch (error) {
-    console.error('Error fetching orders:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch orders' },
-      { status: 500 }
-    );
+    debug.error('Error fetching orders', error as Error)
+    return json({ error: 'Failed to fetch orders' }, { status: 500 })
   }
 }

@@ -1,5 +1,3 @@
-import { NextRequest, NextResponse } from 'next/server';
-
 interface ErrorReport {
   id: string;
   timestamp: string;
@@ -17,10 +15,17 @@ interface ErrorReport {
 const errorStore: ErrorReport[] = [];
 const maxErrors = 1000; // Keep last 1000 errors in memory
 
-export async function POST(req: NextRequest) {
+function json(data: any, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(data), {
+    ...init,
+    headers: { 'content-type': 'application/json', ...(init.headers || {}) },
+  });
+}
+
+export async function POST(req: Request) {
   try {
     const body = await req.json();
-    
+
     const errorReport: ErrorReport = {
       id: generateErrorId(),
       timestamp: new Date().toISOString(),
@@ -55,7 +60,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Update health metrics
-    await fetch('/api/health', {
+    fetch('/api/health', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -64,55 +69,51 @@ export async function POST(req: NextRequest) {
       }),
     }).catch(() => {}); // Don't fail if health endpoint is down
 
-    return NextResponse.json({ 
-      success: true, 
-      errorId: errorReport.id 
+    return json({
+      success: true,
+      errorId: errorReport.id,
     });
-
   } catch (error) {
     console.error('Failed to process error report:', error);
-    return NextResponse.json(
+    return json(
       { error: 'Failed to process error report' },
       { status: 500 }
     );
   }
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const level = searchParams.get('level');
     const limit = parseInt(searchParams.get('limit') || '50');
-    
+
     let filteredErrors = errorStore;
-    
+
     if (level) {
-      filteredErrors = errorStore.filter(error => error.level === level);
+      filteredErrors = errorStore.filter((error) => error.level === level);
     }
-    
+
     // Return most recent errors first
-    const recentErrors = filteredErrors
-      .slice(-limit)
-      .reverse();
+    const recentErrors = filteredErrors.slice(-limit).reverse();
 
     const summary = {
       total: errorStore.length,
-      errors: errorStore.filter(e => e.level === 'error').length,
-      warnings: errorStore.filter(e => e.level === 'warning').length,
-      lastHour: errorStore.filter(e => {
+      errors: errorStore.filter((e) => e.level === 'error').length,
+      warnings: errorStore.filter((e) => e.level === 'warning').length,
+      lastHour: errorStore.filter((e) => {
         const errorTime = new Date(e.timestamp);
         const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
         return errorTime > oneHourAgo;
       }).length,
     };
 
-    return NextResponse.json({
+    return json({
       summary,
       errors: recentErrors,
     });
-
   } catch (error) {
-    return NextResponse.json(
+    return json(
       { error: 'Failed to retrieve errors' },
       { status: 500 }
     );

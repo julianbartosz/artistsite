@@ -1,4 +1,3 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 
@@ -12,32 +11,31 @@ const mockStats = {
   monthlyViews: 3287,
 };
 
-export async function GET(request: NextRequest) {
+function json(data: any, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(data), {
+    ...init,
+    headers: {
+      'content-type': 'application/json',
+      ...(init.headers || {}),
+    },
+  });
+}
+
+export async function GET(_request: Request) {
   try {
-    // Check authentication
     const session = await getServerSession(authOptions);
     if (!session?.user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // In a real implementation, you would:
-    // 1. Query your database for actual statistics
-    // 2. Calculate views from analytics data
-    // 3. Count posts by status
-    // 4. Aggregate product data
-
-    return NextResponse.json(mockStats, {
+    return json(mockStats, {
       headers: {
         'Cache-Control': 'private, max-age=300', // 5 minutes cache
       },
     });
-    
   } catch (error) {
     console.error('Stats API error:', error);
-    return NextResponse.json(
+    return json(
       { error: 'Failed to fetch statistics' },
       { status: 500 }
     );

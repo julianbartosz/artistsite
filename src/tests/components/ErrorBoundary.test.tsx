@@ -1,5 +1,6 @@
+/* eslint-disable no-console */
 import { render, screen } from '@testing-library/react';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { ErrorBoundary } from '@ui/components/monitoring/ErrorBoundary';
 
 // Mock component that throws an error
 const ThrowError = ({ shouldThrow }: { shouldThrow: boolean }) => {
@@ -54,7 +55,8 @@ describe('ErrorBoundary Component', () => {
       </ErrorBoundary>
     );
     
-    expect(screen.getByText(/Test error/)).toBeInTheDocument();
+    // The message appears in both the message and the stack trace; ensure it's present
+    expect(screen.getAllByText(/Test error/).length).toBeGreaterThan(0);
     
     // Restore original NODE_ENV
     Object.defineProperty(process.env, 'NODE_ENV', {

@@ -1,55 +1,41 @@
-import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
+import { SessionIdSchema } from '@shared/validation/orders'
+import { OrderService, StripePaymentService } from '@domain/orders'
+import { debug } from '@/lib/debug'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-06-30.basil',
-});
+function json(data: any, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(data), {
+    ...init,
+    headers: { 'content-type': 'application/json', ...(init.headers || {}) },
+  })
+}
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   try {
-    const { searchParams } = new URL(req.url);
-    const sessionId = searchParams.get('session_id');
-
-    if (!sessionId) {
-      return NextResponse.json(
-        { error: 'Session ID is required' },
-        { status: 400 }
-      );
+    const { searchParams } = new URL(req.url)
+    const parsed = SessionIdSchema.safeParse({ session_id: searchParams.get('session_id') })
+    if (!parsed.success) {
+      return json({ error: 'Session ID is required' }, { status: 400 })
     }
 
-    // Retrieve the checkout session from Stripe
-    const session = await stripe.checkout.sessions.retrieve(sessionId, {
-      expand: ['line_items', 'customer', 'shipping_cost'],
-    });
-
+    const session = await StripePaymentService.retrieveCheckoutSession(parsed.data.session_id)
     if (session.payment_status !== 'paid') {
-      return NextResponse.json(
-        { error: 'Payment not completed' },
-        { status: 400 }
-      );
+      return json({ error: 'Payment not completed' }, { status: 400 })
     }
 
-    // Format the response
-    const orderDetails = {
-      sessionId: session.id,
-      customerEmail: session.customer_email,
-      amount: session.amount_total,
-      items: session.line_items?.data || [],
-      paymentStatus: session.payment_status,
-      shippingAddress: session.shipping_cost ? {
-        // Use customer_details instead of shipping_details
-        name: session.customer_details?.name,
-        email: session.customer_details?.email,
-        address: session.customer_details?.address
-      } : null,
-    };
+    const { id: orderId, orderNumber } = await OrderService.createOrderFromStripeSession(
+      session as unknown as Parameters<typeof OrderService.createOrderFromStripeSession>[0]
+    )
 
-    return NextResponse.json(orderDetails);
+    return json({
+      success: true,
+      orderId,
+      orderNumber,
+      sessionId: session.id,
+      paymentStatus: session.payment_status,
+      amount: session.amount_total,
+    })
   } catch (error) {
-    console.error('Error retrieving session:', error);
-    return NextResponse.json(
-      { error: 'Failed to retrieve order details' },
-      { status: 500 }
-    );
+    debug.error('Error handling checkout success', error as Error)
+    return json({ error: 'Failed to process order' }, { status: 500 })
   }
 }

@@ -1,0 +1,24 @@
+<svg width="400" height="300" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="energyGradient2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#9C27B0" />
+      <stop offset="50%" stop-color="#E91E63" />
+      <stop offset="100%" stop-color="#FF5722" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Abstract background -->
+  <rect width="400" height="300" fill="#F3E5F5" />
+  
+  <!-- Flowing abstract shapes -->
+  <path d="M0 100 Q100 50 200 100 Q300 150 400 100 L400 200 Q300 150 200 200 Q100 250 0 200 Z" fill="url(#energyGradient2)" opacity="0.7" />
+  
+  <!-- Geometric elements -->
+  <circle cx="150" cy="80" r="30" fill="#673AB7" opacity="0.6" />
+  <polygon points="280,60 320,100 280,140 240,100" fill="#FF9800" opacity="0.8" />
+  <rect x="50" y="180" width="40" height="40" fill="#4CAF50" opacity="0.7" transform="rotate(30 70 200)" />
+  
+  <!-- Dynamic brush strokes -->
+  <path d="M50 250 Q200 180 350 250" stroke="#E91E63" stroke-width="8" fill="none" opacity="0.6" />
+  <path d="M350 50 Q200 120 50 50" stroke="#9C27B0" stroke-width="6" fill="none" opacity="0.5" />
+</svg>

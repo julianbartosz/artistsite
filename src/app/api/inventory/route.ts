@@ -1,62 +1,43 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { InventoryService } from '@/lib/inventory';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 
-export async function GET(request: NextRequest) {
+function json(data: any, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(data), {
+    ...init,
+    headers: { 'content-type': 'application/json', ...(init.headers || {}) }
+  });
+}
+
+export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const productId = searchParams.get('productId');
     const productIds = searchParams.get('productIds')?.split(',');
 
     if (productId) {
-      // Get single product inventory
       const inventory = await InventoryService.getInventoryStatus(productId);
-      return NextResponse.json({
-        success: true,
-        inventory
-      });
+      return json({ success: true, inventory });
     } else if (productIds) {
-      // Get bulk inventory status
       const inventories = await InventoryService.getBulkInventoryStatus(productIds);
-      return NextResponse.json({
-        success: true,
-        inventories: Object.fromEntries(inventories)
-      });
+      return json({ success: true, inventories: Object.fromEntries(inventories) });
     } else {
-      // Get dashboard data (admin only)
       const session = await getServerSession(authOptions);
-      if (!session?.user) {
-        return NextResponse.json(
-          { success: false, error: 'Unauthorized' },
-          { status: 401 }
-        );
-      }
+      if (!session?.user) return json({ success: false, error: 'Unauthorized' }, { status: 401 });
 
       const dashboardData = await InventoryService.getDashboardData();
-      return NextResponse.json({
-        success: true,
-        ...dashboardData
-      });
+      return json({ success: true, ...dashboardData });
     }
   } catch (error) {
     console.error('Inventory API error:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to get inventory data' },
-      { status: 500 }
-    );
+    return json({ success: false, error: 'Failed to get inventory data' }, { status: 500 });
   }
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    if (!session?.user) return json({ success: false, error: 'Unauthorized' }, { status: 401 });
 
     const body = await request.json();
     const { action, productId, quantity, type, reason, notes } = body;
@@ -82,7 +63,7 @@ export async function POST(request: NextRequest) {
         });
         break;
 
-      case 'reserve':
+      case 'reserve': {
         const reservationId = await InventoryService.reserveStock(
           productId,
           quantity,
@@ -93,10 +74,8 @@ export async function POST(request: NextRequest) {
             cartSessionId: body.cartSessionId
           }
         );
-        return NextResponse.json({
-          success: true,
-          reservationId
-        });
+        return json({ success: true, reservationId });
+      }
 
       case 'release':
         await InventoryService.releaseReservation(body.reservationId);
@@ -111,22 +90,12 @@ export async function POST(request: NextRequest) {
         break;
 
       default:
-        return NextResponse.json(
-          { success: false, error: 'Invalid action' },
-          { status: 400 }
-        );
+        return json({ success: false, error: 'Invalid action' }, { status: 400 });
     }
 
-    return NextResponse.json({
-      success: true,
-      message: 'Inventory updated successfully'
-    });
-
+    return json({ success: true, message: 'Inventory updated successfully' });
   } catch (error) {
     console.error('Inventory update error:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to update inventory' },
-      { status: 500 }
-    );
+    return json({ success: false, error: 'Failed to update inventory' }, { status: 500 });
   }
 }

@@ -1,25 +1,13 @@
 import { withApiErrorHandler, ApiError } from '@/lib/api-error-handler';
-import { NextRequest, NextResponse } from 'next/server';
-
-// Mock NextRequest and NextResponse
-jest.mock('next/server', () => ({
-  NextRequest: jest.fn(),
-  NextResponse: {
-    json: jest.fn((data, options) => ({ json: data, status: options?.status || 200 })),
-  },
-}));
 
 describe('API Error Handler', () => {
-  let mockRequest: jest.Mocked<NextRequest>;
+  let mockRequest: Request & { json: jest.Mock };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockRequest = {
-      json: jest.fn(),
-      headers: new Headers(),
-      url: 'http://localhost:3000/api/test',
-      method: 'POST',
-    } as any;
+    mockRequest = Object.assign(new Request('http://localhost:3000/api/test', { method: 'POST' }), {
+      json: jest.fn().mockResolvedValue({})
+    });
   });
 
   describe('ApiError', () => {

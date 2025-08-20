@@ -3,11 +3,11 @@ import React, { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { formatPrice, Product } from '@/lib/commerce';
-import AddToCartButton from '@/components/AddToCartButton';
-import ProductRecommendations from '@/components/ProductRecommendations';
-import RecentlyViewed from '@/components/RecentlyViewed';
-import StockIndicator from '@/components/StockIndicator';
+import { formatPrice, Product } from '@domain/shop';
+import AddToCartButton from '@ui/components/cart/AddToCartButton';
+import ProductRecommendations from '@ui/components/commerce/ProductRecommendations';
+import RecentlyViewed from '@ui/components/commerce/RecentlyViewed';
+import StockIndicator from '@ui/components/commerce/StockIndicator';
 
 interface ProductPageClientProps {
   product: Product;

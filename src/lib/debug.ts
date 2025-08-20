@@ -38,12 +38,15 @@ export class DebugLogger {
   }
 
   private shouldLog(level: string): boolean {
-    if (!this.config.enabled) return false
-    
+    // Determine enabled dynamically so tests that change NODE_ENV at runtime work
+    const envEnabled = process.env.NODE_ENV === 'development'
+    const enabled = this.config.enabled || envEnabled
+    if (!enabled) return false
+
     const levels = ['error', 'warn', 'info', 'debug']
     const configLevelIndex = levels.indexOf(this.config.level)
     const messageLevelIndex = levels.indexOf(level)
-    
+
     return messageLevelIndex <= configLevelIndex
   }
 

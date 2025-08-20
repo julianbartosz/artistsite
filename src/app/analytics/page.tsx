@@ -1,5 +1,5 @@
 import { Metadata } from 'next'
-import AnalyticsDashboard from '@/components/AnalyticsDashboard'
+import AnalyticsDashboard from '@ui/components/analytics/AnalyticsDashboard'
 import { Suspense } from 'react'
 
 export const metadata: Metadata = {

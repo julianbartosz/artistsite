@@ -1,9 +1,18 @@
+// Mock analytics hook to avoid requiring provider
+jest.mock('@ui/components/analytics/AnalyticsProvider', () => ({
+  useNewsletterTracking: () => ({
+    trackFormView: jest.fn(),
+    trackSignup: jest.fn(),
+  }),
+}));
+
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { NewsletterSignup } from '@/components/NewsletterSignup';
+import { NewsletterSignup } from '@ui/components/marketing/NewsletterSignup';
 
 // Mock fetch
 const mockFetch = jest.fn();
+// @ts-expect-error - assign to global for tests
 global.fetch = mockFetch;
 
 describe('NewsletterSignup Component', () => {

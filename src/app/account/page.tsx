@@ -3,6 +3,7 @@ import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { IconShoppingBag, IconChatBubble, IconImage } from '@ui/icons';
 
 interface Order {
   id: string;
@@ -116,9 +117,7 @@ export default function AccountPage() {
                   {orders.length === 0 ? (
                     <div className="text-center py-8">
                       <div className="text-gray-400 mb-4">
-                        <svg className="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                        </svg>
+                        <IconShoppingBag className="mx-auto h-12 w-12" />
                       </div>
                       <h3 className="text-sm font-medium text-gray-900 mb-2">No orders yet</h3>
                       <p className="text-sm text-gray-500 mb-4">Start shopping to see your orders here.</p>
@@ -171,27 +170,21 @@ export default function AccountPage() {
                 href="/shop"
                 className="flex items-center justify-center px-4 py-3 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
               >
-                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                </svg>
+                <IconShoppingBag className="w-5 h-5 mr-2" />
                 Continue Shopping
               </Link>
               <Link
                 href="/contact"
                 className="flex items-center justify-center px-4 py-3 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
               >
-                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-3.582 8-8 8a8.959 8.959 0 01-4.906-1.439L3 20l1.439-5.094A8.959 8.959 0 013 12c0-4.418 3.582-8 8-8s8 3.582 8 8z" />
-                </svg>
+                <IconChatBubble className="w-5 h-5 mr-2" />
                 Contact Support
               </Link>
               <Link
                 href="/portfolio"
                 className="flex items-center justify-center px-4 py-3 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
               >
-                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
+                <IconImage className="w-5 h-5 mr-2" />
                 View Portfolio
               </Link>
             </div>

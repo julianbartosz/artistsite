@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { useCart } from '@/components/CartContext';
+import { useCart } from '@ui/components/cart/context/CartContext';
 import { Suspense } from 'react';
+import { IconCheck, IconCheckCircleSolid } from '@ui/icons';
 
 interface OrderDetails {
   sessionId: string;
@@ -68,9 +69,7 @@ function CheckoutSuccessContent() {
           {/* Success Icon */}
           <div className="text-center mb-8">
             <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-100 mb-4">
-              <svg className="h-8 w-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
+              <IconCheck className="h-8 w-8 text-green-600" />
             </div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Order Confirmed!</h1>
             <p className="text-lg text-gray-600">Thank you for your purchase</p>
@@ -102,27 +101,19 @@ function CheckoutSuccessContent() {
                 <h3 className="font-semibold text-gray-900 mb-4">What happens next?</h3>
                 <ul className="space-y-2 text-sm text-gray-600">
                   <li className="flex items-start gap-2">
-                    <svg className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                    </svg>
+                    <IconCheckCircleSolid className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
                     You&apos;ll receive an order confirmation email shortly
                   </li>
                   <li className="flex items-start gap-2">
-                    <svg className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                    </svg>
+                    <IconCheckCircleSolid className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
                     We&apos;ll prepare your artwork for shipping within 2-3 business days
                   </li>
                   <li className="flex items-start gap-2">
-                    <svg className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                    </svg>
+                    <IconCheckCircleSolid className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
                     You&apos;ll receive tracking information once your order ships
                   </li>
                   <li className="flex items-start gap-2">
-                    <svg className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                    </svg>
+                    <IconCheckCircleSolid className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
                     All artwork is carefully packaged and fully insured
                   </li>
                 </ul>

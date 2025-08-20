@@ -1,10 +1,10 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { useCart } from '@/components/CartContext';
-import AddToCartButton from '@/components/AddToCartButton';
-import { Product } from '@/lib/commerce';
+import { useCart } from '@ui/components/cart/context/CartContext';
+import AddToCartButton from '@ui/components/cart/AddToCartButton';
+import { Product } from '@domain/shop';
 
-// Mock the cart context
-jest.mock('@/components/CartContext');
+// Mock the cart context (match real import path used inside implementation)
+jest.mock('@ui/components/cart/context/CartContext');
 const mockUseCart = useCart as jest.MockedFunction<typeof useCart>;
 
 const mockProduct: Product = {

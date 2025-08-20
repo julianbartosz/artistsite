@@ -1,10 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/db';
 import bcrypt from 'bcryptjs';
 
-const prisma = new PrismaClient();
-
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { email, password, firstName, lastName, phone } = body;
@@ -76,7 +74,6 @@ export async function POST(request: NextRequest) {
       message: 'User created successfully',
       user
     });
-
   } catch (error) {
     console.error('Registration error:', error);
     return NextResponse.json(

@@ -1,0 +1,32 @@
+<svg width="400" height="300" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <pattern id="charcoalTexture" patternUnits="userSpaceOnUse" width="20" height="20">
+      <circle cx="10" cy="10" r="1" fill="#424242" opacity="0.3" />
+    </pattern>
+  </defs>
+  
+  <!-- Paper texture background -->
+  <rect width="400" height="300" fill="#F8F8F8" />
+  
+  <!-- Water surface - top half -->
+  <ellipse cx="200" cy="80" rx="180" ry="60" fill="#E0E0E0" />
+  
+  <!-- Reflections - charcoal strokes -->
+  <path d="M50 120 Q200 140 350 120" stroke="#424242" stroke-width="3" fill="none" opacity="0.8" />
+  <path d="M70 130 Q200 150 330 130" stroke="#616161" stroke-width="2" fill="none" opacity="0.6" />
+  <path d="M90 125 Q200 135 310 125" stroke="#757575" stroke-width="1.5" fill="none" opacity="0.7" />
+  
+  <!-- Ripples -->
+  <ellipse cx="150" cy="140" rx="30" ry="8" fill="none" stroke="#9E9E9E" stroke-width="1" opacity="0.5" />
+  <ellipse cx="250" cy="135" rx="25" ry="6" fill="none" stroke="#9E9E9E" stroke-width="1" opacity="0.4" />
+  
+  <!-- Darker water areas -->
+  <path d="M100 160 Q200 180 300 160 Q200 200 100 160" fill="#BDBDBD" opacity="0.6" />
+  
+  <!-- Light reflections -->
+  <path d="M120 145 L125 155 L130 145" fill="#F5F5F5" opacity="0.9" />
+  <path d="M270 142 L275 152 L280 142" fill="#F5F5F5" opacity="0.8" />
+  
+  <!-- Charcoal texture overlay -->
+  <rect width="400" height="300" fill="url(#charcoalTexture)" opacity="0.1" />
+</svg>

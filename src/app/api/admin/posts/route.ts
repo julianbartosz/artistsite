@@ -1,19 +1,22 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
-import { getAllPosts } from '@/lib/markdown';
+import { getAllPosts } from '@domain/content';
 import matter from 'gray-matter';
 
 // Remove mock data - we'll use real MDX files
 const contentDir = join(process.cwd(), 'src', 'content', 'blog');
 
+function json(data: any, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(data), { ...init, headers: { 'content-type': 'application/json', ...(init.headers || {}) } });
+}
+
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Get all posts including drafts for admin view
@@ -32,7 +35,7 @@ export async function GET() {
       tags: post.tags || [],
     }));
 
-    return NextResponse.json(adminPosts, {
+    return json(adminPosts, {
       headers: {
         'Cache-Control': 'private, max-age=60',
       },
@@ -40,22 +43,22 @@ export async function GET() {
   } catch (error) {
     // Using proper error logging would be better than console in production
     console.error('Posts API error:', error);
-    return NextResponse.json({ error: 'Failed to fetch posts' }, { status: 500 });
+    return json({ error: 'Failed to fetch posts' }, { status: 500 });
   }
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const data = await request.json();
     
     // Validate required fields
     if (!data.title || !data.content || !data.slug) {
-      return NextResponse.json(
+      return json(
         { error: 'Missing required fields' },
         { status: 400 }
       );
@@ -65,7 +68,7 @@ export async function POST(request: NextRequest) {
     const frontmatter = {
       title: data.title,
       excerpt: data.excerpt || '',
-      publishedAt: data.status === 'published' ? new Date().toISOString() : new Date().toISOString(),
+      publishedAt: new Date().toISOString(),
       isDraft: data.status !== 'published',
       tags: data.tags || [],
       author: session.user.name || 'Artist',
@@ -84,7 +87,7 @@ export async function POST(request: NextRequest) {
       await writeFile(filePath, mdxContent, 'utf8');
     } catch (fileError) {
       console.error('Could not save MDX file:', fileError);
-      return NextResponse.json(
+      return json(
         { error: 'Failed to save blog post' },
         { status: 500 }
       );
@@ -105,14 +108,14 @@ export async function POST(request: NextRequest) {
       updatedAt: new Date().toISOString(),
     };
 
-    return NextResponse.json({ 
+    return json({ 
       success: true, 
       post: newPost 
     }, { status: 201 });
 
   } catch (error) {
     console.error('Create post error:', error);
-    return NextResponse.json(
+    return json(
       { error: 'Failed to create post' },
       { status: 500 }
     );

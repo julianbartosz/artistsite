@@ -1,8 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
-import { getAllPosts } from "@/lib/markdown";
-import { getFeaturedArtworks } from "@/lib/portfolio";
-import { NewsletterSignup } from "@/components/NewsletterSignup";
+import { getAllPosts, getFeaturedArtworks } from '@domain/content';
+import { NewsletterSignup } from "@ui/components/marketing/NewsletterSignup";
 
 export default async function Home() {
   const [recentPosts, featuredArtworks] = await Promise.all([

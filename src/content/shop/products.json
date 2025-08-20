@@ -12,10 +12,10 @@
     "availability": "available",
     "featured": true,
     "images": {
-      "thumbnail": "/images/shop/placeholder-1.jpg",
+      "thumbnail": "/images/shop/placeholder-1.svg",
       "gallery": [
-        "/images/shop/placeholder-1.jpg",
-        "/images/shop/placeholder-2.jpg"
+        "/images/shop/placeholder-1.svg",
+        "/images/shop/placeholder-2.svg"
       ]
     },
     "tags": ["urban", "landscape", "oil", "contemporary"],
@@ -84,9 +84,9 @@
     "availability": "available",
     "featured": false,
     "images": {
-      "thumbnail": "/images/shop/placeholder-3.jpg",
+      "thumbnail": "/images/shop/placeholder-3.svg",
       "gallery": [
-        "/images/shop/placeholder-3.jpg"
+        "/images/shop/placeholder-3.svg"
       ]
     },
     "tags": ["charcoal", "study", "water", "monochrome"],
@@ -156,11 +156,11 @@
     "availability": "sold",
     "featured": true,
     "images": {
-      "thumbnail": "/images/shop/placeholder-4.jpg",
+      "thumbnail": "/images/shop/placeholder-4.svg",
       "gallery": [
-        "/images/shop/placeholder-4.jpg",
-        "/images/shop/placeholder-5.jpg",
-        "/images/shop/placeholder-6.jpg"
+        "/images/shop/placeholder-4.svg",
+        "/images/shop/placeholder-5.svg",
+        "/images/shop/placeholder-6.svg"
       ]
     },
     "tags": ["mixed-media", "abstract", "urban", "contemporary"],
@@ -200,9 +200,9 @@
       "remaining": 23
     },
     "images": {
-      "thumbnail": "/images/shop/placeholder-7.jpg",
+      "thumbnail": "/images/shop/placeholder-7.svg",
       "gallery": [
-        "/images/shop/placeholder-7.jpg"
+        "/images/shop/placeholder-7.svg"
       ]
     },
     "tags": ["print", "limited-edition", "affordable", "gift"],
@@ -289,10 +289,10 @@
     "availability": "available",
     "featured": false,
     "images": {
-      "thumbnail": "/images/shop/placeholder-8.jpg",
+      "thumbnail": "/images/shop/placeholder-8.svg",
       "gallery": [
-        "/images/shop/placeholder-8.jpg",
-        "/images/shop/placeholder-9.jpg"
+        "/images/shop/placeholder-8.svg",
+        "/images/shop/placeholder-9.svg"
       ]
     },
     "tags": ["sketches", "collection", "urban", "studies"],
@@ -340,10 +340,10 @@
     "availability": "commissioned",
     "featured": true,
     "images": {
-      "thumbnail": "/images/shop/placeholder-10.jpg",
+      "thumbnail": "/images/shop/placeholder-10.svg",
       "gallery": [
-        "/images/shop/placeholder-10.jpg",
-        "/images/shop/placeholder-11.jpg"
+        "/images/shop/placeholder-10.svg",
+        "/images/shop/placeholder-11.svg"
       ]
     },
     "tags": ["portrait", "commission", "custom", "personal"],

@@ -1,10 +1,11 @@
 import { notFound } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { getArtworkBySlug, getArtworkSlugs } from '@/lib/portfolio';
-import { MDXContent } from '@/components/MDXContent';
+import { getArtworkBySlug, getArtworkSlugs } from '@domain/content';
+import { MDXContent } from '@ui/components/content/MDXContent';
 import { generatePortfolioMetadata } from '@/lib/seo';
-import { StructuredData, generateVisualArtworkSchema, generateBreadcrumbSchema } from '@/components/StructuredData';
+import { StructuredData } from '@ui/components/content/seo';
+import { generateVisualArtworkSchema, generateBreadcrumbSchema } from '@domain/seo';
 
 interface ArtworkDetailProps {
   params: Promise<{ slug: string }>;

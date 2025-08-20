@@ -1,8 +1,6 @@
 'use client';
-import { useSession } from 'next-auth/react';
-import { redirect } from 'next/navigation';
-import InventoryDashboard from '@/components/InventoryDashboard';
-import { AuthGuard } from '@/components/AuthGuard';
+import InventoryDashboard from '@ui/components/commerce/inventory/InventoryDashboard';
+import { AuthGuard } from '@ui/components/auth/AuthGuard';
 
 export default function InventoryPage() {
   return (

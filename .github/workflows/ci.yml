@@ -38,6 +38,19 @@ jobs:
     - name: ESLint
       run: npm run lint
       
+    - name: Dependency boundaries check
+      run: npm run depgraph:check
+      
+    - name: Generate dependency graph artifacts
+      run: npm run depgraph:all
+      
+    - name: Upload dependency graph artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: dependency-graph
+        path: docs/dep-graph/
+        retention-days: 7
+    
     - name: Run tests with coverage
       run: npm run test:ci
       env:
