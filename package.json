@@ -47,7 +47,8 @@
     "syn:readiness": "k6 run synthetics/k6/api/readiness.k6.js",
     "syn:search": "k6 run synthetics/k6/api/search.k6.js",
     "syn:uptime": "for f in synthetics/k6/uptime/*.k6.js; do k6 run $f; done",
-    "syn:all": "npm run syn:uptime && npm run syn:health && npm run syn:readiness && npm run syn:search"
+    "syn:all": "npm run syn:uptime && npm run syn:health && npm run syn:readiness && npm run syn:search",
+    "syn:grafana:provision": "node synthetics/grafana/create-checks.js"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.10.0",

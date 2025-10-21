@@ -31,15 +31,18 @@ jobs:
             k6 inspect "$script"
           done
 
-      - name: Note on check provisioning
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Provision Synthetic Monitoring checks
+        env:
+          GRAFANA_SM_API_URL: ${{ secrets.GRAFANA_SM_API_URL }}
+          GRAFANA_SM_ACCESS_TOKEN: ${{ secrets.GRAFANA_SM_API_TOKEN }}
+          GRAFANA_CLOUD_STACK_ID: ${{ secrets.GRAFANA_CLOUD_STACK_ID }}
+          SYNTHETIC_BASE_URL: https://michalelena.me
+          GRAFANA_SM_PROBES: "1,3,8"
         run: |
-          echo "✅ Smoke tests passed"
-          echo "📋 To provision checks in Grafana Cloud:"
-          echo "   1. Navigate to Grafana Cloud → Synthetic Monitoring → Checks"
-          echo "   2. Create checks manually using these scripts as reference"
-          echo "   3. Configure alert policies and notification channels"
-          echo ""
-          echo "Secrets configured:"
-          echo "  - GRAFANA_SM_API_URL: ${{ secrets.GRAFANA_SM_API_URL != '' && '✅' || '❌' }}"
-          echo "  - GRAFANA_SM_API_TOKEN: ${{ secrets.GRAFANA_SM_API_TOKEN != '' && '✅' || '❌' }}"
-          echo "  - GRAFANA_CLOUD_STACK_ID: ${{ secrets.GRAFANA_CLOUD_STACK_ID != '' && '✅' || '❌' }}"
+          echo "🚀 Provisioning Synthetic Monitoring checks..."
+          node synthetics/grafana/create-checks.js --verbose
