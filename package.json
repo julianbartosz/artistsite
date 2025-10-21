@@ -41,7 +41,13 @@
     "ci:full": "npm run lint && npm run type-check && npm run test:full && npm run security:scan && npm run build",
     "monitoring:dashboard": "echo 'Visit http://localhost:3000/debug/monitoring for monitoring dashboard'",
     "precommit": "npm run lint && npm run type-check && npm run test:ci",
-    "playwright:install": "playwright install"
+    "playwright:install": "playwright install",
+    "syn:smoke": "export SYNTHETIC_BASE_URL=https://michalelena.me && k6 run synthetics/k6/uptime/homepage.k6.js && k6 run synthetics/k6/api/health.k6.js",
+    "syn:health": "k6 run synthetics/k6/api/health.k6.js",
+    "syn:readiness": "k6 run synthetics/k6/api/readiness.k6.js",
+    "syn:search": "k6 run synthetics/k6/api/search.k6.js",
+    "syn:uptime": "for f in synthetics/k6/uptime/*.k6.js; do k6 run $f; done",
+    "syn:all": "npm run syn:uptime && npm run syn:health && npm run syn:readiness && npm run syn:search"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.10.0",

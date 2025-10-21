@@ -12,12 +12,24 @@
   "ignorePatterns": [
     "node_modules/**",
     ".next/**",
-    "out/**", 
+    "out/**",
     "build/**",
     "coverage/**",
     "*.config.js",
     "*.config.mjs",
     "*.config.ts",
     "dist/**"
+  ],
+  "overrides": [
+    {
+      "files": [
+        "synthetics/**/*.js"
+      ],
+      "rules": {
+        "no-console": "off",
+        "import/no-unresolved": "off",
+        "import/no-default-export": "off"
+      }
+    }
   ]
 }

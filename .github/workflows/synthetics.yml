@@ -1,0 +1,45 @@
+name: Synthetic Monitoring
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'synthetics/**'
+      - '.github/workflows/synthetics.yml'
+  schedule:
+    - cron: '0 */2 * * *'
+
+jobs:
+  synthetics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: grafana/setup-k6-action@v1
+
+      - name: Smoke test (local)
+        env:
+          SYNTHETIC_BASE_URL: https://michalelena.me
+        run: |
+          k6 run synthetics/k6/uptime/homepage.k6.js
+          k6 run synthetics/k6/api/health.k6.js
+
+      - name: Validate all scripts
+        run: |
+          for script in synthetics/k6/**/*.k6.js; do
+            echo "Validating $script"
+            k6 inspect "$script"
+          done
+
+      - name: Note on check provisioning
+        run: |
+          echo "✅ Smoke tests passed"
+          echo "📋 To provision checks in Grafana Cloud:"
+          echo "   1. Navigate to Grafana Cloud → Synthetic Monitoring → Checks"
+          echo "   2. Create checks manually using these scripts as reference"
+          echo "   3. Configure alert policies and notification channels"
+          echo ""
+          echo "Secrets configured:"
+          echo "  - GRAFANA_SM_API_URL: ${{ secrets.GRAFANA_SM_API_URL != '' && '✅' || '❌' }}"
+          echo "  - GRAFANA_SM_API_TOKEN: ${{ secrets.GRAFANA_SM_API_TOKEN != '' && '✅' || '❌' }}"
+          echo "  - GRAFANA_CLOUD_STACK_ID: ${{ secrets.GRAFANA_CLOUD_STACK_ID != '' && '✅' || '❌' }}"
