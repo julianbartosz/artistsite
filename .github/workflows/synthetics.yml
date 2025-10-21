@@ -43,8 +43,9 @@ jobs:
       - name: Preflight - SM API probes sanity
         run: |
           set -e
-          echo "Base URL: $GRAFANA_SM_API_URL"
+          echo "Base URL prefix: ${GRAFANA_SM_API_URL:0:40}..."
           echo "Stack ID: $GRAFANA_CLOUD_STACK_ID"
+          echo "Token prefix: ${GRAFANA_SM_API_TOKEN:0:10}..."
           echo "Token length: ${#GRAFANA_SM_API_TOKEN}"
           echo "Full endpoint: $GRAFANA_SM_API_URL/api/v1/probes"
           echo ""
