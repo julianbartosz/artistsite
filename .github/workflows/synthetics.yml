@@ -3,7 +3,7 @@ name: Synthetic Monitoring
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, feature/synthetic-monitoring-clean-v2]
     paths:
       - 'synthetics/**'
       - '.github/workflows/synthetics.yml'
