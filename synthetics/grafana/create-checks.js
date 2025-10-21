@@ -65,12 +65,17 @@ if (isVerbose) {
 
 // HTTP client wrapper
 async function apiRequest(method, path, body = null) {
-  const url = `${GRAFANA_SM_API_URL}${path}`;
+  // Ensure the API URL doesn't end with a slash and path starts with one
+  const baseUrl = GRAFANA_SM_API_URL.replace(/\/$/, '');
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const url = `${baseUrl}${cleanPath}`;
+  
   const options = {
     method,
     headers: {
       'Authorization': `Bearer ${GRAFANA_SM_ACCESS_TOKEN}`,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'X-Stack-ID': GRAFANA_CLOUD_STACK_ID
     }
   };
 
@@ -79,8 +84,8 @@ async function apiRequest(method, path, body = null) {
   }
 
   if (isVerbose) {
-    const redactedToken = GRAFANA_SM_ACCESS_TOKEN.substring(0, 8) + '...' + GRAFANA_SM_ACCESS_TOKEN.slice(-4);
-    console.log(`📡 ${method} ${path}`);
+    console.log(`📡 ${method} ${cleanPath}`);
+    console.log(`   URL: ${url.substring(0, 60)}...`);
     if (body && method !== 'GET') {
       console.log(`   Body: ${JSON.stringify(body, null, 2).substring(0, 200)}...`);
     }
@@ -98,7 +103,9 @@ async function apiRequest(method, path, body = null) {
 
     if (!response.ok) {
       if (isVerbose) {
-        console.error(`❌ HTTP ${response.status}: ${text}`);
+        console.error(`❌ HTTP ${response.status} ${response.statusText}`);
+        console.error(`   URL: ${url}`);
+        console.error(`   Response: ${text.substring(0, 500)}`);
       }
       throw new Error(`API request failed: ${response.status} ${response.statusText}\n${text}`);
     }
