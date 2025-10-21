@@ -43,9 +43,11 @@ jobs:
       - name: Preflight - SM API probes sanity
         run: |
           set -e
-          echo "Base: $GRAFANA_SM_API_URL"
-          echo "Stack: $GRAFANA_CLOUD_STACK_ID"
+          echo "Base URL: $GRAFANA_SM_API_URL"
+          echo "Stack ID: $GRAFANA_CLOUD_STACK_ID"
           echo "Token length: ${#GRAFANA_SM_API_TOKEN}"
+          echo "Full endpoint: $GRAFANA_SM_API_URL/api/v1/probes"
+          echo ""
           code=$(curl -sS -o /tmp/probes.json -w "%{http_code}" \
             -H "Authorization: Bearer $GRAFANA_SM_API_TOKEN" \
             -H "X-Stack-Id: $GRAFANA_CLOUD_STACK_ID" \
@@ -54,6 +56,11 @@ jobs:
           if [ "$code" != "200" ]; then
             echo "❌ Preflight failed. Dumping response:"
             cat /tmp/probes.json || true
+            echo ""
+            echo "💡 Common issues:"
+            echo "  - GRAFANA_SM_API_URL should be: https://synthetic-monitoring-api-<region>.grafana.net"
+            echo "  - NOT your Grafana Cloud URL (https://<stack>.grafana.net)"
+            echo "  - Check: https://grafana.com/docs/grafana-cloud/testing/synthetic-monitoring/set-up/configure-api-access/"
             exit 1
           fi
           jq '.[0] // {}' /tmp/probes.json || cat /tmp/probes.json
