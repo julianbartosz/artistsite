@@ -4,17 +4,21 @@
  * Helps diagnose 404 errors by testing different token/header combinations
  */
 
-const { GRAFANA_SM_ACCESS_TOKEN, GRAFANA_CLOUD_STACK_ID } = process.env;
+const TOKEN = process.env.GRAFANA_SM_API_TOKEN || process.env.GRAFANA_SM_ACCESS_TOKEN;
+const STACK_ID = process.env.GRAFANA_CLOUD_STACK_ID;
+const BASE_URL = process.env.GRAFANA_SM_API_URL;
 
-if (!GRAFANA_SM_ACCESS_TOKEN || !GRAFANA_CLOUD_STACK_ID) {
-  console.error('❌ Missing GRAFANA_SM_ACCESS_TOKEN or GRAFANA_CLOUD_STACK_ID');
+if (!TOKEN || !STACK_ID || !BASE_URL) {
+  console.error('❌ Missing required environment variables');
+  console.error('   Need: GRAFANA_SM_API_TOKEN, GRAFANA_CLOUD_STACK_ID, GRAFANA_SM_API_URL');
   process.exit(1);
 }
 
 console.log('🔐 Auth Diagnostics\n');
-console.log(`Token length: ${GRAFANA_SM_ACCESS_TOKEN.length}`);
-console.log(`Token prefix: ${GRAFANA_SM_ACCESS_TOKEN.substring(0, 10)}...`);
-console.log(`Stack ID: ${GRAFANA_CLOUD_STACK_ID}`);
+console.log(`SM API URL: ${BASE_URL}`);
+console.log(`Token length: ${TOKEN.length}`);
+console.log(`Token prefix: ${TOKEN.substring(0, 10)}...`);
+console.log(`Stack ID: ${STACK_ID}`);
 console.log('');
 
 async function testEndpoint(baseUrl, headers) {
@@ -37,46 +41,41 @@ async function testEndpoint(baseUrl, headers) {
 }
 
 async function runTests() {
-  const bases = [
-    'https://synthetic-monitoring-api-us-east-0.grafana.net',
-    'https://synthetic-monitoring-api.grafana.net'
-  ];
+  const url = `${BASE_URL.replace(/\/+$/, '')}/api/v1/probes`;
   
   const headerVariants = [
     {
       name: 'X-Stack-Id (correct)',
       headers: {
-        'Authorization': `Bearer ${GRAFANA_SM_ACCESS_TOKEN}`,
-        'X-Stack-Id': GRAFANA_CLOUD_STACK_ID,
+        'Authorization': `Bearer ${TOKEN}`,
+        'X-Stack-Id': STACK_ID,
         'Content-Type': 'application/json'
       }
     },
     {
       name: 'X-Stack-ID (wrong casing)',
       headers: {
-        'Authorization': `Bearer ${GRAFANA_SM_ACCESS_TOKEN}`,
-        'X-Stack-ID': GRAFANA_CLOUD_STACK_ID,
+        'Authorization': `Bearer ${TOKEN}`,
+        'X-Stack-ID': STACK_ID,
         'Content-Type': 'application/json'
       }
     },
     {
       name: 'No X-Stack header',
       headers: {
-        'Authorization': `Bearer ${GRAFANA_SM_ACCESS_TOKEN}`,
+        'Authorization': `Bearer ${TOKEN}`,
         'Content-Type': 'application/json'
       }
     }
   ];
   
-  for (const base of bases) {
-    console.log(`\n${'='.repeat(70)}`);
-    console.log(`Testing: ${base}`);
-    console.log('='.repeat(70));
-    
-    for (const variant of headerVariants) {
-      console.log(`\n🧪 Variant: ${variant.name}`);
-      await testEndpoint(base, variant.headers);
-    }
+  console.log(`\n${'='.repeat(70)}`);
+  console.log(`Testing: ${url}`);
+  console.log('='.repeat(70));
+  
+  for (const variant of headerVariants) {
+    console.log(`\n🧪 Variant: ${variant.name}`);
+    await testEndpoint(url, variant.headers);
   }
   
   console.log('\n\n💡 Troubleshooting tips:');

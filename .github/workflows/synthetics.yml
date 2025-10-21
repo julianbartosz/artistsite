@@ -13,13 +13,17 @@ on:
 jobs:
   synthetics:
     runs-on: ubuntu-latest
+    env:
+      NODE_VERSION: '22'
+      SYNTHETIC_BASE_URL: 'https://michalelena.me'
+      GRAFANA_SM_API_URL: ${{ secrets.GRAFANA_SM_API_URL }}
+      GRAFANA_SM_API_TOKEN: ${{ secrets.GRAFANA_SM_API_TOKEN }}
+      GRAFANA_CLOUD_STACK_ID: ${{ secrets.GRAFANA_CLOUD_STACK_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: grafana/setup-k6-action@v1
 
       - name: Smoke test (local)
-        env:
-          SYNTHETIC_BASE_URL: https://michalelena.me
         run: |
           k6 run synthetics/k6/uptime/homepage.k6.js
           k6 run synthetics/k6/api/health.k6.js
@@ -36,13 +40,25 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Preflight - SM API probes sanity
+        run: |
+          set -e
+          echo "Base: $GRAFANA_SM_API_URL"
+          echo "Stack: $GRAFANA_CLOUD_STACK_ID"
+          echo "Token length: ${#GRAFANA_SM_API_TOKEN}"
+          code=$(curl -sS -o /tmp/probes.json -w "%{http_code}" \
+            -H "Authorization: Bearer $GRAFANA_SM_API_TOKEN" \
+            -H "X-Stack-Id: $GRAFANA_CLOUD_STACK_ID" \
+            "$GRAFANA_SM_API_URL/api/v1/probes")
+          echo "HTTP $code from /api/v1/probes"
+          if [ "$code" != "200" ]; then
+            echo "❌ Preflight failed. Dumping response:"
+            cat /tmp/probes.json || true
+            exit 1
+          fi
+          jq '.[0] // {}' /tmp/probes.json || cat /tmp/probes.json
+
       - name: Provision Synthetic Monitoring checks
-        env:
-          GRAFANA_SM_API_URL: ${{ secrets.GRAFANA_SM_API_URL }}
-          GRAFANA_SM_ACCESS_TOKEN: ${{ secrets.GRAFANA_SM_API_TOKEN }}
-          GRAFANA_CLOUD_STACK_ID: ${{ secrets.GRAFANA_CLOUD_STACK_ID }}
-          SYNTHETIC_BASE_URL: https://michalelena.me
-          GRAFANA_SM_PROBES: "1,3,8"
         run: |
           echo "🚀 Provisioning Synthetic Monitoring checks..."
           node synthetics/grafana/create-checks.js --verbose

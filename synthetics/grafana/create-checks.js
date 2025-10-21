@@ -25,122 +25,98 @@ const isDryRun = args.includes('--dry-run');
 const isVerbose = args.includes('--verbose') || isDryRun;
 
 // Load environment variables
-const {
-  GRAFANA_SM_API_URL,
-  GRAFANA_SM_ACCESS_TOKEN,
-  GRAFANA_CLOUD_STACK_ID,
-  SYNTHETIC_BASE_URL = 'https://michalelena.me'
-} = process.env;
+const BASE_URL = process.env.GRAFANA_SM_API_URL; // e.g. https://synthetic-monitoring-api-us-east-0.grafana.net
+const TOKEN    = process.env.GRAFANA_SM_API_TOKEN || process.env.GRAFANA_SM_ACCESS_TOKEN;
+const STACK_ID = process.env.GRAFANA_CLOUD_STACK_ID; // your stack slug, e.g. michalelena-monitoring
+const SYNTHETIC_BASE_URL = process.env.SYNTHETIC_BASE_URL || 'https://michalelena.me';
 
 // Validate required environment variables
 const missingVars = [];
-if (!GRAFANA_SM_ACCESS_TOKEN) missingVars.push('GRAFANA_SM_ACCESS_TOKEN');
-if (!GRAFANA_CLOUD_STACK_ID) missingVars.push('GRAFANA_CLOUD_STACK_ID');
+if (!TOKEN) missingVars.push('GRAFANA_SM_API_TOKEN (or GRAFANA_SM_ACCESS_TOKEN)');
+if (!STACK_ID) missingVars.push('GRAFANA_CLOUD_STACK_ID');
 
 if (missingVars.length > 0) {
   console.error('❌ Missing required environment variables:', missingVars.join(', '));
   console.error('\nExample:');
-  console.error('  export GRAFANA_SM_ACCESS_TOKEN="your-access-policy-token"');
+  console.error('  export GRAFANA_SM_API_TOKEN="your-access-policy-token"');
   console.error('  export GRAFANA_CLOUD_STACK_ID="your-stack-slug"');
   console.error('  export SYNTHETIC_BASE_URL="https://michalelena.me"');
-  console.error('  export GRAFANA_SM_API_URL="https://synthetic-monitoring-api-us-east-0.grafana.net" # optional');
+  console.error('  export GRAFANA_SM_API_URL="https://synthetic-monitoring-api-us-east-0.grafana.net"');
   exit(1);
 }
 
-// API base URLs with failover (regional -> global)
-const apiBaseFallbacks = [
-  GRAFANA_SM_API_URL,
-  'https://synthetic-monitoring-api-us-east-0.grafana.net',
-  'https://synthetic-monitoring-api.grafana.net'
-].filter(Boolean);
-
 // Common headers for all SM API requests
 const commonHeaders = {
-  'Authorization': `Bearer ${GRAFANA_SM_ACCESS_TOKEN}`,
-  'X-Stack-Id': GRAFANA_CLOUD_STACK_ID,
+  'Authorization': `Bearer ${TOKEN}`,
+  'X-Stack-Id': STACK_ID,
   'Content-Type': 'application/json'
 };
 
 if (isVerbose) {
   console.log('🔧 Configuration:');
-  console.log(`  Stack ID: ${GRAFANA_CLOUD_STACK_ID}`);
+  console.log(`  Stack ID: ${STACK_ID}`);
   console.log(`  Base URL: ${SYNTHETIC_BASE_URL}`);
-  console.log(`  API Fallbacks: [${apiBaseFallbacks.map(u => u.replace('https://', '')).join(', ')}]`);
+  console.log(`  SM API URL: ${BASE_URL || '(not set)'}`);
+  console.log(`  Token length: ${TOKEN.length}`);
   console.log(`  Mode: ${isDryRun ? 'DRY RUN (no changes)' : 'APPLY (live changes)'}`);
   console.log('');
 }
 
-// HTTP client wrapper with automatic failover
+if (!BASE_URL) {
+  console.error('❌ GRAFANA_SM_API_URL is required');
+  console.error('   Set it to your SM API endpoint, e.g.:');
+  console.error('   export GRAFANA_SM_API_URL="https://synthetic-monitoring-api-us-east-0.grafana.net"');
+  exit(1);
+}
+
+// HTTP client wrapper for SM API calls
 async function smFetch(path, opts = {}) {
-  let lastErr;
+  const cleanBase = BASE_URL.replace(/\/+$/, '');
+  const cleanPath = path.replace(/^\/+/, '');
+  const url = `${cleanBase}/api/v1/${cleanPath}`;
   
-  for (const base of apiBaseFallbacks) {
-    const cleanBase = base.replace(/\/+$/, '');
-    const cleanPath = path.startsWith('/') ? path : `/${path}`;
-    const url = `${cleanBase}/api/v1${cleanPath}`;
-    
-    try {
-      const options = {
-        ...opts,
-        headers: {
-          ...commonHeaders,
-          ...(opts.headers || {})
-        }
-      };
+  const options = {
+    ...opts,
+    headers: {
+      ...commonHeaders,
+      ...(opts.headers || {})
+    },
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  };
 
-      if (isVerbose) {
-        console.log(`📡 ${opts.method || 'GET'} ${url}`);
-      }
+  if (isVerbose) {
+    console.log(`📡 ${opts.method || 'GET'} ${url}`);
+  }
 
-      const response = await fetch(url, options);
-      
-      // If 404, try next fallback
-      if (response.status === 404) {
-        lastErr = new Error(`404 at ${url}`);
-        if (isVerbose) {
-          console.log(`   ⚠️  404 Not Found, trying next fallback...`);
-        }
-        continue;
-      }
+  const response = await fetch(url, options);
+  
+  // Parse response
+  const text = await response.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = { rawResponse: text };
+  }
 
-      // Parse response
-      const text = await response.text();
-      let data;
-      try {
-        data = text ? JSON.parse(text) : null;
-      } catch {
-        data = { rawResponse: text };
-      }
+  // Handle non-OK responses
+  if (!response.ok) {
+    const errorMsg = `${response.status} ${response.statusText} at ${url} :: ${text}`;
+    if (isVerbose) {
+      console.error(`   ❌ ${errorMsg}`);
+    }
+    throw new Error(errorMsg);
+  }
 
-      // Handle non-OK responses
-      if (!response.ok) {
-        const errorMsg = `${response.status} ${response.statusText} at ${url} :: ${text}`;
-        if (isVerbose) {
-          console.error(`   ❌ ${errorMsg}`);
-        }
-        throw new Error(errorMsg);
-      }
-
-      // Success
-      if (isVerbose) {
-        console.log(`   ✅ ${response.status} OK`);
-        if (opts.method === 'GET' && Array.isArray(data)) {
-          console.log(`   Found ${data.length} items`);
-        }
-      }
-
-      return { data, response };
-    } catch (error) {
-      lastErr = error;
-      if (error.message.includes('404')) {
-        continue; // Try next fallback
-      }
-      // For non-404 errors, fail immediately
-      break;
+  // Success
+  if (isVerbose) {
+    console.log(`   ✅ ${response.status} OK`);
+    if (opts.method === 'GET' && Array.isArray(data)) {
+      console.log(`   Found ${data.length} items`);
     }
   }
-  
-  throw lastErr;
+
+  return { data, response };
 }
 
 // Main provisioning logic
@@ -286,18 +262,18 @@ async function provisionChecks() {
         // Update existing check
         console.log(`   🔄 Updating existing check (id: ${existingCheck.id})...`);
         const updatePayload = { ...existingCheck, ...checkPayload };
-        await smFetch(`/checks/${existingCheck.id}`, {
+        await smFetch(`checks/${existingCheck.id}`, {
           method: 'PUT',
-          body: JSON.stringify(updatePayload)
+          body: updatePayload
         });
         console.log(`   ✅ Updated successfully`);
         results.updated.push(job);
       } else {
         // Create new check
         console.log(`   ➕ Creating new check...`);
-        const { data } = await smFetch('/checks', {
+        const { data } = await smFetch('checks', {
           method: 'POST',
-          body: JSON.stringify(checkPayload)
+          body: checkPayload
         });
         console.log(`   ✅ Created successfully (id: ${data.id})`);
         results.created.push(job);
