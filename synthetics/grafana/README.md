@@ -4,20 +4,61 @@ This directory contains scripts to provision Synthetic Monitoring checks via the
 
 ## Prerequisites
 
-You need three secrets configured in GitHub Actions (or set as environment variables locally):
+### 1. Create Access Policy Token
 
-1. **GRAFANA_SM_API_URL** - The Synthetic Monitoring API endpoint
-   - Format: `https://synthetic-monitoring-api-<region>.grafana.net`
-   - Example: `https://synthetic-monitoring-api-us-east-0.grafana.net`
-   - Find yours in: Grafana Cloud → Synthetic Monitoring → Settings → API
+Navigate to **Grafana Cloud → Home → Administration → Access Policies**:
 
-2. **GRAFANA_SM_ACCESS_TOKEN** - A Grafana Cloud API token with `Editor` permissions
-   - Create at: Grafana Cloud → Administration → API Keys
-   - Required scope: `synthetic-monitoring:write`
+1. Click **"Create access policy"**
+2. Name: `Synthetic Monitoring CI`
+3. Add scope: **`synthetics:write`** (or `synthetics:read` + `synthetics:write`)
+4. Click **"Create"**, then **"Add token"**
+5. Name: `GitHub Actions`
+6. Click **"Create"** and **copy the token** (starts with `glsa_...`)
 
-3. **GRAFANA_CLOUD_STACK_ID** - Your Grafana Cloud stack ID (numeric)
-   - Find in: Grafana Cloud → Stack details
-   - Or in the URL: `https://<stack-name>.grafana.net` → Stack ID in admin panel
+⚠️ **Important**: This is different from API Keys. Use Access Policies, not API Keys.
+
+### 2. Find Your Stack ID
+
+**Method 1** - From URL when logged into Grafana Cloud:
+- Look at the browser URL: `https://grafana.com/orgs/<YOUR_STACK_ID>`
+
+**Method 2** - From Synthetic Monitoring Settings:
+- Navigate to: **Home → Testing & Synthetic Monitoring → Configuration**
+- Look for "Stack" or "Org ID" in the settings panel
+
+### 3. Configure GitHub Secrets
+
+Run these commands (requires `gh` CLI):
+
+```bash
+# Set the Access Policy token (starts with glsa_)
+gh secret set GRAFANA_SM_ACCESS_TOKEN --body "glsa_YOUR_ACTUAL_TOKEN_HERE"
+
+# Set your Grafana Cloud stack ID (slug or numeric ID)
+gh secret set GRAFANA_CLOUD_STACK_ID --body "your-stack-id"
+
+# Set the base URL to monitor
+gh secret set SYNTHETIC_BASE_URL --body "https://michalelena.me"
+
+# Optional: Set specific API endpoint (has automatic fallback)
+gh secret set GRAFANA_SM_API_URL --body "https://synthetic-monitoring-api-us-east-0.grafana.net"
+```
+
+### 4. Verify Setup
+
+Test authentication locally before pushing to CI:
+
+```bash
+export GRAFANA_SM_ACCESS_TOKEN="glsa_..."
+export GRAFANA_CLOUD_STACK_ID="your-stack-id"
+export SYNTHETIC_BASE_URL="https://michalelena.me"
+
+# Run authentication diagnostic
+node synthetics/grafana/test-auth.js
+
+# If successful, try dry-run
+node synthetics/grafana/create-checks.js --dry-run --verbose
+```
 
 ## API Documentation
 

@@ -3,17 +3,16 @@
  * Grafana Synthetic Monitoring - Check Provisioner
  * 
  * Idempotent script to create/update HTTP checks via Synthetic Monitoring API.
- * Supports dry-run mode and verbose logging.
+ * Supports dry-run mode, verbose logging, and automatic API endpoint failover.
  * 
  * Usage:
  *   node create-checks.js [--dry-run] [--verbose]
  * 
  * Environment variables:
- *   GRAFANA_SM_API_URL       - Synthetic Monitoring API endpoint
- *   GRAFANA_SM_ACCESS_TOKEN  - API token with Editor permissions
- *   GRAFANA_CLOUD_STACK_ID   - Grafana Cloud stack ID (numeric)
+ *   GRAFANA_SM_API_URL       - Synthetic Monitoring API endpoint (optional, has fallbacks)
+ *   GRAFANA_SM_ACCESS_TOKEN  - Access Policy token with Synthetic Monitoring scope
+ *   GRAFANA_CLOUD_STACK_ID   - Grafana Cloud stack slug (e.g., "mystack" or numeric ID)
  *   SYNTHETIC_BASE_URL       - Base URL to monitor (default: https://michalelena.me)
- *   GRAFANA_SM_PROBES        - Comma-separated probe IDs (default: 1,3,8)
  * 
  * Reference: https://grafana.com/docs/grafana-cloud/testing/synthetic-monitoring/set-up/provisioning/
  */
@@ -30,279 +29,207 @@ const {
   GRAFANA_SM_API_URL,
   GRAFANA_SM_ACCESS_TOKEN,
   GRAFANA_CLOUD_STACK_ID,
-  SYNTHETIC_BASE_URL = 'https://michalelena.me',
-  GRAFANA_SM_PROBES = '1,3,8'
+  SYNTHETIC_BASE_URL = 'https://michalelena.me'
 } = process.env;
 
 // Validate required environment variables
 const missingVars = [];
-if (!GRAFANA_SM_API_URL) missingVars.push('GRAFANA_SM_API_URL');
 if (!GRAFANA_SM_ACCESS_TOKEN) missingVars.push('GRAFANA_SM_ACCESS_TOKEN');
 if (!GRAFANA_CLOUD_STACK_ID) missingVars.push('GRAFANA_CLOUD_STACK_ID');
 
 if (missingVars.length > 0) {
   console.error('❌ Missing required environment variables:', missingVars.join(', '));
   console.error('\nExample:');
-  console.error('  export GRAFANA_SM_API_URL="https://synthetic-monitoring-api-us-east-0.grafana.net"');
-  console.error('  export GRAFANA_SM_ACCESS_TOKEN="your-token-here"');
-  console.error('  export GRAFANA_CLOUD_STACK_ID="123456"');
+  console.error('  export GRAFANA_SM_ACCESS_TOKEN="your-access-policy-token"');
+  console.error('  export GRAFANA_CLOUD_STACK_ID="your-stack-slug"');
   console.error('  export SYNTHETIC_BASE_URL="https://michalelena.me"');
+  console.error('  export GRAFANA_SM_API_URL="https://synthetic-monitoring-api-us-east-0.grafana.net" # optional');
   exit(1);
 }
 
-// Parse probe IDs
-const probeIds = GRAFANA_SM_PROBES.split(',').map(id => parseInt(id.trim(), 10));
+// API base URLs with failover (regional -> global)
+const apiBaseFallbacks = [
+  GRAFANA_SM_API_URL,
+  'https://synthetic-monitoring-api-us-east-0.grafana.net',
+  'https://synthetic-monitoring-api.grafana.net'
+].filter(Boolean);
+
+// Common headers for all SM API requests
+const commonHeaders = {
+  'Authorization': `Bearer ${GRAFANA_SM_ACCESS_TOKEN}`,
+  'X-Stack-Id': GRAFANA_CLOUD_STACK_ID,
+  'Content-Type': 'application/json'
+};
 
 if (isVerbose) {
   console.log('🔧 Configuration:');
-  console.log(`  API URL: ${GRAFANA_SM_API_URL}`);
   console.log(`  Stack ID: ${GRAFANA_CLOUD_STACK_ID}`);
   console.log(`  Base URL: ${SYNTHETIC_BASE_URL}`);
-  console.log(`  Probes: [${probeIds.join(', ')}]`);
+  console.log(`  API Fallbacks: [${apiBaseFallbacks.map(u => u.replace('https://', '')).join(', ')}]`);
   console.log(`  Mode: ${isDryRun ? 'DRY RUN (no changes)' : 'APPLY (live changes)'}`);
   console.log('');
 }
 
-// HTTP client wrapper
-async function apiRequest(method, path, body = null) {
-  // Ensure the API URL doesn't end with a slash and path starts with one
-  const baseUrl = GRAFANA_SM_API_URL.replace(/\/$/, '');
-  const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  const url = `${baseUrl}${cleanPath}`;
+// HTTP client wrapper with automatic failover
+async function smFetch(path, opts = {}) {
+  let lastErr;
   
-  const options = {
-    method,
-    headers: {
-      'Authorization': `Bearer ${GRAFANA_SM_ACCESS_TOKEN}`,
-      'Content-Type': 'application/json',
-      'X-Stack-ID': GRAFANA_CLOUD_STACK_ID
-    }
-  };
-
-  if (body) {
-    options.body = JSON.stringify(body);
-  }
-
-  if (isVerbose) {
-    console.log(`📡 ${method} ${cleanPath}`);
-    console.log(`   URL: ${url.substring(0, 60)}...`);
-    if (body && method !== 'GET') {
-      console.log(`   Body: ${JSON.stringify(body, null, 2).substring(0, 200)}...`);
-    }
-  }
-
-  try {
-    const response = await fetch(url, options);
-    const text = await response.text();
-    let data;
+  for (const base of apiBaseFallbacks) {
+    const cleanBase = base.replace(/\/+$/, '');
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    const url = `${cleanBase}/api/v1${cleanPath}`;
+    
     try {
-      data = text ? JSON.parse(text) : null;
-    } catch {
-      data = { rawResponse: text };
-    }
+      const options = {
+        ...opts,
+        headers: {
+          ...commonHeaders,
+          ...(opts.headers || {})
+        }
+      };
 
-    if (!response.ok) {
       if (isVerbose) {
-        console.error(`❌ HTTP ${response.status} ${response.statusText}`);
-        console.error(`   URL: ${url}`);
-        console.error(`   Response: ${text.substring(0, 500)}`);
+        console.log(`📡 ${opts.method || 'GET'} ${url}`);
       }
-      throw new Error(`API request failed: ${response.status} ${response.statusText}\n${text}`);
-    }
 
-    if (isVerbose && data) {
-      console.log(`✅ ${response.status} OK`);
-      if (method === 'GET' && Array.isArray(data)) {
-        console.log(`   Found ${data.length} items`);
+      const response = await fetch(url, options);
+      
+      // If 404, try next fallback
+      if (response.status === 404) {
+        lastErr = new Error(`404 at ${url}`);
+        if (isVerbose) {
+          console.log(`   ⚠️  404 Not Found, trying next fallback...`);
+        }
+        continue;
       }
-    }
 
-    return data;
-  } catch (error) {
-    console.error(`❌ API request failed: ${error.message}`);
-    throw error;
+      // Parse response
+      const text = await response.text();
+      let data;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = { rawResponse: text };
+      }
+
+      // Handle non-OK responses
+      if (!response.ok) {
+        const errorMsg = `${response.status} ${response.statusText} at ${url} :: ${text}`;
+        if (isVerbose) {
+          console.error(`   ❌ ${errorMsg}`);
+        }
+        throw new Error(errorMsg);
+      }
+
+      // Success
+      if (isVerbose) {
+        console.log(`   ✅ ${response.status} OK`);
+        if (opts.method === 'GET' && Array.isArray(data)) {
+          console.log(`   Found ${data.length} items`);
+        }
+      }
+
+      return { data, response };
+    } catch (error) {
+      lastErr = error;
+      if (error.message.includes('404')) {
+        continue; // Try next fallback
+      }
+      // For non-404 errors, fail immediately
+      break;
+    }
   }
+  
+  throw lastErr;
 }
-
-// Define checks to provision
-const checksToProvision = [
-  {
-    job: 'homepage',
-    target: `${SYNTHETIC_BASE_URL}/`,
-    frequency: 300000, // 5 minutes in ms
-    timeout: 10000,    // 10s
-    labels: [
-      { name: 'team', value: 'platform' },
-      { name: 'env', value: 'prod' },
-      { name: 'check_type', value: 'uptime' }
-    ],
-    settings: {
-      http: {
-        method: 'GET',
-        validStatusCodes: [200],
-        failIfSSL: false,
-        failIfNotSSL: false,
-        noFollowRedirects: false
-      }
-    }
-  },
-  {
-    job: 'shop',
-    target: `${SYNTHETIC_BASE_URL}/shop`,
-    frequency: 300000,
-    timeout: 10000,
-    labels: [
-      { name: 'team', value: 'platform' },
-      { name: 'env', value: 'prod' },
-      { name: 'check_type', value: 'uptime' }
-    ],
-    settings: {
-      http: {
-        method: 'GET',
-        validStatusCodes: [200],
-        failIfSSL: false,
-        failIfNotSSL: false,
-        noFollowRedirects: false
-      }
-    }
-  },
-  {
-    job: 'checkout',
-    target: `${SYNTHETIC_BASE_URL}/checkout`,
-    frequency: 300000,
-    timeout: 10000,
-    labels: [
-      { name: 'team', value: 'platform' },
-      { name: 'env', value: 'prod' },
-      { name: 'check_type', value: 'uptime' }
-    ],
-    settings: {
-      http: {
-        method: 'GET',
-        validStatusCodes: [200],
-        failIfSSL: false,
-        failIfNotSSL: false,
-        noFollowRedirects: false
-      }
-    }
-  },
-  {
-    job: 'api-health',
-    target: `${SYNTHETIC_BASE_URL}/api/health`,
-    frequency: 300000,
-    timeout: 5000,     // 5s for API
-    labels: [
-      { name: 'team', value: 'platform' },
-      { name: 'env', value: 'prod' },
-      { name: 'check_type', value: 'api' }
-    ],
-    settings: {
-      http: {
-        method: 'GET',
-        validStatusCodes: [200],
-        failIfSSL: false,
-        failIfNotSSL: false,
-        noFollowRedirects: false
-      }
-    }
-  },
-  {
-    job: 'api-search',
-    target: `${SYNTHETIC_BASE_URL}/api/search?q=art`,
-    frequency: 300000,
-    timeout: 5000,
-    labels: [
-      { name: 'team', value: 'platform' },
-      { name: 'env', value: 'prod' },
-      { name: 'check_type', value: 'api' }
-    ],
-    settings: {
-      http: {
-        method: 'GET',
-        validStatusCodes: [200],
-        failIfSSL: false,
-        failIfNotSSL: false,
-        noFollowRedirects: false
-      }
-    }
-  }
-];
 
 // Main provisioning logic
 async function provisionChecks() {
   console.log('🚀 Starting Synthetic Monitoring check provisioner...\n');
 
-  // Step 1: Discover existing checks
-  console.log('📋 Discovering existing checks...');
-  let existingChecks = [];
-  try {
-    existingChecks = await apiRequest('GET', '/api/v1/checks');
-    console.log(`✅ Found ${existingChecks.length} existing checks\n`);
-  } catch (error) {
-    console.error('⚠️  Failed to list existing checks, will attempt to create all checks as new');
-    console.error(`   Error: ${error.message}\n`);
-  }
-
-  // Index existing checks by job name
-  const checksByJob = new Map();
-  existingChecks.forEach(check => {
-    if (check.job) {
-      checksByJob.set(check.job, check);
-    }
-  });
-
-  if (isVerbose && existingChecks.length > 0) {
-    console.log('📊 Existing checks:');
-    existingChecks.forEach(check => {
-      console.log(`   - ${check.job} (id: ${check.id}, enabled: ${check.enabled})`);
-    });
-    console.log('');
-  }
-
-  // Step 2: Discover available probes
+  // Step 1: Discover probes
   console.log('🌍 Discovering available probes...');
-  let availableProbes = [];
+  let probes = [];
+  let selectedProbeIds = [];
+  
   try {
-    availableProbes = await apiRequest('GET', '/api/v1/probes');
-    console.log(`✅ Found ${availableProbes.length} probes\n`);
-  } catch (error) {
-    console.error('⚠️  Failed to list probes, will use configured probe IDs');
-    console.error(`   Error: ${error.message}\n`);
-  }
+    const { data } = await smFetch('/probes', { method: 'GET' });
+    probes = data || [];
+    console.log(`✅ Found ${probes.length} probes\n`);
 
-  if (isVerbose && availableProbes.length > 0) {
-    console.log('📍 Available probes:');
-    availableProbes.slice(0, 10).forEach(probe => {
-      console.log(`   - [${probe.id}] ${probe.name} (${probe.region}, online: ${probe.online})`);
-    });
-    if (availableProbes.length > 10) {
-      console.log(`   ... and ${availableProbes.length - 10} more`);
+    if (isVerbose && probes.length > 0) {
+      console.log('📍 Available probes:');
+      probes.slice(0, 10).forEach(probe => {
+        console.log(`   - [${probe.id}] ${probe.name} (${probe.region}, online: ${probe.online})`);
+      });
+      if (probes.length > 10) {
+        console.log(`   ... and ${probes.length - 10} more`);
+      }
+      console.log('');
     }
-    console.log('');
-  }
 
-  // Validate probe IDs
-  const validProbeIds = availableProbes.length > 0
-    ? probeIds.filter(id => availableProbes.some(p => p.id === id))
-    : probeIds; // Fallback to configured IDs if probe discovery failed
+    // Select probes by region (prefer distributed coverage)
+    const findProbe = (name) => probes.find(p => (p.name || '').toLowerCase().includes(name.toLowerCase()));
+    const usEast = findProbe('us-east');
+    const usWest = findProbe('us-west');
+    const euWest = findProbe('eu-west');
+    
+    selectedProbeIds = [usEast?.id, usWest?.id, euWest?.id].filter(Boolean);
+    
+    if (selectedProbeIds.length === 0 && probes.length > 0) {
+      // Fallback: use first 3 available probes
+      selectedProbeIds = probes.slice(0, 3).map(p => p.id);
+    }
 
-  if (validProbeIds.length === 0) {
-    console.error('❌ No valid probe IDs found. Cannot provision checks.');
-    exit(1);
-  }
+    if (selectedProbeIds.length === 0) {
+      console.error('❌ No probes available. Cannot provision checks.');
+      exit(1);
+    }
 
-  console.log(`📍 Using probes: [${validProbeIds.join(', ')}]`);
-  if (availableProbes.length > 0) {
-    validProbeIds.forEach(id => {
-      const probe = availableProbes.find(p => p.id === id);
+    console.log(`📍 Selected probes: [${selectedProbeIds.join(', ')}]`);
+    selectedProbeIds.forEach(id => {
+      const probe = probes.find(p => p.id === id);
       if (probe) {
         console.log(`   - [${id}] ${probe.name} (${probe.region})`);
       }
     });
+    console.log('');
+  } catch (error) {
+    console.error('❌ Failed to discover probes:', error.message);
+    exit(1);
   }
-  console.log('');
 
-  // Step 3: Provision checks (create or update)
+  // Step 2: Discover existing checks
+  console.log('📋 Discovering existing checks...');
+  let existingChecks = [];
+  
+  try {
+    const { data } = await smFetch('/checks', { method: 'GET' });
+    existingChecks = data || [];
+    console.log(`✅ Found ${existingChecks.length} existing checks\n`);
+
+    if (isVerbose && existingChecks.length > 0) {
+      console.log('📊 Existing checks:');
+      existingChecks.forEach(check => {
+        console.log(`   - ${check.job} (id: ${check.id}, enabled: ${check.enabled})`);
+      });
+      console.log('');
+    }
+  } catch (error) {
+    console.warn('⚠️  Failed to list existing checks, will attempt to create all as new');
+    console.warn(`   Error: ${error.message}\n`);
+  }
+
+  // Step 3: Define checks to provision
+  const checksToProvision = [
+    { job: 'homepage', path: '/', timeoutMs: 10000, thresholdMs: 2000 },
+    { job: 'shop', path: '/shop', timeoutMs: 10000, thresholdMs: 2500 },
+    { job: 'checkout', path: '/checkout', timeoutMs: 10000, thresholdMs: 2500 },
+    { job: 'api-health', path: '/api/health', timeoutMs: 5000, thresholdMs: 500 },
+    { job: 'api-search', path: '/api/search?q=art', timeoutMs: 5000, thresholdMs: 500 }
+  ];
+
+  // Step 4: Upsert each check
   const results = {
     created: [],
     updated: [],
@@ -311,44 +238,73 @@ async function provisionChecks() {
   };
 
   for (const checkDef of checksToProvision) {
-    const existingCheck = checksByJob.get(checkDef.job);
+    const { job, path, timeoutMs } = checkDef;
+    const target = `${SYNTHETIC_BASE_URL}${path}`;
+    
     const checkPayload = {
-      ...checkDef,
+      job,
       enabled: true,
-      probes: validProbeIds,
-      alertSensitivity: 'medium'
+      frequency: 300000, // 5 minutes in ms
+      timeout: timeoutMs,
+      probes: selectedProbeIds,
+      target,
+      alertSensitivity: 'medium',
+      settings: {
+        http: {
+          method: 'GET',
+          failIfSSL: false,
+          failIfNotSSL: false,
+          noFollowRedirects: false
+        }
+      },
+      labels: [
+        { name: 'app', value: 'artistsite' },
+        { name: 'path', value: path },
+        { name: 'env', value: 'prod' }
+      ]
     };
 
-    console.log(`\n🔍 Processing check: ${checkDef.job}`);
-    console.log(`   Target: ${checkDef.target}`);
-    console.log(`   Frequency: ${checkDef.frequency / 1000}s`);
+    console.log(`\n🔍 Processing check: ${job}`);
+    console.log(`   Target: ${target}`);
+    console.log(`   Frequency: ${checkPayload.frequency / 1000}s`);
+    console.log(`   Timeout: ${timeoutMs}ms`);
 
     if (isDryRun) {
+      const existingCheck = existingChecks.find(c => c.job === job);
       console.log(`   💡 DRY RUN: Would ${existingCheck ? 'UPDATE' : 'CREATE'} check`);
       if (isVerbose) {
-        console.log(`   Payload: ${JSON.stringify(checkPayload, null, 2).substring(0, 300)}...`);
+        console.log(`   Payload preview: ${JSON.stringify(checkPayload, null, 2).substring(0, 300)}...`);
       }
-      results.skipped.push(checkDef.job);
+      results.skipped.push(job);
       continue;
     }
 
     try {
+      const existingCheck = existingChecks.find(c => c.job === job);
+      
       if (existingCheck) {
         // Update existing check
         console.log(`   🔄 Updating existing check (id: ${existingCheck.id})...`);
-        const updated = await apiRequest('PUT', `/api/v1/checks/${existingCheck.id}`, checkPayload);
+        const updatePayload = { ...existingCheck, ...checkPayload };
+        await smFetch(`/checks/${existingCheck.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(updatePayload)
+        });
         console.log(`   ✅ Updated successfully`);
-        results.updated.push(checkDef.job);
+        results.updated.push(job);
       } else {
         // Create new check
         console.log(`   ➕ Creating new check...`);
-        const created = await apiRequest('POST', '/api/v1/checks', checkPayload);
-        console.log(`   ✅ Created successfully (id: ${created.id})`);
-        results.created.push(checkDef.job);
+        const { data } = await smFetch('/checks', {
+          method: 'POST',
+          body: JSON.stringify(checkPayload)
+        });
+        console.log(`   ✅ Created successfully (id: ${data.id})`);
+        results.created.push(job);
       }
     } catch (error) {
       console.error(`   ❌ Failed: ${error.message}`);
-      results.failed.push({ job: checkDef.job, error: error.message });
+      results.failed.push({ job, error: error.message });
     }
   }
 
@@ -386,8 +342,8 @@ async function provisionChecks() {
 
   console.log('🎉 Provisioning completed successfully!');
   console.log('\n📍 Next steps:');
-  console.log('  1. Verify checks in Grafana Cloud: https://grafana.com/docs/grafana-cloud/testing/synthetic-monitoring/');
-  console.log('  2. Configure alert notification channels (email already configured)');
+  console.log('  1. Verify checks in Grafana Cloud: Synthetic Monitoring → Checks');
+  console.log('  2. Confirm alert notifications are configured');
   console.log('  3. Monitor check results for 24h to establish baseline\n');
   exit(0);
 }
