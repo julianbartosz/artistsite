@@ -19,6 +19,11 @@ const nextConfig: NextConfig = {
   
   // Production source maps for better debugging
   productionBrowserSourceMaps: true,
+
+  // CI runs lint as a separate quality gate; keep build focused on compilation/output.
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   
   // Enhanced logging
   logging: {
@@ -80,6 +85,12 @@ const nextConfig: NextConfig = {
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
     minimumCacheTTL: 31536000, // 1 year
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '*.blob.core.windows.net',
+      },
+    ],
     dangerouslyAllowSVG: true,
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
@@ -124,8 +135,8 @@ const nextConfig: NextConfig = {
       }
     }
 
-    // Performance optimizations for production
-    if (!dev) {
+    // Performance optimizations for production browser bundles only.
+    if (!dev && !isServer) {
       // Enable proper code splitting
       config.optimization = {
         ...config.optimization,

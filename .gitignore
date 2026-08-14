@@ -550,3 +550,20 @@ FodyWeavers.xsd
 
 ### VisualStudio Patch ###
 # Additional files built by Visual Studio
+.cursor/
+.github/workflows-deprecated/
+.github/templates/
+.github/prompts/
+.github/CI_CD_SETUP copy.md
+.github/CI_CD_SETUP.md
+.github/GCP_SETUP copy.md
+.github/PR_AGENT copy.md
+.github/SECRETS_SETUP copy.md
+.github/TESTING_CHECKLIST copy.md
+.github/agents/
+.github/instructions/
+.github/skills/
+.contextstream/config.json
+playwright-report/
+.playwright-mcp/
+test-results/skills-lock.json

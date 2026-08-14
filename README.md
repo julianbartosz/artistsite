@@ -107,7 +107,7 @@ npm run lint         # ESLint checking
 
 ### Testing
 - **Framework**: Jest + React Testing Library
-- **Coverage**: 80%+ target with HTML reports
+- **Coverage**: HTML reports are available; see `docs/testing.md` for the current measured coverage and known gaps
 - **E2E Tests**: Comprehensive user flow testing
 ```bash
 npm run test              # Run all tests

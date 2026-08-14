@@ -25,7 +25,8 @@ The Artist Site project includes a comprehensive testing suite built with Jest a
 - **api-error-handler.test.ts** - API error handling middleware
 
 #### Integration Tests
-- **api-integration.test.ts** - API endpoint testing (contact, newsletter, preview)
+
+- **api-integration.test.ts** - API endpoint testing (checkout, orders, marketing, inventory, contact, newsletter, preview, and public config)
 
 ### Test Utilities
 - **test-utils.tsx** - Custom render functions and mock data factories

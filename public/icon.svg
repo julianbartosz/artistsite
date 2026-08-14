@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Artist Site Icon</title>
+  <desc id="desc">Minimal black and ivory monogram mark for the artist portfolio.</desc>
+  <rect width="512" height="512" rx="112" fill="#111827" />
+  <circle cx="352" cy="150" r="42" fill="#f8fafc" opacity="0.92" />
+  <path d="M128 382L237 118h42l106 264h-58l-22-60H207l-22 60h-57Zm96-108h64l-32-88-32 88Z" fill="#f8fafc" />
+  <path d="M148 410h216" stroke="#d6b36a" stroke-width="24" stroke-linecap="round" />
+</svg>
