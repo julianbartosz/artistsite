@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { getAllProducts } from './commerce';
+import { getAllProducts } from './commerce-server';
 
 const prisma = new PrismaClient();
 
@@ -12,6 +12,8 @@ export interface InventoryStatus {
   lowStockThreshold: number;
   allowBackorders: boolean;
 }
+
+export type PublicInventoryStatus = Pick<InventoryStatus, 'productId' | 'availableStock' | 'stockStatus' | 'allowBackorders'>;
 
 export interface StockMovementData {
   productId: string;
@@ -88,6 +90,21 @@ export class InventoryService {
       stockStatus: inventory.stockStatus as any,
       lowStockThreshold: inventory.lowStockThreshold,
       allowBackorders: inventory.allowBackorders
+    };
+  }
+
+  /**
+   * Get public-safe inventory status for storefront availability display.
+   */
+  static async getPublicInventoryStatus(productId: string): Promise<PublicInventoryStatus | null> {
+    const inventory = await this.getInventoryStatus(productId);
+    if (!inventory) return null;
+
+    return {
+      productId: inventory.productId,
+      availableStock: inventory.availableStock,
+      stockStatus: inventory.stockStatus,
+      allowBackorders: inventory.allowBackorders,
     };
   }
 
@@ -212,6 +229,26 @@ export class InventoryService {
   }
 
   /**
+   * Release expired checkout reservations so abandoned carts cannot hold stock forever.
+   */
+  static async releaseExpiredReservations(now: Date = new Date()): Promise<number> {
+    const reservations = await prisma.stockReservation.findMany({
+      where: {
+        status: 'active',
+        expiresAt: { lt: now },
+      },
+      select: { id: true },
+      take: 100,
+    });
+
+    for (const reservation of reservations) {
+      await this.releaseReservation(reservation.id);
+    }
+
+    return reservations.length;
+  }
+
+  /**
    * Fulfill stock reservation (convert to sale)
    */
   static async fulfillReservation(reservationId: string, orderId?: string): Promise<void> {
@@ -252,6 +289,22 @@ export class InventoryService {
     });
 
     await this.updateStockStatus(reservation.productId);
+  }
+
+  /**
+   * Fulfill every active reservation tied to an order after confirmed payment.
+   */
+  static async fulfillReservationsForOrder(orderId: string): Promise<void> {
+    const reservations = await prisma.stockReservation.findMany({
+      where: {
+        orderId,
+        status: 'active'
+      }
+    });
+
+    for (const reservation of reservations) {
+      await this.fulfillReservation(reservation.id, orderId);
+    }
   }
 
   /**
@@ -590,7 +643,7 @@ export class InventoryService {
       })
     ]);
 
-    const products = getAllProducts();
+    const products = await getAllProducts();
     const productMap = new Map(products.map(p => [p.id, p]));
 
     let totalValue = 0;

@@ -98,7 +98,7 @@ export class DebugLogger {
     
     // In development, create a more detailed error object
     if (process.env.NODE_ENV === 'development') {
-      console.group('🔍 Enhanced Error Details')
+      console.group('Enhanced Error Details')
       console.error('Error Object:', error)
       console.error('Error Info:', errorInfo)
       console.error('Context:', context)

@@ -1,5 +1,3 @@
-import products from '@/content/shop/products.json';
-
 export interface ProductVariant {
   id: string;
   name: string;
@@ -8,6 +6,8 @@ export interface ProductVariant {
   available: boolean;
   stock?: number;
 }
+
+export const PRODUCT_IMAGE_FALLBACK = '/images/shop/placeholder-1.jpg';
 
 export interface ProductCustomization {
   id: string;
@@ -37,6 +37,7 @@ export interface ProductBundle {
 
 export interface Product {
   id: string;
+  slug?: string;
   title: string;
   description: string;
   price: number;
@@ -85,6 +86,52 @@ export interface Product {
   };
 }
 
+type RawProductVariant = Omit<ProductVariant, 'priceModifier'> & {
+  priceModifier?: number;
+  price?: number;
+};
+
+export type ProductInput = Omit<Product, 'variants'> & {
+  variants?: {
+    sizes?: RawProductVariant[];
+    framing?: RawProductVariant[];
+    materials?: RawProductVariant[];
+  };
+};
+
+export function normalizeVariant(variant: RawProductVariant): ProductVariant {
+  return {
+    ...variant,
+    priceModifier: variant.priceModifier ?? variant.price ?? 0,
+    available: variant.available ?? true,
+  };
+}
+
+export function normalizeProduct(product: ProductInput): Product {
+  const gallery = product.images.gallery.map(image => image.trim()).filter(Boolean);
+  const thumbnail = product.images.thumbnail.trim() || gallery[0] || PRODUCT_IMAGE_FALLBACK;
+
+  return {
+    ...product,
+    slug: product.slug || product.id,
+    images: {
+      thumbnail,
+      gallery: gallery.length > 0 ? gallery : [thumbnail],
+    },
+    variants: product.variants
+      ? {
+          sizes: product.variants.sizes?.map(normalizeVariant),
+          framing: product.variants.framing?.map(normalizeVariant),
+          materials: product.variants.materials?.map(normalizeVariant),
+        }
+      : undefined,
+  } as Product;
+}
+
+export function productImageSrc(product: Product, preferred?: string): string {
+  return preferred?.trim() || product.images.thumbnail?.trim() || product.images.gallery.find(image => image.trim()) || PRODUCT_IMAGE_FALLBACK;
+}
+
 export interface CartItemVariant {
   size?: {
     id: string;
@@ -109,57 +156,6 @@ export interface CartItemVariant {
   }>;
 }
 
-export function getAllProducts(): Product[] {
-  return products as Product[];
-}
-
-export function getAvailableProducts(): Product[] {
-  return products.filter(product => 
-    product.availability === 'available' || product.availability === 'commissioned'
-  ) as Product[];
-}
-
-export function getFeaturedProducts(): Product[] {
-  return products.filter(product => 
-    product.featured && (product.availability === 'available' || product.availability === 'commissioned')
-  ) as Product[];
-}
-
-export function getProductsByCategory(category: string): Product[] {
-  return products.filter(product => product.category === category) as Product[];
-}
-
-export function getProductById(id: string): Product | undefined {
-  return products.find(product => product.id === id) as Product | undefined;
-}
-
-export function getProductsByTag(tag: string): Product[] {
-  return products.filter(product => product.tags.includes(tag)) as Product[];
-}
-
-export function getRelatedProducts(productId: string, limit: number = 4): Product[] {
-  const product = getProductById(productId);
-  if (!product) return [];
-
-  // First try explicit related products
-  if (product.relatedProducts) {
-    const related = product.relatedProducts
-      .map(id => getProductById(id))
-      .filter(Boolean) as Product[];
-    if (related.length >= limit) return related.slice(0, limit);
-  }
-
-  // Fall back to products with similar tags or category
-  const similar = products.filter(p => 
-    p.id !== productId && 
-    p.availability === 'available' &&
-    (p.category === product.category || 
-     product.tags.some(tag => p.tags.includes(tag)))
-  ) as Product[];
-
-  return similar.slice(0, limit);
-}
-
 export function calculateVariantPrice(basePrice: number, variants?: CartItemVariant): number {
   let totalPrice = basePrice;
   
@@ -173,16 +169,24 @@ export function calculateVariantPrice(basePrice: number, variants?: CartItemVari
   return totalPrice;
 }
 
+export function formatCartItemVariant(variant?: CartItemVariant): string | null {
+  if (!variant) return null;
+
+  const parts = [
+    variant.size?.name,
+    variant.framing?.name,
+    variant.material?.name,
+    ...(variant.customizations?.map(customization => `${customization.name}: ${customization.value}`) || []),
+  ].filter(Boolean);
+
+  return parts.length > 0 ? parts.join(', ') : null;
+}
+
 export function formatPrice(price: number, currency: string = 'USD'): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: currency,
   }).format(price);
-}
-
-export function getCategories(): string[] {
-  const categories = products.map(product => product.category);
-  return [...new Set(categories)];
 }
 
 export function calculateTotal(price: number, shipping: number): number {

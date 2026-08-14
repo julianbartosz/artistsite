@@ -1,6 +1,6 @@
 import { getAllPosts } from '@/lib/markdown';
 import { getAllArtworks } from '@/lib/portfolio';
-import { getAllProducts } from '@/lib/commerce';
+import { getAllProducts } from '@/lib/commerce-server';
 
 export interface SitemapEntry {
   url: string;

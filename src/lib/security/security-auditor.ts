@@ -307,7 +307,7 @@ export class SecurityAuditor {
       .sort((a, b) => this.getCheckWeight(b.severity) - this.getCheckWeight(a.severity))
       .forEach(check => {
         if (check.recommendation) {
-          recommendations.push(`🚨 ${check.recommendation}`);
+          recommendations.push(`Critical: ${check.recommendation}`);
         }
       });
 
@@ -536,6 +536,6 @@ export class SecurityMonitor {
       }
     });
 
-    console.error(`🚨 SECURITY ALERT: ${audit.criticalIssues} critical issues detected`);
+    console.error(`SECURITY ALERT: ${audit.criticalIssues} critical issues detected`);
   }
 }

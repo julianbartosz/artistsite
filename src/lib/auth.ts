@@ -1,11 +1,104 @@
 import { NextAuthOptions } from 'next-auth';
+import { getServerSession, type Session } from 'next-auth';
 import { PrismaAdapter } from '@auth/prisma-adapter';
-import { PrismaClient } from '@prisma/client';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import GoogleProvider from 'next-auth/providers/google';
 import bcrypt from 'bcryptjs';
+import { ApiError } from '@/lib/api-error-handler';
+import { getConfig } from '@/lib/config';
+import { prisma } from '@/lib/db';
 
-const prisma = new PrismaClient();
+const DEFAULT_LOCAL_ADMIN_PASSWORD = 'AdminPass123!';
+const DEV_AUTH_SECRET = 'artistsite-local-auth-secret';
+
+function resolvedAuthSecret(): string | undefined {
+  return process.env.NEXTAUTH_SECRET || (process.env.NODE_ENV !== 'production' ? DEV_AUTH_SECRET : undefined);
+}
+
+function configuredAdminEmails(): Set<string> {
+  const emails = new Set(
+    (process.env.ADMIN_EMAILS || '')
+      .split(',')
+      .map(email => email.trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+  if (process.env.NODE_ENV !== 'production') {
+    emails.add('artist@artistsite.com');
+  }
+
+  return emails;
+}
+
+async function resolvedAdminEmails(): Promise<Set<string>> {
+  const emails = configuredAdminEmails();
+  const settingEmails = await getConfig('ADMIN_EMAILS');
+  (settingEmails || '')
+    .split(',')
+    .map(email => email.trim().toLowerCase())
+    .filter(Boolean)
+    .forEach(email => emails.add(email));
+  return emails;
+}
+
+export function isAdminEmail(email?: string | null): boolean {
+  if (!email) return false;
+  return configuredAdminEmails().has(email.trim().toLowerCase());
+}
+
+export async function isAdminEmailResolved(email?: string | null): Promise<boolean> {
+  if (!email) return false;
+  return (await resolvedAdminEmails()).has(email.trim().toLowerCase());
+}
+
+export async function requireUser(): Promise<Session> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    throw new ApiError(401, 'Authentication required', 'UNAUTHENTICATED');
+  }
+  return session;
+}
+
+export async function requireAdmin(): Promise<Session> {
+  const session = await requireUser();
+  if (!await isAdminEmailResolved(session.user.email)) {
+    throw new ApiError(403, 'Admin access required', 'FORBIDDEN');
+  }
+  return session;
+}
+
+function localAdminBootstrapPassword(): string {
+  return (process.env.LOCAL_ADMIN_PASSWORD || DEFAULT_LOCAL_ADMIN_PASSWORD).trim();
+}
+
+function isLocalBootstrapAdminEmail(email: string): boolean {
+  return process.env.NODE_ENV !== 'production' && configuredAdminEmails().has(email.trim().toLowerCase());
+}
+
+async function tryBootstrapLocalAdmin(email: string, password: string) {
+  if (process.env.NODE_ENV === 'production') return null;
+  if (!isLocalBootstrapAdminEmail(email) && !await isAdminEmailResolved(email)) return null;
+
+  const bootstrapPassword = localAdminBootstrapPassword();
+  if (!bootstrapPassword || password !== bootstrapPassword) return null;
+
+  const passwordHash = await bcrypt.hash(bootstrapPassword, 12);
+  return prisma.user.upsert({
+    where: { email },
+    create: {
+      email,
+      password: passwordHash,
+      firstName: 'Admin',
+      lastName: 'User',
+      name: 'Admin User',
+      emailVerified: new Date(),
+    },
+    update: {
+      password: passwordHash,
+      emailVerified: new Date(),
+    },
+  });
+}
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as any,
@@ -22,25 +115,45 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
+        const normalizedEmail = credentials.email.trim().toLowerCase();
+
+        const bootstrapUser = isLocalBootstrapAdminEmail(normalizedEmail)
+          ? await tryBootstrapLocalAdmin(normalizedEmail, credentials.password)
+          : null;
+        if (bootstrapUser) {
+          return {
+            id: bootstrapUser.id,
+            email: bootstrapUser.email,
+            name: bootstrapUser.name || `${bootstrapUser.firstName || ''} ${bootstrapUser.lastName || ''}`.trim(),
+            image: bootstrapUser.image,
+          };
+        }
+
         const user = await prisma.user.findUnique({
-          where: { email: credentials.email }
+          where: { email: normalizedEmail }
         });
 
-        if (!user || !user.password) {
-          return null;
+        if (user?.password) {
+          const isPasswordValid = await bcrypt.compare(credentials.password, user.password);
+          if (isPasswordValid) {
+            return {
+              id: user.id,
+              email: user.email,
+              name: user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+              image: user.image,
+            };
+          }
         }
 
-        const isPasswordValid = await bcrypt.compare(credentials.password, user.password);
-
-        if (!isPasswordValid) {
-          return null;
-        }
+        // Deterministic local-admin bootstrap keeps development auth reproducible.
+        const resolvedBootstrapUser = await tryBootstrapLocalAdmin(normalizedEmail, credentials.password);
+        if (!resolvedBootstrapUser) return null;
 
         return {
-          id: user.id,
-          email: user.email,
-          name: user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim(),
-          image: user.image,
+          id: resolvedBootstrapUser.id,
+          email: resolvedBootstrapUser.email,
+          name: resolvedBootstrapUser.name || `${resolvedBootstrapUser.firstName || ''} ${resolvedBootstrapUser.lastName || ''}`.trim(),
+          image: resolvedBootstrapUser.image,
         };
       }
     }),
@@ -61,6 +174,7 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id;
       }
+      token.isAdmin = await isAdminEmailResolved((user?.email || token.email) as string | undefined);
       return token;
     },
     
@@ -68,6 +182,7 @@ export const authOptions: NextAuthOptions = {
       if (token.id) {
         session.user.id = token.id as string;
       }
+      session.user.isAdmin = Boolean(token.isAdmin);
       return session;
     },
     
@@ -115,5 +230,5 @@ export const authOptions: NextAuthOptions = {
     },
   },
   
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: resolvedAuthSecret(),
 };

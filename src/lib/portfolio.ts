@@ -1,9 +1,9 @@
-import fs from 'fs';
-import path from 'path';
-import matter from 'gray-matter';
-import { bundleMDX } from 'mdx-bundler';
+import 'server-only';
+import { unstable_cache } from 'next/cache';
+import { db } from '@/lib/db';
+import { sanitizeRichHtml } from '@/lib/content-sanitize';
 
-const portfolioDir = path.join(process.cwd(), 'src', 'content', 'portfolio');
+const ARTWORK_IMAGE_FALLBACK = '/images/shop/placeholder-1.jpg';
 
 export interface ArtworkPiece {
   slug: string;
@@ -29,105 +29,97 @@ export interface ArtworkPieceWithContent extends ArtworkPiece {
   code: string;
 }
 
-export async function getAllArtworks(): Promise<ArtworkPiece[]> {
-  if (!fs.existsSync(portfolioDir)) {
-    return [];
+type ArtworkRecord = {
+  slug: string;
+  title: string;
+  description: string;
+  medium: string;
+  dimensions: string;
+  year: string;
+  category: unknown;
+  featured: boolean;
+  available: boolean;
+  price?: string | null;
+  images: unknown;
+  content?: string;
+  createdAt: Date;
+};
+
+function categoryFromJson(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((category): category is string => typeof category === 'string') : ['uncategorized'];
+}
+
+function imagesFromJson(value: unknown): ArtworkPiece['images'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {
+      main: ARTWORK_IMAGE_FALLBACK,
+      gallery: [],
+      thumbnail: ARTWORK_IMAGE_FALLBACK,
+    };
   }
 
-  const files = fs.readdirSync(portfolioDir);
-  const artworks = await Promise.all(
-    files
-      .filter(file => file.endsWith('.mdx'))
-      .map(async file => {
-        const slug = file.replace(/\.mdx$/, '');
-        const filePath = path.join(portfolioDir, file);
-        const source = fs.readFileSync(filePath, 'utf8');
-        const { data } = matter(source);
+  const images = value as Partial<ArtworkPiece['images']>;
+  return {
+    main: images.main || ARTWORK_IMAGE_FALLBACK,
+    gallery: Array.isArray(images.gallery) ? images.gallery : [],
+    thumbnail: images.thumbnail || images.main || ARTWORK_IMAGE_FALLBACK,
+  };
+}
 
-        return {
-          slug,
-          title: data.title || 'Untitled',
-          description: data.description || '',
-          medium: data.medium || 'Mixed Media',
-          dimensions: data.dimensions || '',
-          year: data.year || new Date().getFullYear().toString(),
-          category: data.category || ['uncategorized'],
-          featured: data.featured || false,
-          available: data.available || false,
-          price: data.price,
-          images: {
-            main: data.images?.main || '/images/portfolio/placeholder.jpg',
-            gallery: data.images?.gallery || [],
-            thumbnail: data.images?.thumbnail || data.images?.main || '/images/portfolio/placeholder.jpg'
-          },
-          createdAt: data.createdAt || new Date().toISOString()
-        } as ArtworkPiece;
-      })
-  );
+function toArtwork(record: ArtworkRecord): ArtworkPiece {
+  return {
+    slug: record.slug,
+    title: record.title,
+    description: record.description,
+    medium: record.medium,
+    dimensions: record.dimensions,
+    year: record.year,
+    category: categoryFromJson(record.category),
+    featured: record.featured,
+    available: record.available,
+    price: record.price || undefined,
+    images: imagesFromJson(record.images),
+    createdAt: record.createdAt.toISOString(),
+  };
+}
 
-  // Sort by featured first, then by creation date (newest first)
-  return artworks.sort((a, b) => {
-    if (a.featured && !b.featured) return -1;
-    if (!a.featured && b.featured) return 1;
-    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-  });
+const getCachedArtworks = unstable_cache(
+  async () => {
+    const artworks = await db.artwork.findMany({
+      orderBy: [{ featured: 'desc' }, { createdAt: 'desc' }],
+    });
+    return artworks.map((artwork) => toArtwork(artwork as ArtworkRecord));
+  },
+  ['artworks'],
+  { tags: ['artworks'], revalidate: 300 }
+);
+
+export async function getAllArtworks(): Promise<ArtworkPiece[]> {
+  return getCachedArtworks();
 }
 
 export async function getArtworkBySlug(slug: string): Promise<ArtworkPieceWithContent | null> {
-  const filePath = path.join(portfolioDir, `${slug}.mdx`);
-  
-  if (!fs.existsSync(filePath)) {
+  const artwork = await db.artwork.findUnique({
+    where: { slug },
+  });
+
+  if (!artwork) {
     return null;
   }
 
-  const source = fs.readFileSync(filePath, 'utf8');
-  const { data, content } = matter(source);
-
-  try {
-    const { code } = await bundleMDX({
-      source,
-      mdxOptions(options) {
-        options.remarkPlugins = [...(options.remarkPlugins ?? [])];
-        options.rehypePlugins = [...(options.rehypePlugins ?? [])];
-        return options;
-      },
-    });
-
-    return {
-      slug,
-      title: data.title || 'Untitled',
-      description: data.description || '',
-      medium: data.medium || 'Mixed Media',
-      dimensions: data.dimensions || '',
-      year: data.year || new Date().getFullYear().toString(),
-      category: data.category || ['uncategorized'],
-      featured: data.featured || false,
-      available: data.available || false,
-      price: data.price,
-      images: {
-        main: data.images?.main || '/images/portfolio/placeholder.jpg',
-        gallery: data.images?.gallery || [],
-        thumbnail: data.images?.thumbnail || data.images?.main || '/images/portfolio/placeholder.jpg'
-      },
-      createdAt: data.createdAt || new Date().toISOString(),
-      content,
-      code
-    };
-  } catch (error) {
-    console.error(`Error bundling MDX for artwork ${slug}:`, error);
-    return null;
-  }
+  const content = sanitizeRichHtml(artwork.content);
+  return {
+    ...toArtwork(artwork as ArtworkRecord),
+    content,
+    code: content,
+  };
 }
 
 export async function getArtworkSlugs(): Promise<string[]> {
-  if (!fs.existsSync(portfolioDir)) {
-    return [];
-  }
-
-  const files = fs.readdirSync(portfolioDir);
-  return files
-    .filter(file => file.endsWith('.mdx'))
-    .map(file => file.replace(/\.mdx$/, ''));
+  const artworks = await db.artwork.findMany({
+    select: { slug: true },
+  });
+  return artworks.map((artwork) => artwork.slug);
 }
 
 export async function getFeaturedArtworks(limit = 3): Promise<ArtworkPiece[]> {
@@ -137,7 +129,7 @@ export async function getFeaturedArtworks(limit = 3): Promise<ArtworkPiece[]> {
 
 export async function getArtworksByCategory(category: string): Promise<ArtworkPiece[]> {
   const allArtworks = await getAllArtworks();
-  return allArtworks.filter(artwork => 
+  return allArtworks.filter(artwork =>
     artwork.category.some(cat => cat.toLowerCase() === category.toLowerCase())
   );
 }

@@ -12,9 +12,11 @@ export interface ValidationErrors {
 }
 
 export const validateEmail = (email: string): boolean => {
-  // More comprehensive email validation regex that rejects consecutive dots
-  const emailRegex = /^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?@[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}$/;
-  return emailRegex.test(email);
+  const normalizedEmail = email.trim();
+  if (!normalizedEmail || normalizedEmail.includes('..')) return false;
+
+  const emailRegex = /^[a-zA-Z0-9]([a-zA-Z0-9._+-]*[a-zA-Z0-9])?@[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}$/;
+  return emailRegex.test(normalizedEmail);
 };
 
 export const validateContactForm = (data: ContactFormData): ValidationErrors => {
@@ -79,7 +81,8 @@ export const isRateLimited = (identifier: string, windowMs = 60000, maxRequests 
   const now = Date.now();
   
   // Get existing requests from localStorage (client-side) or implement server-side storage
-  const stored = typeof window !== 'undefined' ? localStorage.getItem(key) : null;
+  const storage = typeof window !== 'undefined' ? window.localStorage : undefined;
+  const stored = storage?.getItem(key) || null;
   let requests;
   
   try {
@@ -99,8 +102,8 @@ export const isRateLimited = (identifier: string, windowMs = 60000, maxRequests 
   
   // Add current request and update storage
   recentRequests.push(now);
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(key, JSON.stringify(recentRequests));
+  if (storage) {
+    storage.setItem(key, JSON.stringify(recentRequests));
   }
   
   return false;

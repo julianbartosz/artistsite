@@ -31,7 +31,7 @@ export class TestAutomation {
     suites: TestSuiteResult[];
     coverage_summary: any;
   }> {
-    console.log('🧪 Starting comprehensive test suite...');
+    console.log('Starting comprehensive test suite...');
     
     const results: TestSuiteResult[] = [];
     
@@ -318,7 +318,7 @@ export class TestAutomation {
       '/api/analytics/events'
     ];
 
-    console.log('🚀 Starting load test suite...');
+    console.log('Starting load test suite...');
     
     for (const endpoint of endpoints) {
       const url = `${baseUrl}${endpoint}`;

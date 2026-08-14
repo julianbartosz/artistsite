@@ -1,17 +1,13 @@
-import { PrismaClient } from '@prisma/client';
 import { Product } from './commerce';
 import { 
   SearchFilters, 
   SortOption, 
   SearchResults, 
   RecommendationType, 
-  RecommendationResult,
-  ProductView,
-  SearchQuery 
+  RecommendationResult
 } from './types';
-import { getAllProducts } from './commerce';
-
-const prisma = new PrismaClient();
+import { getAllProducts } from './commerce-server';
+import { prisma } from '@/lib/db';
 
 export class SearchService {
   /**

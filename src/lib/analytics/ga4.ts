@@ -96,7 +96,7 @@ export class GA4Analytics {
     if (process.env.NODE_ENV === 'development') {
       // Only log in development
       // eslint-disable-next-line no-console
-      console.log('🔍 GA4 Analytics initialized:', measurementId)
+      console.log('GA4 Analytics initialized:', measurementId)
     }
   }
 
@@ -104,9 +104,9 @@ export class GA4Analytics {
    * Track page view
    */
   static trackPageView(path: string, title?: string): void {
-    if (!this.isReady()) return
+    if (!GA4Analytics.isReady()) return
 
-    window.gtag('config', this.measurementId, {
+    window.gtag('config', GA4Analytics.measurementId, {
       page_path: path,
       page_title: title || document.title,
     })
@@ -116,7 +116,7 @@ export class GA4Analytics {
    * Track custom event
    */
   static trackEvent(eventName: string, parameters: GA4EventParams = {}): void {
-    if (!this.isReady()) return
+    if (!GA4Analytics.isReady()) return
 
     const eventData = {
       ...parameters,
@@ -126,7 +126,7 @@ export class GA4Analytics {
     window.gtag('event', eventName, eventData)
     
     // Also store in our local analytics with better error handling
-    this.storeLocalEvent(eventName, eventData).catch(() => {
+    GA4Analytics.storeLocalEvent(eventName, eventData).catch(() => {
       // Silently fail for analytics - don't interrupt user experience
     })
   }
@@ -135,7 +135,7 @@ export class GA4Analytics {
    * Track e-commerce events
    */
   static trackPurchase(purchaseData: PurchaseData): void {
-    if (!this.isReady()) return
+    if (!GA4Analytics.isReady()) return
 
     window.gtag('event', 'purchase', {
       transaction_id: purchaseData.transaction_id,
@@ -146,14 +146,14 @@ export class GA4Analytics {
       items: purchaseData.items,
     })
 
-    this.storeLocalEvent('purchase', purchaseData)
+    GA4Analytics.storeLocalEvent('purchase', purchaseData)
   }
 
   /**
    * Track add to cart
    */
   static trackAddToCart(item: EcommerceItem): void {
-    this.trackEvent('add_to_cart', {
+    GA4Analytics.trackEvent('add_to_cart', {
       currency: item.currency || 'USD',
       value: item.price * item.quantity,
       items: [item],
@@ -164,7 +164,7 @@ export class GA4Analytics {
    * Track begin checkout
    */
   static trackBeginCheckout(items: EcommerceItem[], value: number): void {
-    this.trackEvent('begin_checkout', {
+    GA4Analytics.trackEvent('begin_checkout', {
       currency: 'USD',
       value,
       items,
@@ -175,7 +175,7 @@ export class GA4Analytics {
    * Track view item
    */
   static trackViewItem(item: EcommerceItem): void {
-    this.trackEvent('view_item', {
+    GA4Analytics.trackEvent('view_item', {
       currency: item.currency || 'USD',
       value: item.price,
       items: [item],
@@ -186,9 +186,9 @@ export class GA4Analytics {
    * Set user properties
    */
   static setUserProperties(properties: Record<string, string | number | boolean>): void {
-    if (!this.isReady()) return
+    if (!GA4Analytics.isReady()) return
 
-    window.gtag('config', this.measurementId, {
+    window.gtag('config', GA4Analytics.measurementId, {
       custom_map: properties,
     })
   }
@@ -197,7 +197,7 @@ export class GA4Analytics {
    * Track newsletter signup
    */
   static trackNewsletterSignup(method: string = 'form'): void {
-    this.trackEvent('newsletter_signup', {
+    GA4Analytics.trackEvent('newsletter_signup', {
       event_category: 'engagement',
       method,
     })
@@ -207,7 +207,7 @@ export class GA4Analytics {
    * Track social share
    */
   static trackSocialShare(platform: string, url: string): void {
-    this.trackEvent('share', {
+    GA4Analytics.trackEvent('share', {
       event_category: 'engagement',
       method: platform,
       content_type: 'page',
@@ -219,7 +219,7 @@ export class GA4Analytics {
    * Track search
    */
   static trackSearch(searchTerm: string, resultCount: number): void {
-    this.trackEvent('search', {
+    GA4Analytics.trackEvent('search', {
       event_category: 'engagement',
       search_term: searchTerm,
       value: resultCount,
@@ -230,7 +230,7 @@ export class GA4Analytics {
    * Track file download
    */
   static trackDownload(fileName: string, fileType: string): void {
-    this.trackEvent('file_download', {
+    GA4Analytics.trackEvent('file_download', {
       event_category: 'engagement',
       file_name: fileName,
       file_extension: fileType,
@@ -241,7 +241,7 @@ export class GA4Analytics {
    * Track video interaction
    */
   static trackVideo(action: 'play' | 'pause' | 'complete', videoTitle: string, progress?: number): void {
-    this.trackEvent(`video_${action}`, {
+    GA4Analytics.trackEvent(`video_${action}`, {
       event_category: 'video',
       video_title: videoTitle,
       video_current_time: progress,
@@ -252,7 +252,7 @@ export class GA4Analytics {
    * Track form submission
    */
   static trackFormSubmit(formName: string, success: boolean): void {
-    this.trackEvent('form_submit', {
+    GA4Analytics.trackEvent('form_submit', {
       event_category: 'form',
       form_name: formName,
       success: success ? 'true' : 'false',
@@ -276,8 +276,8 @@ export class GA4Analytics {
     if (typeof window === 'undefined') return
 
     try {
-      const sessionId = this.getSessionId()
-      const userId = this.getUserId()
+      const sessionId = GA4Analytics.getSessionId()
+      const userId = GA4Analytics.getUserId()
 
       const response = await fetch('/api/analytics/events', {
         method: 'POST',

@@ -11,6 +11,14 @@ export interface CustomerSegment {
   engagementScore: number
 }
 
+export interface CustomerSegmentSummary {
+  id: string
+  name: string
+  userCount: number
+  averageLifetimeValue: number
+  engagementScore: number
+}
+
 export interface SegmentCriteria {
   behaviorScore?: { min?: number; max?: number }
   lifetimeValue?: { min?: number; max?: number }
@@ -52,7 +60,175 @@ export interface EngagementTrends {
   }>
 }
 
+export interface TrackableAnalyticsEvent {
+  eventName: string
+  userId?: string
+  sessionId?: string
+  properties: Record<string, unknown>
+  pageUrl?: string
+}
+
+export interface AnalyticsEventRecordResult {
+  stored: boolean
+  eventId?: string
+}
+
+function isForeignKeyConstraintError(error: unknown): boolean {
+  return Boolean(
+    error &&
+    typeof error === 'object' &&
+    'code' in error &&
+    (error as { code?: string }).code === 'P2003'
+  )
+}
+
+async function createAnalyticsEvent(input: TrackableAnalyticsEvent, userId?: string) {
+  return prisma.analyticsEvent.create({
+    data: {
+      eventName: input.eventName,
+      userId,
+      sessionId: input.sessionId,
+      properties: JSON.stringify(input.properties),
+      pageUrl: input.pageUrl,
+      timestamp: new Date(),
+    },
+  })
+}
+
+export async function recordAnalyticsEvent(input: TrackableAnalyticsEvent): Promise<AnalyticsEventRecordResult> {
+  try {
+    let event = await createAnalyticsEvent(input, input.userId)
+
+    if (input.userId) {
+      try {
+        await updateCustomerProfile(input.userId, input.eventName, input.properties)
+      } catch (error) {
+        if (!isForeignKeyConstraintError(error)) throw error
+      }
+    }
+
+    return { stored: true, eventId: event.id }
+  } catch (error) {
+    if (input.userId && isForeignKeyConstraintError(error)) {
+      const event = await createAnalyticsEvent(input)
+      return { stored: true, eventId: event.id }
+    }
+
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Analytics event persistence skipped:', error)
+    }
+    return { stored: false }
+  }
+}
+
+async function updateCustomerProfile(userId: string, eventName: string, properties: Record<string, unknown>) {
+  try {
+    let profile = await prisma.customerProfile.findUnique({
+      where: { id: userId },
+    })
+
+    if (!profile) {
+      profile = await prisma.customerProfile.create({
+        data: {
+          id: userId,
+          segments: JSON.stringify([]),
+          behaviorScore: 0,
+          preferences: JSON.stringify({}),
+          lifetimeValue: 0,
+          engagementScore: 0,
+          lastActivity: new Date(),
+        },
+      })
+    }
+
+    const engagementBonus = calculateEngagementBonus(eventName)
+    const newEngagementScore = Math.min(profile.engagementScore + engagementBonus, 1000)
+    const purchaseValue = eventName === 'purchase' && properties.value ? Number(properties.value) : 0
+    const newLifetimeValue = profile.lifetimeValue + (Number.isFinite(purchaseValue) ? purchaseValue : 0)
+    const currentSegments = parseJsonArray(profile.segments)
+    const newSegments = updateUserSegments(currentSegments, eventName, properties)
+
+    await prisma.customerProfile.update({
+      where: { id: userId },
+      data: {
+        engagementScore: newEngagementScore,
+        lifetimeValue: newLifetimeValue,
+        segments: JSON.stringify(newSegments),
+        lastActivity: new Date(),
+      },
+    })
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Customer profile update skipped:', error)
+    }
+  }
+}
+
+function parseJsonArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string')
+  if (typeof value !== 'string') return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function calculateEngagementBonus(eventName: string): number {
+  const engagementValues: Record<string, number> = {
+    page_view: 1,
+    view_item: 2,
+    add_to_cart: 5,
+    begin_checkout: 8,
+    purchase: 15,
+    newsletter_signup: 10,
+    contact_form_submit: 12,
+    portfolio_view: 3,
+    artwork_view: 4,
+    social_share: 6,
+    blog_read: 3,
+    search: 2,
+    wishlist_add: 4,
+  }
+
+  return engagementValues[eventName] || 1
+}
+
+function updateUserSegments(currentSegments: string[], eventName: string, properties: Record<string, unknown>): string[] {
+  const segments = new Set(currentSegments)
+
+  if (eventName === 'purchase') {
+    segments.add('customer')
+    if (properties.value && Number(properties.value) > 500) {
+      segments.add('high_value_customer')
+    }
+  }
+
+  if (eventName === 'add_to_cart') segments.add('active_shopper')
+  if (eventName === 'newsletter_signup') segments.add('newsletter_subscriber')
+  if (eventName === 'portfolio_view' || eventName === 'artwork_view') segments.add('art_enthusiast')
+  if (eventName === 'contact_form_submit' || eventName === 'commission_inquiry') segments.add('potential_client')
+  if (eventName === 'purchase') segments.delete('cart_abandoner')
+
+  return Array.from(segments)
+}
+
 export class CustomerInsights {
+  private static parseSegments(value: unknown): string[] {
+    if (Array.isArray(value)) return value.filter((segment): segment is string => typeof segment === 'string')
+    if (typeof value !== 'string') return []
+
+    try {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed)
+        ? parsed.filter((segment): segment is string => typeof segment === 'string')
+        : []
+    } catch {
+      return []
+    }
+  }
+
   /**
    * Get all customer segments with analytics
    */
@@ -69,13 +245,52 @@ export class CustomerInsights {
       const allSegments = new Set<string>();
       
       profiles.forEach(profile => {
-        const segments = typeof profile.segments === 'string' ? JSON.parse(profile.segments) : profile.segments || [];
+        const segments = this.parseSegments(profile.segments);
         segments.forEach((segment: string) => allSegments.add(segment));
       });
 
       return Array.from(allSegments);
     } catch (error) {
       throw new Error(`Failed to get customer segments: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Get segment summaries in the shape expected by analytics dashboards.
+   */
+  static async getCustomerSegmentsWithStats(): Promise<CustomerSegmentSummary[]> {
+    try {
+      const profiles = await prisma.customerProfile.findMany({
+        select: {
+          segments: true,
+          lifetimeValue: true,
+          engagementScore: true,
+        },
+      })
+
+      const segmentStats = new Map<string, { count: number; lifetimeValue: number; engagementScore: number }>()
+
+      profiles.forEach(profile => {
+        this.parseSegments(profile.segments).forEach(segment => {
+          const current = segmentStats.get(segment) || { count: 0, lifetimeValue: 0, engagementScore: 0 }
+          current.count += 1
+          current.lifetimeValue += profile.lifetimeValue
+          current.engagementScore += profile.engagementScore
+          segmentStats.set(segment, current)
+        })
+      })
+
+      return Array.from(segmentStats.entries())
+        .map(([segment, stats]) => ({
+          id: segment,
+          name: segment.replace(/_/g, ' '),
+          userCount: stats.count,
+          averageLifetimeValue: stats.count ? stats.lifetimeValue / stats.count : 0,
+          engagementScore: stats.count ? stats.engagementScore / stats.count : 0,
+        }))
+        .sort((a, b) => b.userCount - a.userCount)
+    } catch (error) {
+      throw new Error(`Failed to get customer segment stats: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
