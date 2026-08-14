@@ -60,7 +60,15 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const rawBody = await request.text();
+    if (!rawBody.trim()) {
+      return NextResponse.json(
+        { success: false, error: 'Request body is required' },
+        { status: 400 }
+      );
+    }
+
+    const body = JSON.parse(rawBody);
     const { productId, userId, sessionId, source, duration } = body;
 
     if (!productId) {

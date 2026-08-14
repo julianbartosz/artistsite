@@ -1,23 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
-import { join } from 'path';
-import { existsSync } from 'fs';
 import crypto from 'crypto';
+import { ApiError } from '@/lib/api-error-handler';
+import { requireAdmin } from '@/lib/auth';
+import { StorageConfigurationError, storeImageAsset } from '@/lib/storage';
 
-const UPLOAD_DIR = join(process.cwd(), 'public', 'uploads', 'images');
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
-// Ensure upload directory exists
-async function ensureUploadDir() {
-  if (!existsSync(UPLOAD_DIR)) {
-    await mkdir(UPLOAD_DIR, { recursive: true });
-  }
-}
-
 export async function POST(request: NextRequest) {
   try {
-    await ensureUploadDir();
+    await requireAdmin();
     
     const formData = await request.formData();
     const file = formData.get('image') as File;
@@ -53,25 +45,32 @@ export async function POST(request: NextRequest) {
     const hash = crypto.createHash('md5').update(buffer).digest('hex');
     const extension = file.name.split('.').pop() || 'jpg';
     const filename = `${hash}.${extension}`;
-    const filepath = join(UPLOAD_DIR, filename);
-    
-    // Check if file already exists (deduplication)
-    if (!existsSync(filepath)) {
-      await writeFile(filepath, buffer);
-    }
-    
-    // Return public URL
-    const url = `/uploads/images/${filename}`;
+    const storedAsset = await storeImageAsset(buffer, filename, file.type);
     
     return NextResponse.json({
       success: true,
-      url,
+      url: storedAsset.url,
       filename,
       size: file.size,
-      type: file.type
+      type: file.type,
+      provider: storedAsset.provider,
     });
     
   } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status }
+      );
+    }
+
+    if (error instanceof StorageConfigurationError) {
+      return NextResponse.json(
+        { error: error.message, code: 'STORAGE_UNCONFIGURED' },
+        { status: 503 }
+      );
+    }
+
     console.error('Image upload error:', error);
     return NextResponse.json(
       { error: 'Failed to upload image' },

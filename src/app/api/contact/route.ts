@@ -1,35 +1,63 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createHash } from 'crypto';
 import { withApiErrorHandler, ApiError } from '@/lib/api-error-handler';
 import { validateContactForm, sanitizeFormData, type ContactFormData } from '@/lib/form-validation';
+import { sendTemplateEmail } from '@/lib/email';
+import { getConfig } from '@/lib/config';
+import { db } from '@/lib/db';
 
-// Simple in-memory rate limiting (in production, use Redis or database)
-const rateLimitStore = new Map<string, number[]>();
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 3;
 
-const isRateLimited = (ip: string, windowMs = 60000, maxRequests = 3): boolean => {
-  const now = Date.now();
-  const requests = rateLimitStore.get(ip) || [];
-  
-  // Filter out requests outside the time window
-  const recentRequests = requests.filter(timestamp => now - timestamp < windowMs);
-  
-  if (recentRequests.length >= maxRequests) {
-    return true;
+function ipHash(ip: string): string {
+  return createHash('sha256').update(ip).digest('hex');
+}
+
+function parseProperties(value: unknown): Record<string, any> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, any>;
+  if (typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
   }
-  
-  // Add current request and update store
-  recentRequests.push(now);
-  rateLimitStore.set(ip, recentRequests);
-  
+}
+
+async function isRateLimited(ip: string): Promise<boolean> {
+  const hashedIp = ipHash(ip);
+  const since = new Date(Date.now() - RATE_LIMIT_WINDOW_MS);
+  const attempts = await db.analyticsEvent.findMany({
+    where: {
+      eventName: 'contact_submit_attempt',
+      timestamp: { gte: since },
+    },
+    select: { properties: true },
+    take: 100,
+  });
+
+  const recentAttempts = attempts.filter((event) => parseProperties(event.properties).ip_hash === hashedIp).length;
+  if (recentAttempts >= RATE_LIMIT_MAX_REQUESTS) return true;
+
+  await db.analyticsEvent.create({
+    data: {
+      eventName: 'contact_submit_attempt',
+      properties: JSON.stringify({ ip_hash: hashedIp }),
+      timestamp: new Date(),
+    },
+  });
+
   return false;
-};
+}
 
 export const POST = withApiErrorHandler(async (request: NextRequest) => {
   // Get client IP for rate limiting
   const forwarded = request.headers.get('x-forwarded-for');
   const ip = forwarded ? forwarded.split(',')[0] : request.headers.get('x-real-ip') || 'unknown';
+  const skipRateLimit = process.env.PLAYWRIGHT_E2E === 'true' || (process.env.NODE_ENV !== 'production' && request.headers.get('x-e2e-test') === 'true');
   
   // Check rate limiting
-  if (isRateLimited(ip)) {
+  if (!skipRateLimit && await isRateLimited(ip)) {
     throw new ApiError(429, 'Too many requests. Please wait before submitting again.', 'RATE_LIMITED');
   }
 
@@ -50,88 +78,33 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
 
   const { name, email, subject, message, inquiryType } = sanitizedData;
 
-  // Enhanced logging with more security context
-  console.log('Contact form submission:', {
-    name,
-    email,
-    subject,
-    inquiryType,
-    messageLength: message.length,
-    timestamp: new Date().toISOString(),
-    ip,
-    userAgent: request.headers.get('user-agent')?.substring(0, 100),
+  const isE2eLogMode = process.env.PLAYWRIGHT_E2E === 'true';
+  const deliveryMode = isE2eLogMode ? 'log' : await getConfig('EMAIL_DELIVERY_MODE') || (process.env.NODE_ENV === 'production' ? 'smtp' : 'log');
+  const recipient = await getConfig('CONTACT_EMAIL') || await getConfig('SMTP_FROM') || await getConfig('SMTP_USER');
+  if (!recipient && deliveryMode !== 'log') {
+    throw new ApiError(503, 'Contact email recipient is not configured', 'CONTACT_RECIPIENT_UNCONFIGURED');
+  }
+
+  const delivered = await sendTemplateEmail(recipient || 'contact-log@localhost', {
+    subject: `[${inquiryType.toUpperCase()}] ${subject}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2>New Contact Form Submission</h2>
+        <p><strong>From:</strong> ${name} (${email})</p>
+        <p><strong>Inquiry Type:</strong> ${inquiryType}</p>
+        <p><strong>Subject:</strong> ${subject}</p>
+        <p><strong>Message:</strong></p>
+        <div style="white-space: pre-wrap; border-left: 4px solid #2563eb; padding-left: 12px;">${message}</div>
+        <hr />
+        <p style="font-size: 12px; color: #666;">IP: ${ip}</p>
+        <p style="font-size: 12px; color: #666;">User Agent: ${request.headers.get('user-agent')?.substring(0, 100) || 'unknown'}</p>
+      </div>
+    `,
+    text: `New contact form submission\n\nFrom: ${name} <${email}>\nInquiry Type: ${inquiryType}\nSubject: ${subject}\n\n${message}\n\nIP: ${ip}`,
   });
 
-  // TODO: Implement email sending service
-  // This is where you would integrate with your email service provider:
-  
-  try {
-    // Simulate email sending processing time
-    await new Promise(resolve => setTimeout(resolve, Math.random() * 1000 + 500));
-    
-    // Example email service integration (commented out):
-    /*
-    if (process.env.EMAIL_SERVICE === 'sendgrid') {
-      const sgMail = require('@sendgrid/mail');
-      sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-      
-      const msg = {
-        to: process.env.CONTACT_EMAIL || 'hello@artistsite.com',
-        from: process.env.FROM_EMAIL || 'noreply@artistsite.com',
-        replyTo: email,
-        subject: `[${inquiryType.toUpperCase()}] ${subject}`,
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #333; border-bottom: 2px solid #eee; padding-bottom: 10px;">
-              New Contact Form Submission
-            </h2>
-            <div style="background: #f9f9f9; padding: 20px; border-radius: 5px; margin: 20px 0;">
-              <p><strong>From:</strong> ${name}</p>
-              <p><strong>Email:</strong> <a href="mailto:${email}">${email}</a></p>
-              <p><strong>Inquiry Type:</strong> ${inquiryType}</p>
-              <p><strong>Subject:</strong> ${subject}</p>
-              <p><strong>Submitted:</strong> ${new Date().toLocaleString()}</p>
-            </div>
-            <div style="margin: 20px 0;">
-              <h3 style="color: #333;">Message:</h3>
-              <div style="background: white; padding: 15px; border-left: 4px solid #007cba; white-space: pre-wrap;">${message}</div>
-            </div>
-            <div style="font-size: 12px; color: #666; margin-top: 30px; border-top: 1px solid #eee; padding-top: 15px;">
-              <p>This message was sent from the Artist Site contact form.</p>
-              <p>IP: ${ip}</p>
-            </div>
-          </div>
-        `,
-      };
-      
-      await sgMail.send(msg);
-    } else if (process.env.EMAIL_SERVICE === 'resend') {
-      const { Resend } = require('resend');
-      const resend = new Resend(process.env.RESEND_API_KEY);
-      
-      await resend.emails.send({
-        from: process.env.FROM_EMAIL || 'noreply@artistsite.com',
-        to: process.env.CONTACT_EMAIL || 'hello@artistsite.com',
-        replyTo: email,
-        subject: `[${inquiryType.toUpperCase()}] ${subject}`,
-        html: // ... similar HTML template
-      });
-    }
-    */
-    
-    // For development/testing, log the email content
-    if (process.env.NODE_ENV === 'development') {
-      console.log('📧 Email would be sent:', {
-        to: process.env.CONTACT_EMAIL || 'hello@artistsite.com',
-        from: email,
-        subject: `[${inquiryType.toUpperCase()}] ${subject}`,
-        messagePreview: message.substring(0, 100) + '...'
-      });
-    }
-    
-  } catch (emailError) {
-    console.error('Email sending failed:', emailError);
-    throw new ApiError(500, 'Failed to send email notification', 'EMAIL_SEND_FAILED');
+  if (!delivered) {
+    throw new ApiError(502, 'Failed to send email notification', 'EMAIL_SEND_FAILED');
   }
 
   return NextResponse.json({ 

@@ -6,7 +6,7 @@ import { AuthGuard } from '@/components/AuthGuard';
 
 export default function InventoryPage() {
   return (
-    <AuthGuard>
+    <AuthGuard adminOnly>
       <div className="min-h-screen bg-gray-50">
         <InventoryDashboard />
       </div>

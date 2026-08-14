@@ -1,17 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { InventoryService } from '@/lib/inventory';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { ApiError } from '@/lib/api-error-handler';
+import { requireAdmin } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    await requireAdmin();
 
     const { searchParams } = new URL(request.url);
     const severity = searchParams.get('severity') || undefined;
@@ -23,6 +17,13 @@ export async function GET(request: NextRequest) {
       alerts
     });
   } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { success: false, error: error.message, code: error.code },
+        { status: error.status }
+      );
+    }
+
     console.error('Stock alerts API error:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to get alerts' },
@@ -33,13 +34,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const session = await requireAdmin();
 
     const body = await request.json();
     const { action, alertId } = body;
@@ -66,6 +61,13 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { success: false, error: error.message, code: error.code },
+        { status: error.status }
+      );
+    }
+
     console.error('Alert update error:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to update alert' },

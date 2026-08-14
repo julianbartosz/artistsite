@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { InventoryService } from '@/lib/inventory';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { ApiError } from '@/lib/api-error-handler';
+import { requireAdmin } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,14 +10,15 @@ export async function GET(request: NextRequest) {
     const productIds = searchParams.get('productIds')?.split(',');
 
     if (productId) {
-      // Get single product inventory
-      const inventory = await InventoryService.getInventoryStatus(productId);
+      // Storefront-safe availability projection. Full stock data is admin-only.
+      const inventory = await InventoryService.getPublicInventoryStatus(productId);
       return NextResponse.json({
         success: true,
         inventory
       });
     } else if (productIds) {
-      // Get bulk inventory status
+      await requireAdmin();
+
       const inventories = await InventoryService.getBulkInventoryStatus(productIds);
       return NextResponse.json({
         success: true,
@@ -25,13 +26,7 @@ export async function GET(request: NextRequest) {
       });
     } else {
       // Get dashboard data (admin only)
-      const session = await getServerSession(authOptions);
-      if (!session?.user) {
-        return NextResponse.json(
-          { success: false, error: 'Unauthorized' },
-          { status: 401 }
-        );
-      }
+      await requireAdmin();
 
       const dashboardData = await InventoryService.getDashboardData();
       return NextResponse.json({
@@ -40,6 +35,13 @@ export async function GET(request: NextRequest) {
       });
     }
   } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { success: false, error: error.message, code: error.code },
+        { status: error.status }
+      );
+    }
+
     console.error('Inventory API error:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to get inventory data' },
@@ -50,13 +52,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const session = await requireAdmin();
 
     const body = await request.json();
     const { action, productId, quantity, type, reason, notes } = body;
@@ -123,6 +119,13 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { success: false, error: error.message, code: error.code },
+        { status: error.status }
+      );
+    }
+
     console.error('Inventory update error:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to update inventory' },

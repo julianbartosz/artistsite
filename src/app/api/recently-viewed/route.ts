@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
-import { getAllProducts } from '@/lib/commerce';
+import { getAllProducts } from '@/lib/commerce-server';
 
 const prisma = new PrismaClient();
 
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
     const limitedProductIds = uniqueProductIds.slice(0, limit);
 
     // Get product details
-    const allProducts = getAllProducts();
+    const allProducts = await getAllProducts();
     const products = limitedProductIds
       .map(id => allProducts.find(p => p.id === id))
       .filter(Boolean);

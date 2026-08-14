@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiErrorHandler, ApiError } from '@/lib/api-error-handler';
+import { getConfig } from '@/lib/config';
+import { db } from '@/lib/db';
 
 export const POST = withApiErrorHandler(async (request: NextRequest) => {
   const { email } = await request.json();
@@ -9,14 +11,30 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
   }
 
   // Check for required environment variables
-  const apiKey = process.env.MAILCHIMP_API_KEY;
-  const listId = process.env.MAILCHIMP_LIST_ID;
-  const serverPrefix = process.env.MAILCHIMP_SERVER_PREFIX;
+  const apiKey = await getConfig('MAILCHIMP_API_KEY');
+  const listId = await getConfig('MAILCHIMP_LIST_ID');
+  const serverPrefix = await getConfig('MAILCHIMP_SERVER_PREFIX');
+  const deliveryMode = await getConfig('NEWSLETTER_DELIVERY_MODE') || (process.env.NODE_ENV === 'production' ? 'mailchimp' : 'log');
+  const isE2eLogMode = process.env.PLAYWRIGHT_E2E === 'true';
+
+  if (deliveryMode === 'log' || isE2eLogMode) {
+    await recordNewsletterSubscriber(email);
+    return NextResponse.json({
+      message: 'Successfully subscribed to newsletter!',
+      email,
+      mode: 'development'
+    });
+  }
 
   if (!apiKey || !listId || !serverPrefix) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new ApiError(503, 'Newsletter service is not configured', 'ESP_UNCONFIGURED');
+    }
+
     console.warn('Mailchimp environment variables not configured, logging email instead:', email);
     
     // Fallback: just log the subscription for development
+    await recordNewsletterSubscriber(email);
     return NextResponse.json({ 
       message: 'Successfully subscribed to newsletter!',
       email,
@@ -54,6 +72,7 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
     }
 
     console.log(`Newsletter subscription successful: ${email}`);
+    await recordNewsletterSubscriber(email);
     
     return NextResponse.json({ 
       message: 'Successfully subscribed to newsletter!',
@@ -70,3 +89,51 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
     throw new ApiError(500, 'Failed to subscribe to newsletter', 'NETWORK_ERROR');
   }
 });
+
+async function recordNewsletterSubscriber(email: string): Promise<void> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) return;
+
+  const existing = await db.customerProfile.findUnique({ where: { email: normalizedEmail } }).catch(() => null);
+  const existingSegments = parseSegments(existing?.segments);
+  const segments = Array.from(new Set([...existingSegments, 'newsletter_subscriber']));
+
+  await db.customerProfile.upsert({
+    where: { email: normalizedEmail },
+    create: {
+      email: normalizedEmail,
+      segments: JSON.stringify(segments),
+      preferences: JSON.stringify({ newsletter: true }),
+      lastActivity: new Date(),
+    },
+    update: {
+      segments: JSON.stringify(segments),
+      preferences: JSON.stringify({ ...(parseObject(existing?.preferences)), newsletter: true }),
+      lastActivity: new Date(),
+    },
+  }).catch((error) => {
+    console.error('Failed to record newsletter subscriber profile:', error);
+  });
+}
+
+function parseSegments(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((segment): segment is string => typeof segment === 'string');
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((segment): segment is string => typeof segment === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseObject(value: unknown): Record<string, any> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, any>;
+  if (typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
