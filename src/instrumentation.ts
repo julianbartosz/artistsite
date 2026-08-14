@@ -16,12 +16,12 @@ export async function register() {
     if (process.env.NODE_ENV === 'development') {
       // Development-specific error tracking
       process.on('uncaughtException', (error) => {
-        console.error('🚨 Uncaught Exception:', error)
+        console.error('Uncaught Exception:', error)
         console.error('Stack:', error.stack)
       })
       
       process.on('unhandledRejection', (reason, promise) => {
-        console.error('🚨 Unhandled Rejection at:', promise, 'reason:', reason)
+        console.error('Unhandled Rejection at:', promise, 'reason:', reason)
       })
     }
   }
@@ -29,6 +29,6 @@ export async function register() {
   // Production error tracking (extensible for services like Sentry)
   if (process.env.NODE_ENV === 'production') {
     // Add production error tracking here
-    console.log('🔍 Error tracking initialized for production')
+    console.log('Error tracking initialized for production')
   }
 }

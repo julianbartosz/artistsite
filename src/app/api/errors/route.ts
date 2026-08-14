@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
 
 interface ErrorReport {
   id: string;
@@ -47,6 +48,24 @@ export async function POST(req: NextRequest) {
       level: errorReport.level,
       message: errorReport.message,
       url: errorReport.url,
+    });
+
+    await db.analyticsEvent.create({
+      data: {
+        eventName: 'error_reported',
+        userId: errorReport.userId,
+        pageUrl: errorReport.url,
+        properties: JSON.stringify({
+          id: errorReport.id,
+          level: errorReport.level,
+          message: errorReport.message,
+          environment: errorReport.environment,
+          metadata: errorReport.metadata || {},
+        }),
+        timestamp: new Date(errorReport.timestamp),
+      }
+    }).catch((analyticsError) => {
+      console.error('Failed to persist error analytics event:', analyticsError);
     });
 
     // Send to external monitoring service (optional)

@@ -4,11 +4,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useCart } from '@/components/CartContext';
-import { formatPrice } from '@/lib/commerce';
+import { formatPrice, productImageSrc } from '@/lib/commerce';
 import { loadStripe } from '@stripe/stripe-js';
-
-// Initialize Stripe
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
 interface CheckoutFormData {
   email: string;
@@ -20,6 +17,7 @@ interface CheckoutFormData {
   postalCode: string;
   country: string;
   phone: string;
+  promoCode: string;
 }
 
 export default function CheckoutPage() {
@@ -35,24 +33,28 @@ export default function CheckoutPage() {
     postalCode: '',
     country: 'US',
     phone: '',
+    promoCode: '',
   });
   const [isProcessing, setIsProcessing] = useState(false);
   const [errors, setErrors] = useState<Partial<CheckoutFormData>>({});
+  const [submitError, setSubmitError] = useState('');
 
   // Redirect if cart is empty
   useEffect(() => {
-    if (state.items.length === 0) {
+    if (state.isLoaded && state.items.length === 0) {
       router.push('/shop');
     }
-  }, [state.items.length, router]);
+  }, [state.isLoaded, state.items.length, router]);
 
   // Calculate totals
   const subtotal = state.total;
   const shipping = state.items.reduce((total, item) => {
-    return total + (item.product.shipping.domestic * item.quantity);
+    const shippingCost = formData.country === 'US'
+      ? item.product.shipping.domestic
+      : item.product.shipping.international;
+    return total + (shippingCost * item.quantity);
   }, 0);
-  const tax = subtotal * 0.08; // 8% tax rate (adjust as needed)
-  const total = subtotal + shipping + tax;
+  const total = subtotal + shipping;
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -83,6 +85,7 @@ export default function CheckoutPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError('');
     
     if (!validateForm()) return;
 
@@ -98,26 +101,33 @@ export default function CheckoutPage() {
         body: JSON.stringify({
           items: state.items,
           customerInfo: formData,
-          subtotal,
-          shipping,
-          tax,
-          total,
+          promoCode: formData.promoCode,
         }),
       });
 
-      const { sessionId } = await response.json();
+      const { sessionId, error } = await response.json();
+      if (!response.ok || !sessionId) {
+        throw new Error(error || 'Failed to create checkout session');
+      }
 
       // Redirect to Stripe Checkout
-      const stripe = await stripePromise;
-      const { error } = await stripe!.redirectToCheckout({ sessionId });
+      const configResponse = await fetch('/api/config/public');
+      const publicConfig = await configResponse.json();
+      const publishableKey = publicConfig.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+      if (!publishableKey) {
+        throw new Error('Stripe publishable key is not configured');
+      }
 
-      if (error) {
-        console.error('Stripe error:', error);
-        alert('Payment failed. Please try again.');
+      const stripe = await loadStripe(publishableKey);
+      const { error: stripeError } = await stripe!.redirectToCheckout({ sessionId });
+
+      if (stripeError) {
+        console.error('Stripe error:', stripeError);
+        setSubmitError('Payment could not be started. Please check your details and try again.');
       }
     } catch (error) {
       console.error('Checkout error:', error);
-      alert('Something went wrong. Please try again.');
+      setSubmitError(error instanceof Error ? error.message : 'Something went wrong. Please try again.');
     } finally {
       setIsProcessing(false);
     }
@@ -147,7 +157,7 @@ export default function CheckoutPage() {
                   <div key={item.product.id} className="flex gap-4">
                     <div className="relative w-16 h-16 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
                       <Image
-                        src={item.product.images.thumbnail}
+                        src={productImageSrc(item.product)}
                         alt={item.product.title}
                         fill
                         className="object-cover"
@@ -178,9 +188,15 @@ export default function CheckoutPage() {
                   <span className="text-gray-600">Shipping</span>
                   <span className="text-gray-900">{formatPrice(shipping)}</span>
                 </div>
+                {formData.promoCode.trim() && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Promo code</span>
+                    <span className="text-gray-900">Validated at checkout</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Tax</span>
-                  <span className="text-gray-900">{formatPrice(tax)}</span>
+                  <span className="text-gray-900">Calculated by Stripe</span>
                 </div>
                 <div className="border-t border-gray-200 pt-2 flex justify-between font-semibold text-lg">
                   <span>Total</span>
@@ -195,6 +211,12 @@ export default function CheckoutPage() {
             <h2 className="text-xl font-semibold text-gray-900 mb-6">Shipping Information</h2>
             
             <form onSubmit={handleSubmit} className="space-y-6">
+              {submitError && (
+                <div data-testid="checkout-error" role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                  {submitError}
+                </div>
+              )}
+
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                 {/* Contact Information */}
                 <div className="mb-6">
@@ -216,6 +238,23 @@ export default function CheckoutPage() {
                     />
                     {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
                   </div>
+                </div>
+
+                <div className="mb-6">
+                  <label htmlFor="promoCode" className="block text-sm font-medium text-gray-700 mb-1">
+                    Promo Code
+                  </label>
+                  <input
+                    type="text"
+                    id="promoCode"
+                    name="promoCode"
+                    value={formData.promoCode}
+                    onChange={handleInputChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-gray-500 uppercase"
+                    placeholder="Optional"
+                    autoComplete="off"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">Valid codes are applied securely when payment is created.</p>
                 </div>
 
                 {/* Name */}
@@ -366,6 +405,7 @@ export default function CheckoutPage() {
               {/* Submit Button */}
               <button
                 type="submit"
+                data-testid="complete-order"
                 disabled={isProcessing}
                 className="w-full bg-gray-900 text-white py-4 px-6 rounded-lg hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >

@@ -5,12 +5,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useCart } from '@/components/CartContext';
 import { Suspense } from 'react';
+import OrderTracking from '@/components/OrderTracking';
+import { Order } from '@/lib/orders';
 
 interface OrderDetails {
   sessionId: string;
-  customerEmail: string;
-  amount: number;
-  items: any[];
+  paymentStatus: string;
+  order: Order;
 }
 
 function CheckoutSuccessContent() {
@@ -18,7 +19,26 @@ function CheckoutSuccessContent() {
   const searchParams = useSearchParams();
   const { clearCart } = useCart();
   const [orderDetails, setOrderDetails] = useState<OrderDetails | null>(null);
+  const [supportEmail, setSupportEmail] = useState('orders@artistsite.com');
   const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'test') return;
+
+    let active = true;
+
+    fetch('/api/config/public')
+      .then((response) => response.ok ? response.json() : null)
+      .then((config) => {
+        const configuredEmail = config?.SUPPORT_EMAIL || config?.CONTACT_EMAIL || config?.ARTIST_EMAIL;
+        if (active && configuredEmail) setSupportEmail(configuredEmail);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const sessionId = searchParams.get('session_id');
@@ -84,16 +104,16 @@ function CheckoutSuccessContent() {
               <div className="space-y-4 mb-6">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Order ID</span>
-                  <span className="font-medium text-gray-900">{orderDetails.sessionId.slice(-8).toUpperCase()}</span>
+                  <span className="font-medium text-gray-900">{orderDetails.order.orderNumber}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Email</span>
-                  <span className="font-medium text-gray-900">{orderDetails.customerEmail}</span>
+                  <span className="font-medium text-gray-900">{orderDetails.order.customerEmail}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Total Amount</span>
                   <span className="font-medium text-gray-900">
-                    ${(orderDetails.amount / 100).toFixed(2)}
+                    ${orderDetails.order.total.toFixed(2)} {orderDetails.order.currency}
                   </span>
                 </div>
               </div>
@@ -149,13 +169,19 @@ function CheckoutSuccessContent() {
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-500">
               Questions about your order? Contact us at{' '}
-              <a href="mailto:orders@artistsite.com" className="text-gray-900 hover:underline">
-                orders@artistsite.com
+              <a href={`mailto:${supportEmail}`} className="text-gray-900 hover:underline">
+                {supportEmail}
               </a>
             </p>
           </div>
         </div>
       </div>
+
+      {orderDetails?.order && (
+        <div className="mt-10 bg-white border-t border-gray-200">
+          <OrderTracking order={orderDetails.order} />
+        </div>
+      )}
     </div>
   );
 }
