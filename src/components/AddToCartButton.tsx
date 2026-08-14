@@ -195,6 +195,7 @@ export default function AddToCartButton({
         {isAvailable && (
           <button
             onClick={handleAddToCart}
+            data-testid="add-to-cart"
             disabled={isAdding || !isInStock()}
             className={`w-full font-medium rounded-lg transition-all duration-200 ${buttonSizes[size]} ${
               isAdding || !isInStock()

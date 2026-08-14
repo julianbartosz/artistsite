@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Product } from '@/lib/commerce';
+import { Product, productImageSrc } from '@/lib/commerce';
 import { RecommendationResult } from '@/lib/types';
 import { useSession } from 'next-auth/react';
 
@@ -145,7 +145,7 @@ function ProductCard({ product }: ProductCardProps) {
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow duration-200">
         <div className="aspect-square relative overflow-hidden">
           <Image
-            src={product.images.thumbnail}
+            src={productImageSrc(product)}
             alt={product.title}
             fill
             className="object-cover group-hover:scale-105 transition-transform duration-200"

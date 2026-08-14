@@ -3,8 +3,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
-import { Product } from '@/lib/commerce';
-import { getProductById } from '@/lib/commerce';
+import { Product, productImageSrc } from '@/lib/commerce';
 
 interface RecentlyViewedProps {
   currentProductId?: string;
@@ -44,10 +43,15 @@ export function RecentlyViewed({
           const stored = localStorage.getItem('recently_viewed');
           if (stored) {
             const viewedIds: ViewedProduct[] = JSON.parse(stored);
+            const response = await fetch('/api/search?limit=1000');
+            const data = await response.json();
+            const productMap = new Map<string, Product>(
+              (data.success ? data.products || [] : []).map((product: Product) => [product.id, product])
+            );
             const products = viewedIds
               .filter(item => item.productId !== currentProductId)
               .slice(0, maxItems)
-              .map(item => getProductById(item.productId))
+              .map(item => productMap.get(item.productId))
               .filter(Boolean) as Product[];
             
             setRecentlyViewed(products);
@@ -121,7 +125,7 @@ export function RecentlyViewed({
             <div className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-shadow duration-200">
               <div className="aspect-square relative overflow-hidden">
                 <Image
-                  src={product.images.thumbnail}
+                  src={productImageSrc(product)}
                   alt={product.title}
                   fill
                   className="object-cover group-hover:scale-105 transition-transform duration-200"

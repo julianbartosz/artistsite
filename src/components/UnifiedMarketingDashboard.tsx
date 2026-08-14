@@ -2,11 +2,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { CRMIntegration } from '@/lib/crm/crm-integration';
-import { SocialMediaAutomation } from '@/lib/social/social-automation';
-import { AdPlatformIntegration } from '@/lib/ads/ad-platform-integration';
-import { CustomerInsights } from '@/lib/analytics/customer-insights';
-import { EmailSequences } from '@/lib/marketing/email-sequences';
+import type { LucideIcon } from 'lucide-react';
+import { BarChart3, Bot, CreditCard, DollarSign, LineChart, Mail, Megaphone, Smartphone, Target, Users } from 'lucide-react';
+import RichTextEditor from '@/components/RichTextEditor';
 
 interface MarketingOverview {
   totalRevenue: number;
@@ -25,6 +23,14 @@ interface MarketingOverview {
     roi: number;
     conversions: number;
   }>;
+  automation?: {
+    email: { active: number; total: number; sent: number; cartAbandonment: number; postPurchase: number };
+    social: { active: number; total: number; posts: number };
+  };
+  analytics?: {
+    journey: Array<{ step: string; visitors: number }>;
+    metrics: { averageLifetimeValue: number; averageEngagementScore: number; purchaseCount: number; activeProfiles: number };
+  };
 }
 
 interface DashboardFilters {
@@ -33,11 +39,36 @@ interface DashboardFilters {
   campaigns: string[];
 }
 
+interface CampaignSummary {
+  id: string;
+  type: 'email' | 'social' | 'ad';
+  name: string;
+  status: string;
+  performance: string;
+  content?: Record<string, any>;
+  scheduledAt?: string;
+}
+
+interface ShareAssistPayload {
+  platform: string;
+  label: string;
+  caption: string;
+  mediaUrls: string[];
+  links: Array<{ label: string; url: string }>;
+  instructions: string[];
+}
+
+interface CampaignsResponse {
+  email: CampaignSummary[];
+  social: CampaignSummary[];
+  ads: CampaignSummary[];
+}
+
 export function UnifiedMarketingDashboard() {
   const [overview, setOverview] = useState<MarketingOverview | null>(null);
   const [filters, setFilters] = useState<DashboardFilters>({
     dateRange: '30d',
-    channels: ['email', 'social', 'ads', 'crm'],
+    channels: ['email', 'social', 'ads'],
     campaigns: []
   });
   const [loading, setLoading] = useState(true);
@@ -50,15 +81,21 @@ export function UnifiedMarketingDashboard() {
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      const data = await fetch('/api/marketing/dashboard', {
+      const response = await fetch('/api/marketing/dashboard', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(filters)
       });
-      const overview = await data.json();
-      setOverview(overview);
+      if (!response.ok) {
+        setOverview(null);
+        return;
+      }
+
+      const overview = await response.json();
+      setOverview(overview && typeof overview === 'object' ? overview : null);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
+      setOverview(null);
     } finally {
       setLoading(false);
     }
@@ -73,7 +110,7 @@ export function UnifiedMarketingDashboard() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto p-6 space-y-6">
+    <div data-testid="marketing-dashboard" className="max-w-7xl mx-auto p-6 space-y-6">
       {/* Header */}
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-gray-900">Marketing Dashboard</h1>
@@ -92,10 +129,10 @@ export function UnifiedMarketingDashboard() {
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex space-x-8">
           {[
-            { key: 'overview', label: 'Overview', icon: '📊' },
-            { key: 'campaigns', label: 'Campaigns', icon: '🎯' },
-            { key: 'automation', label: 'Automation', icon: '🤖' },
-            { key: 'analytics', label: 'Analytics', icon: '📈' }
+            { key: 'overview', label: 'Overview', Icon: BarChart3 },
+            { key: 'campaigns', label: 'Campaigns', Icon: Target },
+            { key: 'automation', label: 'Automation', Icon: Bot },
+            { key: 'analytics', label: 'Analytics', Icon: LineChart }
           ].map((tab) => (
             <button
               key={tab.key}
@@ -106,7 +143,7 @@ export function UnifiedMarketingDashboard() {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              <span className="mr-2">{tab.icon}</span>
+              <tab.Icon className="mr-2 inline h-4 w-4" aria-hidden="true" />
               {tab.label}
             </button>
           ))}
@@ -114,17 +151,30 @@ export function UnifiedMarketingDashboard() {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'overview' && <OverviewTab overview={overview} />}
+      {activeTab === 'overview' && <OverviewTab overview={overview} onReload={loadDashboardData} />}
       {activeTab === 'campaigns' && <CampaignsTab />}
-      {activeTab === 'automation' && <AutomationTab />}
-      {activeTab === 'analytics' && <AnalyticsTab />}
+      {activeTab === 'automation' && <AutomationTab overview={overview} />}
+      {activeTab === 'analytics' && <AnalyticsTab overview={overview} />}
     </div>
   );
 }
 
 // Overview Tab Component
-function OverviewTab({ overview }: { overview: MarketingOverview | null }) {
-  if (!overview) return <div>No data available</div>;
+function OverviewTab({ overview, onReload }: { overview: MarketingOverview | null; onReload: () => void }) {
+  if (!overview) {
+    return (
+      <div className="bg-white p-8 rounded-lg shadow text-center">
+        <p className="text-gray-900 font-medium">We couldn&apos;t load marketing data.</p>
+        <p className="mt-1 text-sm text-gray-500">Check your connection and try again.</p>
+        <button
+          onClick={onReload}
+          className="mt-4 inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -132,31 +182,23 @@ function OverviewTab({ overview }: { overview: MarketingOverview | null }) {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <MetricCard
           title="Total Revenue"
-          value={`$${overview.totalRevenue.toLocaleString()}`}
-          change="+15.3%"
-          changeType="positive"
-          icon="💰"
+          value={`$${(overview.totalRevenue || 0).toLocaleString()}`}
+          icon={DollarSign}
         />
         <MetricCard
           title="Marketing ROI"
-          value={`${overview.roi.toFixed(1)}x`}
-          change="+8.2%"
-          changeType="positive"
-          icon="📈"
+          value={`${(overview.roi || 0).toFixed(1)}x`}
+          icon={LineChart}
         />
         <MetricCard
           title="Active Customers"
-          value={overview.activeCustomers.toLocaleString()}
-          change="+12.5%"
-          changeType="positive"
-          icon="👥"
+          value={(overview.activeCustomers || 0).toLocaleString()}
+          icon={Users}
         />
         <MetricCard
           title="Total Spend"
-          value={`$${overview.totalCost.toLocaleString()}`}
-          change="-3.1%"
-          changeType="negative"
-          icon="💳"
+          value={`$${(overview.totalCost || 0).toLocaleString()}`}
+          icon={CreditCard}
         />
       </div>
 
@@ -192,7 +234,7 @@ function OverviewTab({ overview }: { overview: MarketingOverview | null }) {
           <h3 className="text-lg font-semibold mb-4">Campaign Activity</h3>
           <div className="space-y-4">
             <div className="flex justify-between items-center">
-              <span>📧 Email Campaigns</span>
+              <span className="inline-flex items-center gap-2"><Mail className="h-4 w-4" aria-hidden="true" />Email Campaigns</span>
               <div className="text-right">
                 <div className="font-semibold">{overview.campaignPerformance?.email?.sent || 0} sent</div>
                 <div className="text-sm text-gray-500">
@@ -204,7 +246,7 @@ function OverviewTab({ overview }: { overview: MarketingOverview | null }) {
               </div>
             </div>
             <div className="flex justify-between items-center">
-              <span>📱 Social Media</span>
+              <span className="inline-flex items-center gap-2"><Smartphone className="h-4 w-4" aria-hidden="true" />Social Media</span>
               <div className="text-right">
                 <div className="font-semibold">{overview.campaignPerformance?.social?.posts || 0} posts</div>
                 <div className="text-sm text-gray-500">
@@ -213,7 +255,7 @@ function OverviewTab({ overview }: { overview: MarketingOverview | null }) {
               </div>
             </div>
             <div className="flex justify-between items-center">
-              <span>🎯 Paid Ads</span>
+              <span className="inline-flex items-center gap-2"><Target className="h-4 w-4" aria-hidden="true" />Paid Ads</span>
               <div className="text-right">
                 <div className="font-semibold">{overview.campaignPerformance?.ads?.conversions || 0} conversions</div>
                 <div className="text-sm text-gray-500">
@@ -227,8 +269,8 @@ function OverviewTab({ overview }: { overview: MarketingOverview | null }) {
 
       {/* Recent Activity */}
       <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4">Recent Marketing Activity</h3>
-        <RecentActivityFeed />
+        <h3 className="text-lg font-semibold mb-4">Marketing Activity</h3>
+        <RecentActivityFeed overview={overview} />
       </div>
     </div>
   );
@@ -236,109 +278,388 @@ function OverviewTab({ overview }: { overview: MarketingOverview | null }) {
 
 // Campaigns Tab Component
 function CampaignsTab() {
-  const [campaigns, setCampaigns] = useState([]);
+  const [campaigns, setCampaigns] = useState<CampaignsResponse>({ email: [], social: [], ads: [] });
+  const [segments, setSegments] = useState<Array<{ id: string; name: string }>>([{ id: 'all', name: 'All customers' }]);
+  const [campaignType, setCampaignType] = useState<'email' | 'social' | 'ad'>('email');
+  const [draft, setDraft] = useState<Record<string, any>>({
+    name: '',
+    subject: '',
+    htmlContent: '<p></p>',
+    segments: ['all'],
+    platform: 'instagram',
+    content: '',
+    mediaUrls: [] as string[],
+    budgetAmount: 0,
+    scheduledAt: '',
+  });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [shareAssist, setShareAssist] = useState<ShareAssistPayload | null>(null);
 
   useEffect(() => {
     loadCampaigns();
+    loadSegments();
   }, []);
 
   const loadCampaigns = async () => {
     try {
       const response = await fetch('/api/marketing/campaigns');
+      if (!response.ok) {
+        throw new Error('Failed to load campaigns');
+      }
       const data = await response.json();
       setCampaigns(data);
+      setError(null);
     } catch (error) {
       console.error('Error loading campaigns:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load campaigns');
     } finally {
       setLoading(false);
     }
   };
 
+  const loadSegments = async () => {
+    try {
+      const response = await fetch('/api/analytics/customers');
+      const data = await response.json();
+      const loadedSegments = Array.isArray(data.segments) ? data.segments : [];
+      setSegments([{ id: 'all', name: 'All customers' }, ...loadedSegments]);
+    } catch {
+      setSegments([{ id: 'all', name: 'All customers' }]);
+    }
+  };
+
+  const resetDraft = () => setDraft({
+    name: '',
+    subject: '',
+    htmlContent: '<p></p>',
+    segments: ['all'],
+    platform: 'instagram',
+    content: '',
+    mediaUrls: [] as string[],
+    budgetAmount: 0,
+    scheduledAt: '',
+  });
+
+  const parseListValue = (value: unknown): string[] => {
+    if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+    if (typeof value !== 'string') return [];
+    return value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
+  };
+
+  const saveCampaign = async (sendAfterSave = false) => {
+    setMessage(null);
+    setShareAssist(null);
+    const payload = {
+      ...draft,
+      type: campaignType,
+      segments: Array.isArray(draft.segments) ? draft.segments : ['all'],
+      mediaUrls: parseListValue(draft.mediaUrls),
+      scheduledAt: draft.scheduledAt || null,
+      budgetAmount: Number(draft.budgetAmount || 0),
+      startDate: new Date().toISOString(),
+    };
+
+    try {
+      const response = await fetch('/api/marketing/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to save campaign');
+
+      if (sendAfterSave && data.campaign?.id) {
+        await runCampaign(data.campaign.id, campaignType, false);
+      }
+
+      resetDraft();
+      await loadCampaigns();
+      setMessage(sendAfterSave ? 'Campaign saved and sent.' : 'Campaign saved.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Failed to save campaign');
+    }
+  };
+
+  const runCampaign = async (id: string, type: 'email' | 'social' | 'ad', reload = true) => {
+    setMessage(null);
+    setShareAssist(null);
+    try {
+      const response = await fetch(`/api/marketing/campaigns/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to run campaign');
+      if (reload) await loadCampaigns();
+      if (data.campaign?.publishAssist) {
+        setShareAssist(data.campaign.publishAssist);
+        setMessage('Use the publish assist panel to complete this social post.');
+      } else {
+        setMessage(type === 'email' ? 'Email campaign sent.' : 'Campaign status updated.');
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Failed to run campaign');
+    }
+  };
+
+  const deleteCampaign = async (id: string, type: 'email' | 'social' | 'ad') => {
+    setMessage(null);
+    setShareAssist(null);
+    try {
+      const response = await fetch(`/api/marketing/campaigns/${id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to delete campaign');
+      await loadCampaigns();
+      setMessage('Campaign deleted.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Failed to delete campaign');
+    }
+  };
+
+  const saveAdActuals = async (campaign: CampaignSummary, actuals: { impressions: number; clicks: number; conversions: number; cost: number; roas: number }) => {
+    setMessage(null);
+    setShareAssist(null);
+    try {
+      const response = await fetch(`/api/marketing/campaigns/${campaign.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'ad', action: 'record_performance', ...actuals }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to save ad results');
+      await loadCampaigns();
+      setMessage('Ad results saved.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Failed to save ad results');
+    }
+  };
+
+  const markSocialPosted = async (campaign: CampaignSummary) => {
+    setMessage(null);
+    setShareAssist(null);
+    try {
+      const response = await fetch(`/api/marketing/campaigns/${campaign.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'social', action: 'mark_posted' }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to mark post as published');
+      await loadCampaigns();
+      setMessage('Social post marked as published.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Failed to mark post as published');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="bg-white p-6 rounded-lg shadow">
+        <div className="animate-pulse h-6 bg-gray-200 rounded w-48 mb-4"></div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {[0, 1, 2].map((item) => (
+            <div key={item} className="h-40 bg-gray-100 rounded-lg"></div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-red-800">
+        {error}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      {message && <div className="rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">{message}</div>}
+      {shareAssist && <ShareAssistPanel assist={shareAssist} />}
+
+      <div className="bg-white p-6 rounded-lg shadow space-y-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold">Create Campaign</h2>
+            <p className="text-sm text-gray-600">Create email, social, or ad records without touching code.</p>
+          </div>
+          <select value={campaignType} onChange={(event) => setCampaignType(event.target.value as any)} className="rounded-md border border-gray-300 px-3 py-2">
+            <option value="email">Email</option>
+            <option value="social">Social</option>
+            <option value="ad">Ad</option>
+          </select>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <label className="text-sm font-medium text-gray-700">
+            Name
+            <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
+          </label>
+          {campaignType === 'email' && (
+            <label className="text-sm font-medium text-gray-700">
+              Subject
+              <input value={draft.subject} onChange={(event) => setDraft({ ...draft, subject: event.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
+            </label>
+          )}
+          {campaignType !== 'email' && (
+            <label className="text-sm font-medium text-gray-700">
+              Platform
+              <select value={draft.platform} onChange={(event) => setDraft({ ...draft, platform: event.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2">
+                <option value="instagram">Instagram</option>
+                <option value="facebook">Facebook</option>
+                <option value="google">Google</option>
+                <option value="pinterest">Pinterest</option>
+                <option value="linkedin">LinkedIn</option>
+              </select>
+            </label>
+          )}
+          {campaignType === 'email' && (
+            <label className="text-sm font-medium text-gray-700">
+              Audience
+              <select value={draft.segments?.[0] || 'all'} onChange={(event) => setDraft({ ...draft, segments: [event.target.value] })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2">
+                {segments.map((segment) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
+              </select>
+            </label>
+          )}
+          {campaignType === 'ad' && (
+            <label className="text-sm font-medium text-gray-700">
+              Budget
+              <input type="number" min="0" value={draft.budgetAmount} onChange={(event) => setDraft({ ...draft, budgetAmount: event.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
+            </label>
+          )}
+          <label className="text-sm font-medium text-gray-700">
+            Schedule
+            <input type="datetime-local" value={draft.scheduledAt} onChange={(event) => setDraft({ ...draft, scheduledAt: event.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
+          </label>
+        </div>
+
+        {campaignType === 'email' ? (
+          <RichTextEditor value={draft.htmlContent} onChange={(htmlContent) => setDraft((current) => ({ ...current, htmlContent }))} />
+        ) : (
+          <div className="space-y-4">
+            <label className="block text-sm font-medium text-gray-700">
+              Content
+              <textarea value={draft.content} onChange={(event) => setDraft({ ...draft, content: event.target.value })} rows={5} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
+            </label>
+            {campaignType === 'social' && (
+              <label className="block text-sm font-medium text-gray-700">
+                Media URLs
+                <textarea value={Array.isArray(draft.mediaUrls) ? draft.mediaUrls.join('\n') : draft.mediaUrls || ''} onChange={(event) => setDraft({ ...draft, mediaUrls: parseListValue(event.target.value) })} rows={3} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" placeholder="One image or video URL per line" />
+              </label>
+            )}
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={() => saveCampaign(false)} className="rounded bg-gray-900 px-4 py-2 text-white">Save</button>
+          {campaignType === 'email' && <button type="button" onClick={() => saveCampaign(true)} className="rounded bg-blue-600 px-4 py-2 text-white">Send Now</button>}
+        </div>
+      </div>
+
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-semibold">Active Campaigns</h2>
-        <button className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
-          Create Campaign
-        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Email Campaigns */}
         <CampaignSection
           title="Email Marketing"
-          icon="📧"
-          campaigns={[
-            { name: 'Welcome Series', status: 'active', performance: '24% open rate' },
-            { name: 'Cart Abandonment', status: 'active', performance: '18% recovery rate' },
-            { name: 'VIP Collection Launch', status: 'scheduled', performance: 'Scheduled for tomorrow' }
-          ]}
+          icon={Mail}
+          campaigns={campaigns.email}
+          onRun={(campaign) => runCampaign(campaign.id, campaign.type)}
+          onDelete={(campaign) => deleteCampaign(campaign.id, campaign.type)}
         />
 
-        {/* Social Media Campaigns */}
         <CampaignSection
           title="Social Media"
-          icon="📱"
-          campaigns={[
-            { name: 'Product Showcase', status: 'active', performance: '4.2% engagement' },
-            { name: 'Behind the Scenes', status: 'active', performance: '6.8% engagement' },
-            { name: 'Customer Testimonials', status: 'paused', performance: '3.1% engagement' }
-          ]}
+          icon={Smartphone}
+          campaigns={campaigns.social}
+          onRun={(campaign) => runCampaign(campaign.id, campaign.type)}
+          onDelete={(campaign) => deleteCampaign(campaign.id, campaign.type)}
+          onMarkPosted={markSocialPosted}
         />
 
-        {/* Paid Advertising */}
         <CampaignSection
           title="Paid Advertising"
-          icon="🎯"
-          campaigns={[
-            { name: 'Spring Collection FB Ads', status: 'active', performance: '3.2x ROAS' },
-            { name: 'Retargeting Campaign', status: 'active', performance: '5.1x ROAS' },
-            { name: 'Google Search Ads', status: 'active', performance: '2.8x ROAS' }
-          ]}
+          icon={Megaphone}
+          campaigns={campaigns.ads}
+          onRun={(campaign) => runCampaign(campaign.id, campaign.type)}
+          onDelete={(campaign) => deleteCampaign(campaign.id, campaign.type)}
+          onSaveActuals={saveAdActuals}
         />
       </div>
     </div>
   );
 }
 
+function ShareAssistPanel({ assist }: { assist: ShareAssistPayload }) {
+  const copyCaption = async () => {
+    await navigator.clipboard?.writeText(assist.caption);
+  };
+
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h3 className="font-semibold">{assist.label}</h3>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {assist.instructions.map((instruction) => <li key={instruction}>{instruction}</li>)}
+          </ul>
+        </div>
+        <button type="button" onClick={copyCaption} className="rounded bg-amber-900 px-3 py-2 text-white">Copy caption</button>
+      </div>
+      <div className="mt-4 rounded border border-amber-200 bg-white p-3 whitespace-pre-wrap">{assist.caption}</div>
+      {assist.mediaUrls.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {assist.mediaUrls.map((url) => <a key={url} href={url} target="_blank" rel="noreferrer" className="rounded border border-amber-300 bg-white px-3 py-1 text-amber-900">Open media</a>)}
+        </div>
+      )}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {assist.links.map((link) => <a key={link.url} href={link.url} target="_blank" rel="noreferrer" className="rounded bg-gray-900 px-3 py-2 text-white">{link.label}</a>)}
+      </div>
+    </div>
+  );
+}
+
 // Automation Tab Component
-function AutomationTab() {
-  const [automations, setAutomations] = useState({
-    email: { active: 0, total: 0 },
-    social: { active: 0, total: 0 },
-    crm: { active: 0, total: 0 }
-  });
+function AutomationTab({ overview }: { overview: MarketingOverview | null }) {
+  const automation = overview?.automation;
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Email Automation */}
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold">📧 Email Automation</h3>
+            <h3 className="inline-flex items-center gap-2 text-lg font-semibold"><Mail className="h-5 w-5" aria-hidden="true" />Email Automation</h3>
             <span className="text-sm text-green-600 bg-green-100 px-2 py-1 rounded">
-              {automations.email.active} Active
+              {automation?.email.active || 0} Active
             </span>
           </div>
           <div className="space-y-3">
             <AutomationRule
               name="Welcome Series"
               trigger="New user signup"
-              status="active"
-              performance="24% open rate"
+              status={(automation?.email.sent || 0) > 0 ? 'active' : 'ready'}
+              performance={`${automation?.email.sent || 0} emails sent`}
             />
             <AutomationRule
               name="Cart Abandonment"
               trigger="Cart inactive 1 hour"
-              status="active"
-              performance="18% recovery"
+              status={(automation?.email.cartAbandonment || 0) > 0 ? 'active' : 'ready'}
+              performance={`${automation?.email.cartAbandonment || 0} cart signals captured`}
             />
             <AutomationRule
               name="Post-Purchase Follow-up"
               trigger="Order completed"
-              status="active"
-              performance="31% satisfaction"
+              status={(automation?.email.postPurchase || 0) > 0 ? 'active' : 'ready'}
+              performance={`${automation?.email.postPurchase || 0} follow-up events`}
             />
           </div>
         </div>
@@ -346,59 +667,17 @@ function AutomationTab() {
         {/* Social Media Automation */}
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold">📱 Social Automation</h3>
+            <h3 className="inline-flex items-center gap-2 text-lg font-semibold"><Smartphone className="h-5 w-5" aria-hidden="true" />Social Automation</h3>
             <span className="text-sm text-green-600 bg-green-100 px-2 py-1 rounded">
-              {automations.social.active} Active
+              {automation?.social.active || 0} Active
             </span>
           </div>
           <div className="space-y-3">
             <AutomationRule
               name="Product Showcase"
               trigger="New product added"
-              status="active"
-              performance="Auto-posted to 3 platforms"
-            />
-            <AutomationRule
-              name="Customer Reviews"
-              trigger="5-star review received"
-              status="active"
-              performance="Auto-shared testimonials"
-            />
-            <AutomationRule
-              name="Weekly Schedule"
-              trigger="Every Monday/Wednesday/Friday"
-              status="active"
-              performance="Consistent posting"
-            />
-          </div>
-        </div>
-
-        {/* CRM Automation */}
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold">👥 CRM Automation</h3>
-            <span className="text-sm text-green-600 bg-green-100 px-2 py-1 rounded">
-              {automations.crm.active} Active
-            </span>
-          </div>
-          <div className="space-y-3">
-            <AutomationRule
-              name="Lead Scoring"
-              trigger="User behavior changes"
-              status="active"
-              performance="Auto-updates lead scores"
-            />
-            <AutomationRule
-              name="HubSpot Sync"
-              trigger="New customer data"
-              status="active"
-              performance="Real-time sync"
-            />
-            <AutomationRule
-              name="Salesforce Integration"
-              trigger="High-value purchase"
-              status="active"
-              performance="Auto-creates opportunities"
+              status={(automation?.social.posts || 0) > 0 ? 'active' : 'ready'}
+              performance={`${automation?.social.posts || 0} posts recorded`}
             />
           </div>
         </div>
@@ -409,16 +688,16 @@ function AutomationTab() {
         <h3 className="text-lg font-semibold mb-4">Automation Performance</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="text-center">
-            <div className="text-3xl font-bold text-blue-600">94%</div>
-            <div className="text-sm text-gray-500">Automation Success Rate</div>
+            <div className="text-3xl font-bold text-blue-600">{automation?.email.sent || 0}</div>
+            <div className="text-sm text-gray-500">Emails Sent</div>
           </div>
           <div className="text-center">
-            <div className="text-3xl font-bold text-green-600">2.3hrs</div>
-            <div className="text-sm text-gray-500">Time Saved Daily</div>
+            <div className="text-3xl font-bold text-green-600">{automation?.social.posts || 0}</div>
+            <div className="text-sm text-gray-500">Social Posts Recorded</div>
           </div>
           <div className="text-center">
-            <div className="text-3xl font-bold text-purple-600">$4,230</div>
-            <div className="text-sm text-gray-500">Revenue from Automation</div>
+            <div className="text-3xl font-bold text-purple-600">{(automation?.email.cartAbandonment || 0) + (automation?.email.postPurchase || 0)}</div>
+            <div className="text-sm text-gray-500">Automation Signals</div>
           </div>
         </div>
       </div>
@@ -427,7 +706,12 @@ function AutomationTab() {
 }
 
 // Analytics Tab Component
-function AnalyticsTab() {
+function AnalyticsTab({ overview }: { overview: MarketingOverview | null }) {
+  const journey = overview?.analytics?.journey || [];
+  const maxVisitors = Math.max(1, ...journey.map(item => item.visitors));
+  const metrics = overview?.analytics?.metrics;
+  const topChannels = overview?.topPerformingChannels || [];
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -435,11 +719,11 @@ function AnalyticsTab() {
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-4">Customer Journey</h3>
           <div className="space-y-4">
-            <JourneyStep step="Discovery" percentage={100} visitors="2,450" />
-            <JourneyStep step="Interest" percentage={45} visitors="1,103" />
-            <JourneyStep step="Consideration" percentage={32} visitors="785" />
-            <JourneyStep step="Purchase" percentage={12} visitors="294" />
-            <JourneyStep step="Retention" percentage={68} visitors="200" />
+            {journey.length === 0 ? (
+              <div className="text-sm text-gray-500">No journey data available yet.</div>
+            ) : journey.map(item => (
+              <JourneyStep key={item.step} step={item.step} percentage={(item.visitors / maxVisitors) * 100} visitors={item.visitors.toLocaleString()} />
+            ))}
           </div>
         </div>
 
@@ -447,10 +731,11 @@ function AnalyticsTab() {
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-4">Revenue Attribution</h3>
           <div className="space-y-3">
-            <AttributionBar channel="Email Marketing" percentage={35} revenue="$8,450" />
-            <AttributionBar channel="Social Media" percentage={28} revenue="$6,780" />
-            <AttributionBar channel="Paid Ads" percentage={22} revenue="$5,320" />
-            <AttributionBar channel="Direct Traffic" percentage={15} revenue="$3,630" />
+            {topChannels.length === 0 ? (
+              <div className="text-sm text-gray-500">No attribution data available yet.</div>
+            ) : topChannels.map(channel => (
+              <AttributionBar key={channel.channel} channel={channel.channel} percentage={overview?.totalRevenue ? (channel.revenue / overview.totalRevenue) * 100 : 0} revenue={`$${channel.revenue.toLocaleString()}`} />
+            ))}
           </div>
         </div>
       </div>
@@ -461,26 +746,26 @@ function AnalyticsTab() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <AnalyticsMetric
             title="Customer Lifetime Value"
-            value="$1,245"
-            trend="+12.3%"
+            value={`$${(metrics?.averageLifetimeValue || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+            trend={`${metrics?.activeProfiles || 0} profiles`}
             description="Average CLV across all segments"
           />
           <AnalyticsMetric
-            title="Acquisition Cost"
-            value="$78"
-            trend="-8.5%"
-            description="Blended CAC across channels"
+            title="Purchases"
+            value={`${metrics?.purchaseCount || 0}`}
+            trend="orders"
+            description="Paid orders in this period"
           />
           <AnalyticsMetric
-            title="Retention Rate"
-            value="68%"
-            trend="+5.2%"
-            description="12-month customer retention"
+            title="Channel Revenue"
+            value={`$${(overview?.totalRevenue || 0).toLocaleString()}`}
+            trend={`${topChannels.length} channels`}
+            description="Revenue captured in selected period"
           />
           <AnalyticsMetric
             title="Engagement Score"
-            value="76/100"
-            trend="+14.1%"
+            value={`${Math.round(metrics?.averageEngagementScore || 0)}`}
+            trend="average"
             description="Average customer engagement"
           />
         </div>
@@ -493,10 +778,11 @@ function AnalyticsTab() {
 function MetricCard({ title, value, change, changeType, icon }: {
   title: string;
   value: string;
-  change: string;
-  changeType: 'positive' | 'negative';
-  icon: string;
+  change?: string;
+  changeType?: 'positive' | 'negative';
+  icon: LucideIcon;
 }) {
+  const Icon = icon;
   return (
     <div className="bg-white p-6 rounded-lg shadow">
       <div className="flex items-center justify-between">
@@ -504,13 +790,15 @@ function MetricCard({ title, value, change, changeType, icon }: {
           <p className="text-sm font-medium text-gray-600">{title}</p>
           <p className="text-2xl font-semibold text-gray-900">{value}</p>
         </div>
-        <div className="text-2xl">{icon}</div>
+        <Icon className="h-7 w-7 text-gray-500" aria-hidden="true" />
       </div>
-      <div className={`mt-2 text-sm ${
-        changeType === 'positive' ? 'text-green-600' : 'text-red-600'
-      }`}>
-        {change}
-      </div>
+      {change ? (
+        <div className={`mt-2 text-sm ${
+          changeType === 'negative' ? 'text-red-600' : 'text-green-600'
+        }`}>
+          {change}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -537,7 +825,7 @@ function ChannelFilter({ selected, onChange }: {
   selected: string[];
   onChange: (channels: string[]) => void;
 }) {
-  const channels = ['email', 'social', 'ads', 'crm'];
+  const channels = ['email', 'social', 'ads'];
   
   return (
     <div className="flex space-x-2">
@@ -563,20 +851,44 @@ function ChannelFilter({ selected, onChange }: {
   );
 }
 
-function CampaignSection({ title, icon, campaigns }: {
+function CampaignSection({ title, icon, campaigns, onRun, onDelete, onSaveActuals, onMarkPosted }: {
   title: string;
-  icon: string;
-  campaigns: Array<{ name: string; status: string; performance: string }>;
+  icon: LucideIcon;
+  campaigns: CampaignSummary[];
+  onRun?: (campaign: CampaignSummary) => void;
+  onDelete?: (campaign: CampaignSummary) => void;
+  onSaveActuals?: (campaign: CampaignSummary, actuals: { impressions: number; clicks: number; conversions: number; cost: number; roas: number }) => void;
+  onMarkPosted?: (campaign: CampaignSummary) => void;
 }) {
+  const [adActuals, setAdActuals] = useState<Record<string, { impressions: string; clicks: string; conversions: string; cost: string; roas: string }>>({});
+  const Icon = icon;
+
+  const runLabel = (campaign: CampaignSummary) => {
+    if (campaign.type === 'email') return 'Send';
+    if (campaign.type === 'social') return 'Prepare post';
+    return 'Mark active';
+  };
+
+  const adManagerUrl = (campaign: CampaignSummary): string | null => {
+    const platform = String(campaign.content?.platform || '').toLowerCase();
+    if (platform === 'google') return 'https://ads.google.com/aw/campaigns';
+    if (platform === 'facebook' || platform === 'instagram') return 'https://business.facebook.com/adsmanager/manage/campaigns';
+    if (platform === 'linkedin') return 'https://www.linkedin.com/campaignmanager/';
+    if (platform === 'twitter' || platform === 'x') return 'https://ads.x.com/';
+    return null;
+  };
+
   return (
     <div className="bg-white p-6 rounded-lg shadow">
       <div className="flex items-center mb-4">
-        <span className="text-xl mr-2">{icon}</span>
+        <Icon className="mr-2 h-5 w-5 text-gray-500" aria-hidden="true" />
         <h3 className="text-lg font-semibold">{title}</h3>
       </div>
       <div className="space-y-3">
-        {campaigns.map((campaign, index) => (
-          <div key={index} className="border-l-4 border-blue-500 pl-3">
+        {campaigns.length === 0 ? (
+          <div className="text-sm text-gray-500">No campaign data available.</div>
+        ) : campaigns.map((campaign) => (
+          <div key={campaign.id} className="border-l-4 border-blue-500 pl-3">
             <div className="font-medium">{campaign.name}</div>
             <div className="text-sm text-gray-600">{campaign.performance}</div>
             <div className={`text-xs px-2 py-1 rounded inline-block mt-1 ${
@@ -585,6 +897,95 @@ function CampaignSection({ title, icon, campaigns }: {
               'bg-blue-100 text-blue-800'
             }`}>
               {campaign.status}
+            </div>
+            {campaign.type === 'ad' && onSaveActuals && (() => {
+              const performance = campaign.content?.performance || {};
+              const managerUrl = adManagerUrl(campaign);
+              const values = adActuals[campaign.id] || {
+                impressions: performance.impressions !== undefined ? String(performance.impressions) : '',
+                clicks: performance.clicks !== undefined ? String(performance.clicks) : '',
+                conversions: performance.conversions !== undefined ? String(performance.conversions) : '',
+                cost: performance.cost !== undefined ? String(performance.cost) : '',
+                roas: performance.roas !== undefined ? String(performance.roas) : '',
+              };
+              return (
+                <div className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
+                  <label className="font-medium text-gray-700">
+                    Impressions
+                    <input
+                      type="number"
+                      min="0"
+                      value={values.impressions}
+                      onChange={(event) => setAdActuals((current) => ({ ...current, [campaign.id]: { ...values, impressions: event.target.value } }))}
+                      className="mt-1 block w-full rounded border border-gray-300 px-2 py-1"
+                    />
+                  </label>
+                  <label className="font-medium text-gray-700">
+                    Clicks
+                    <input
+                      type="number"
+                      min="0"
+                      value={values.clicks}
+                      onChange={(event) => setAdActuals((current) => ({ ...current, [campaign.id]: { ...values, clicks: event.target.value } }))}
+                      className="mt-1 block w-full rounded border border-gray-300 px-2 py-1"
+                    />
+                  </label>
+                  <label className="font-medium text-gray-700">
+                    Conversions
+                    <input
+                      type="number"
+                      min="0"
+                      value={values.conversions}
+                      onChange={(event) => setAdActuals((current) => ({ ...current, [campaign.id]: { ...values, conversions: event.target.value } }))}
+                      className="mt-1 block w-full rounded border border-gray-300 px-2 py-1"
+                    />
+                  </label>
+                  <label className="font-medium text-gray-700">
+                    Actual cost
+                    <input
+                      type="number"
+                      min="0"
+                      value={values.cost}
+                      onChange={(event) => setAdActuals((current) => ({ ...current, [campaign.id]: { ...values, cost: event.target.value } }))}
+                      className="mt-1 block w-full rounded border border-gray-300 px-2 py-1"
+                    />
+                  </label>
+                  <label className="font-medium text-gray-700">
+                    ROAS
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={values.roas}
+                      onChange={(event) => setAdActuals((current) => ({ ...current, [campaign.id]: { ...values, roas: event.target.value } }))}
+                      className="mt-1 block w-full rounded border border-gray-300 px-2 py-1"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => onSaveActuals(campaign, {
+                      impressions: Number(values.impressions || 0),
+                      clicks: Number(values.clicks || 0),
+                      conversions: Number(values.conversions || 0),
+                      cost: Number(values.cost || 0),
+                      roas: Number(values.roas || 0),
+                    })}
+                    className="sm:col-span-2 text-left text-xs font-medium text-blue-700 hover:text-blue-800"
+                  >
+                    Save ad results
+                  </button>
+                  {managerUrl && (
+                    <a href={managerUrl} target="_blank" rel="noreferrer" className="sm:col-span-2 text-xs font-medium text-gray-700 hover:text-gray-900">
+                      Open ads manager
+                    </a>
+                  )}
+                </div>
+              );
+            })()}
+            <div className="mt-2 flex gap-2">
+              {onRun && <button type="button" onClick={() => onRun(campaign)} className="text-xs font-medium text-blue-700 hover:text-blue-800">{runLabel(campaign)}</button>}
+              {campaign.type === 'social' && campaign.status !== 'published' && onMarkPosted && <button type="button" onClick={() => onMarkPosted(campaign)} className="text-xs font-medium text-green-700 hover:text-green-800">Mark as posted</button>}
+              {onDelete && <button type="button" onClick={() => onDelete(campaign)} className="text-xs font-medium text-red-700 hover:text-red-800">Delete</button>}
             </div>
           </div>
         ))}
@@ -667,7 +1068,7 @@ function AnalyticsMetric({ title, value, trend, description }: {
     <div className="text-center">
       <div className="text-2xl font-bold text-gray-900">{value}</div>
       <div className="text-sm font-medium text-gray-600">{title}</div>
-      <div className={`text-xs ${trend.startsWith('+') ? 'text-green-600' : 'text-red-600'}`}>
+      <div className={`text-xs ${trend.startsWith('+') ? 'text-green-600' : trend.startsWith('-') ? 'text-red-600' : 'text-gray-500'}`}>
         {trend}
       </div>
       <div className="text-xs text-gray-500 mt-1">{description}</div>
@@ -675,13 +1076,12 @@ function AnalyticsMetric({ title, value, trend, description }: {
   );
 }
 
-function RecentActivityFeed() {
+function RecentActivityFeed({ overview }: { overview: MarketingOverview | null }) {
   const activities = [
-    { time: '2 min ago', activity: 'Cart abandonment email sent to 23 users', type: 'email' },
-    { time: '15 min ago', activity: 'New Instagram post published: "Spring Collection"', type: 'social' },
-    { time: '1 hour ago', activity: 'Facebook ad campaign optimization completed', type: 'ads' },
-    { time: '2 hours ago', activity: '15 new contacts synced to HubSpot', type: 'crm' },
-    { time: '3 hours ago', activity: 'Welcome email sequence triggered for 8 new users', type: 'email' }
+    { label: `${overview?.campaignPerformance?.email?.sent || 0} email events sent`, type: 'email' },
+    { label: `${overview?.campaignPerformance?.social?.posts || 0} social posts recorded`, type: 'social' },
+    { label: `${overview?.campaignPerformance?.ads?.conversions || 0} ad conversions recorded`, type: 'ads' },
+    { label: `$${(overview?.totalRevenue || 0).toLocaleString()} paid order revenue`, type: 'revenue' }
   ];
 
   return (
@@ -692,11 +1092,10 @@ function RecentActivityFeed() {
             activity.type === 'email' ? 'bg-blue-500' :
             activity.type === 'social' ? 'bg-purple-500' :
             activity.type === 'ads' ? 'bg-green-500' :
-            'bg-orange-500'
+            'bg-gray-500'
           }`}></div>
           <div className="flex-1">
-            <div className="text-sm">{activity.activity}</div>
-            <div className="text-xs text-gray-500">{activity.time}</div>
+            <div className="text-sm">{activity.label}</div>
           </div>
         </div>
       ))}

@@ -18,6 +18,7 @@ export interface CartState {
   itemCount: number;
   isOpen: boolean;
   lastUpdated: number;
+  isLoaded: boolean;
 }
 
 type CartAction =
@@ -39,7 +40,8 @@ type CartAction =
   | { type: 'TOGGLE_CART' }
   | { type: 'OPEN_CART' }
   | { type: 'CLOSE_CART' }
-  | { type: 'LOAD_CART'; payload: CartState };
+  | { type: 'LOAD_CART'; payload: CartState }
+  | { type: 'CART_LOADED' };
 
 const initialState: CartState = {
   items: [],
@@ -47,6 +49,7 @@ const initialState: CartState = {
   itemCount: 0,
   isOpen: false,
   lastUpdated: Date.now(),
+  isLoaded: false,
 };
 
 // Generate unique key for cart items with variants
@@ -215,7 +218,10 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       };
 
     case 'LOAD_CART':
-      return action.payload;
+      return { ...action.payload, isOpen: false, isLoaded: true };
+
+    case 'CART_LOADED':
+      return { ...state, isLoaded: true };
 
     default:
       return state;
@@ -261,17 +267,19 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
           const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
           if (Date.now() - parsedCart.lastUpdated < maxAge) {
             dispatch({ type: 'LOAD_CART', payload: parsedCart });
+            return;
           }
         } catch (error) {
           console.error('Failed to load cart from localStorage:', error);
         }
       }
+      dispatch({ type: 'CART_LOADED' });
     }
   }, []);
 
   // Save cart to localStorage whenever it changes
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && state.isLoaded) {
       localStorage.setItem('artist-site-cart', JSON.stringify(state));
     }
   }, [state]);

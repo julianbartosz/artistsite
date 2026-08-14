@@ -39,7 +39,7 @@ export default function AnalyticsChart({
                 key={index}
                 className="bg-blue-500 rounded-t"
                 style={{
-                  height: `${Math.max(10, (item.value || Math.random()) * 100)}%`,
+                    height: `${Math.max(10, Number(item.value || 0) * 100)}%`,
                   minWidth: '20px',
                   flex: 1
                 }}

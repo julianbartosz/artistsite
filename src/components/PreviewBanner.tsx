@@ -16,10 +16,10 @@ export function PreviewBanner() {
   };
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-50 bg-yellow-400 text-black px-4 py-2 text-center text-sm font-medium shadow-md">
+    <div role="status" className="fixed top-0 left-0 right-0 z-50 bg-yellow-400 text-black px-4 py-2 text-center text-sm font-medium shadow-md">
       <div className="flex items-center justify-center gap-4">
         <span>
-          🚧 <strong>Preview Mode Active</strong> - You are viewing draft content
+          <strong>Preview Mode Active</strong> - You are viewing draft content
         </span>
         <button
           onClick={exitPreview}

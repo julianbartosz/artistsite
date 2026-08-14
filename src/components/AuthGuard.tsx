@@ -7,12 +7,14 @@ interface AuthGuardProps {
   children: ReactNode;
   fallback?: ReactNode;
   redirectTo?: string;
+  adminOnly?: boolean;
 }
 
 export function AuthGuard({ 
   children, 
   fallback,
-  redirectTo = '/auth/signin' 
+  redirectTo = '/auth/signin',
+  adminOnly = false,
 }: AuthGuardProps) {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -22,8 +24,13 @@ export function AuthGuard({
     
     if (!session) {
       router.push(redirectTo);
+      return;
     }
-  }, [session, status, router, redirectTo]);
+
+    if (adminOnly && !session.user.isAdmin) {
+      router.push('/');
+    }
+  }, [adminOnly, session, status, router, redirectTo]);
 
   if (status === 'loading') {
     return (
@@ -34,6 +41,10 @@ export function AuthGuard({
   }
 
   if (!session) {
+    return fallback || null;
+  }
+
+  if (adminOnly && !session.user.isAdmin) {
     return fallback || null;
   }
 

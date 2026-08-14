@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import { StockAlert } from '@/lib/inventory';
-import { getAllProducts } from '@/lib/commerce';
+import { Product, productImageSrc } from '@/lib/commerce';
 import StockIndicator from './StockIndicator';
 
 interface DashboardData {
@@ -17,12 +17,16 @@ interface DashboardData {
 export function InventoryDashboard() {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [alerts, setAlerts] = useState<StockAlert[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [inventories, setInventories] = useState<Record<string, any>>({});
+  const [stockDrafts, setStockDrafts] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'alerts' | 'products'>('overview');
 
   useEffect(() => {
     fetchDashboardData();
     fetchAlerts();
+    fetchProducts();
   }, []);
 
   const fetchDashboardData = async () => {
@@ -50,6 +54,63 @@ export function InventoryDashboard() {
       console.error('Failed to fetch alerts:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchProducts = async () => {
+    try {
+      const response = await fetch('/api/search?limit=1000');
+      const data = await response.json();
+
+      if (data.success) {
+        const loadedProducts = data.products || [];
+        setProducts(loadedProducts);
+        await fetchProductInventories(loadedProducts);
+      }
+    } catch (error) {
+      console.error('Failed to fetch products:', error);
+    }
+  };
+
+  const fetchProductInventories = async (loadedProducts: Product[]) => {
+    if (loadedProducts.length === 0) {
+      setInventories({});
+      setStockDrafts({});
+      return;
+    }
+
+    const ids = loadedProducts.map((product) => product.id).join(',');
+    const response = await fetch(`/api/inventory?productIds=${encodeURIComponent(ids)}`);
+    const data = await response.json();
+    const loadedInventories = data.success ? data.inventories || {} : {};
+    setInventories(loadedInventories);
+    setStockDrafts(Object.fromEntries(loadedProducts.map((product) => [
+      product.id,
+      String(loadedInventories[product.id]?.currentStock ?? 0)
+    ])));
+  };
+
+  const handleSetStock = async (productId: string) => {
+    const currentStock = Number(stockDrafts[productId] || 0);
+    if (!Number.isFinite(currentStock) || currentStock < 0) return;
+
+    try {
+      const response = await fetch('/api/inventory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'bulk_update',
+          updates: [{ productId, currentStock }]
+        })
+      });
+
+      if (response.ok) {
+        await fetchDashboardData();
+        await fetchAlerts();
+        await fetchProducts();
+      }
+    } catch (error) {
+      console.error('Failed to set stock:', error);
     }
   };
 
@@ -101,8 +162,6 @@ export function InventoryDashboard() {
     );
   }
 
-  const products = getAllProducts();
-
   return (
     <div className="max-w-7xl mx-auto px-6 py-8">
       <div className="mb-8">
@@ -142,7 +201,7 @@ export function InventoryDashboard() {
               <div className="flex items-center">
                 <div className="flex-shrink-0">
                   <div className="w-8 h-8 bg-blue-500 rounded-md flex items-center justify-center">
-                    <span className="text-white text-sm font-bold">📦</span>
+                    <span className="text-white text-sm font-bold">P</span>
                   </div>
                 </div>
                 <div className="ml-4">
@@ -326,7 +385,13 @@ export function InventoryDashboard() {
                     Stock Status
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Stock
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Price
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
                   </th>
                 </tr>
               </thead>
@@ -336,7 +401,7 @@ export function InventoryDashboard() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         <img 
-                          src={product.images.thumbnail} 
+                          src={productImageSrc(product)} 
                           alt={product.title}
                           className="h-10 w-10 rounded object-cover mr-3"
                         />
@@ -356,8 +421,22 @@ export function InventoryDashboard() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <StockIndicator productId={product.id} showDetails />
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <input
+                        type="number"
+                        min="0"
+                        value={stockDrafts[product.id] ?? String(inventories[product.id]?.currentStock ?? 0)}
+                        onChange={(event) => setStockDrafts((current) => ({ ...current, [product.id]: event.target.value }))}
+                        className="w-24 rounded border border-gray-300 px-2 py-1 text-sm"
+                      />
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       ${product.price.toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <button type="button" onClick={() => handleSetStock(product.id)} className="rounded bg-gray-900 px-3 py-1 text-white">
+                        Set Stock
+                      </button>
                     </td>
                   </tr>
                 ))}

@@ -1,7 +1,40 @@
+'use client';
+
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
+
+const DEFAULT_CONTACT_EMAIL = 'hello@artistsite.com';
 
 export function Footer() {
   const currentYear = new Date().getFullYear();
+  const [contactEmail, setContactEmail] = useState(DEFAULT_CONTACT_EMAIL);
+  const [socialUrls, setSocialUrls] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'test') return;
+
+    let active = true;
+
+    fetch('/api/config/public')
+      .then((response) => response.ok ? response.json() : null)
+      .then((config) => {
+        const configuredEmail = config?.CONTACT_EMAIL || config?.ARTIST_EMAIL || config?.SUPPORT_EMAIL;
+        if (active && configuredEmail) setContactEmail(configuredEmail);
+        if (active && config) {
+          setSocialUrls({
+            instagram: config.SOCIAL_INSTAGRAM_URL || '',
+            facebook: config.SOCIAL_FACEBOOK_URL || '',
+            twitter: config.SOCIAL_X_URL || '',
+            pinterest: config.SOCIAL_PINTEREST_URL || '',
+          });
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const footerLinks = {
     main: [
@@ -15,10 +48,12 @@ export function Footer() {
       { name: 'Terms of Service', href: '/terms' },
     ],
     social: [
-      { name: 'Instagram', href: '#', icon: 'instagram' },
-      { name: 'Twitter', href: '#', icon: 'twitter' },
-      { name: 'Email', href: 'mailto:hello@artistsite.com', icon: 'email' },
-    ],
+      socialUrls.instagram ? { name: 'Instagram', href: socialUrls.instagram, icon: 'instagram' } : null,
+      socialUrls.facebook ? { name: 'Facebook', href: socialUrls.facebook, icon: 'facebook' } : null,
+      socialUrls.twitter ? { name: 'X', href: socialUrls.twitter, icon: 'twitter' } : null,
+      socialUrls.pinterest ? { name: 'Pinterest', href: socialUrls.pinterest, icon: 'pinterest' } : null,
+      { name: 'Email', href: `mailto:${contactEmail}`, icon: 'email' },
+    ].filter(Boolean) as Array<{ name: string; href: string; icon: string }>,
   };
 
   const SocialIcon = ({ icon }: { icon: string }) => {
@@ -33,6 +68,18 @@ export function Footer() {
         return (
           <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
             <path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z"/>
+          </svg>
+        );
+      case 'facebook':
+        return (
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M22 12.06C22 6.48 17.52 2 11.94 2S2 6.48 2 12.06c0 5.02 3.66 9.18 8.44 9.94v-7.03H7.9v-2.91h2.54V9.85c0-2.52 1.5-3.91 3.79-3.91 1.1 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56v1.9h2.77l-.44 2.91h-2.33V22c4.78-.76 8.42-4.92 8.42-9.94z" />
+          </svg>
+        );
+      case 'pinterest':
+        return (
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12.02 2C6.49 2 3 5.72 3 9.77c0 1.88 1.05 4.23 2.73 4.97.25.11.38.06.44-.18.04-.18.26-1.05.36-1.45.03-.13.02-.25-.09-.38-.55-.67-.99-1.91-.99-3.06 0-2.84 2.15-5.59 5.82-5.59 3.17 0 5.39 2.16 5.39 5.25 0 3.49-1.76 5.91-4.05 5.91-1.26 0-2.2-1.04-1.9-2.32.36-1.52 1.06-3.16 1.06-4.25 0-.98-.53-1.8-1.62-1.8-1.28 0-2.31 1.33-2.31 3.11 0 1.13.38 1.9.38 1.9s-1.27 5.39-1.5 6.39c-.26 1.12-.16 2.69-.05 3.72.03.31.41.42.58.16.27-.38 1.16-1.7 1.45-2.78.1-.39.56-2.14.56-2.14.3.57 1.17 1.05 2.1 1.05 2.76 0 4.75-2.54 4.75-5.7 0-3.03-2.47-5.3-5.64-5.3z" />
           </svg>
         );
       case 'email':

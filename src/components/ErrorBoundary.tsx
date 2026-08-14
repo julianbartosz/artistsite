@@ -40,7 +40,7 @@ export class ErrorBoundary extends Component<Props, State> {
     })
 
     // Enhanced error logging with stack trace
-    console.error('🚨 Error Boundary Caught:', {
+    console.error('Error Boundary Caught:', {
       error: error.message,
       stack: error.stack,
       componentStack: errorInfo.componentStack,
@@ -49,7 +49,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
     // In development, show detailed error information
     if (process.env.NODE_ENV === 'development') {
-      console.group('🔍 Error Details')
+      console.group('Error Details')
       console.error('Error:', error)
       console.error('Error Info:', errorInfo)
       console.error('Component Stack:', errorInfo.componentStack)
@@ -65,13 +65,13 @@ export class ErrorBoundary extends Component<Props, State> {
       }
 
       // Development error display
-      if (process.env.NODE_ENV === 'development' && this.props.showDetails) {
+      if (this.props.showDetails) {
         return (
           <div className="min-h-screen bg-red-50 p-8">
             <div className="max-w-4xl mx-auto">
               <div className="bg-red-100 border border-red-400 rounded-lg p-6 mb-6">
                 <h2 className="text-2xl font-bold text-red-800 mb-4">
-                  🚨 Application Error
+                  Application Error
                 </h2>
                 <p className="text-red-700 mb-4">
                   Something went wrong in the application. Check the console for more details.

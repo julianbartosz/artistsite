@@ -75,6 +75,7 @@ export function Header() {
                   <div className="relative">
                     <button
                       onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                      aria-label="Open user menu"
                       className="flex items-center text-sm rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                     >
                       <span className="sr-only">Open user menu</span>
@@ -90,6 +91,15 @@ export function Header() {
                           <div className="px-4 py-2 text-sm text-gray-700 border-b border-gray-100">
                             {session.user?.name || session.user?.email}
                           </div>
+                          {session.user?.isAdmin && (
+                            <Link
+                              href="/admin"
+                              className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                              onClick={() => setIsUserMenuOpen(false)}
+                            >
+                              Studio Dashboard
+                            </Link>
+                          )}
                           <Link
                             href="/account"
                             className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
@@ -128,6 +138,7 @@ export function Header() {
               {/* Cart Icon */}
               <button
                 onClick={toggleCart}
+                data-testid="cart-icon"
                 className="relative p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
                 aria-label="Open shopping cart"
               >
@@ -135,7 +146,7 @@ export function Header() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l-1 7H6L5 9z" />
                 </svg>
                 {state.itemCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-gray-900 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                  <span data-testid="cart-count" className="absolute -top-1 -right-1 bg-gray-900 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
                     {state.itemCount}
                   </span>
                 )}
@@ -145,8 +156,10 @@ export function Header() {
               <div className="md:hidden">
                 <button
                   onClick={() => setIsMenuOpen(!isMenuOpen)}
+                  aria-label="Open main menu"
+                  data-testid="mobile-menu-toggle"
                   className="inline-flex items-center justify-center p-2 rounded-md text-gray-600 hover:text-gray-900 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-gray-500"
-                  aria-expanded="false"
+                  aria-expanded={isMenuOpen}
                 >
                   <span className="sr-only">Open main menu</span>
                   {!isMenuOpen ? (
@@ -189,7 +202,7 @@ export function Header() {
 
           {/* Mobile Navigation Menu */}
           {isMenuOpen && (
-            <div className="md:hidden">
+            <div className="md:hidden" data-testid="mobile-menu">
               <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3 border-t border-gray-200">
                 {navigation.map((item) => (
                   <Link
@@ -213,6 +226,15 @@ export function Header() {
                       <div className="px-3 py-2 text-sm text-gray-500">
                         {session.user?.name || session.user?.email}
                       </div>
+                      {session.user?.isAdmin && (
+                        <Link
+                          href="/admin"
+                          className="block px-3 py-2 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                          onClick={() => setIsMenuOpen(false)}
+                        >
+                          Studio Dashboard
+                        </Link>
+                      )}
                       <Link
                         href="/account"
                         className="block px-3 py-2 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50"

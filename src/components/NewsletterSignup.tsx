@@ -113,8 +113,9 @@ export function NewsletterSignup({ className = "" }: NewsletterSignupProps) {
 
   return (
     <div className={className}>
-      <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-4 justify-center max-w-md mx-auto">
+      <form noValidate onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-4 justify-center max-w-md mx-auto">
         <input
+          data-testid="newsletter-email"
           type="email"
           value={email}
           onChange={(e) => {
@@ -126,6 +127,7 @@ export function NewsletterSignup({ className = "" }: NewsletterSignupProps) {
           disabled={status === 'loading'}
         />
         <button
+          data-testid="newsletter-submit"
           type="submit"
           disabled={status === 'loading' || status === 'success'}
           className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
@@ -137,7 +139,7 @@ export function NewsletterSignup({ className = "" }: NewsletterSignupProps) {
       {message && (
         <div className={`text-sm mt-4 text-center ${
           status === 'success' ? 'text-green-400' : 'text-red-400'
-        }`}>
+        }`} data-testid={status === 'success' ? 'newsletter-success' : 'newsletter-error'}>
           <p>{message}</p>
           {status === 'success' && (
             <button

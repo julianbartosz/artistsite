@@ -2,12 +2,15 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
-import { Order, OrderStatus } from '@/lib/orders';
+import type { Order, OrderStatus } from '@/lib/orders';
+import { formatCartItemVariant, productImageSrc } from '@/lib/commerce';
+import { shippingCarrierLabel, trackingUrl } from '@/lib/shipping';
 
 interface OrderTrackingProps {
   orderId?: string;
   order?: Order;
   customerEmail?: string;
+  accessToken?: string;
 }
 
 const statusSteps: OrderStatus[] = ['confirmed', 'processing', 'shipped', 'delivered'];
@@ -23,16 +26,16 @@ const statusColors: Record<OrderStatus, string> = {
 };
 
 const statusIcons: Record<OrderStatus, string> = {
-  pending: '⏳',
-  confirmed: '✅',
-  processing: '📦',
-  shipped: '🚚',
-  delivered: '📦',
-  cancelled: '❌',
-  refunded: '💰'
+  pending: 'P',
+  confirmed: 'C',
+  processing: 'P',
+  shipped: 'S',
+  delivered: 'D',
+  cancelled: 'X',
+  refunded: 'R'
 };
 
-export default function OrderTracking({ orderId, order: initialOrder }: OrderTrackingProps) {
+export default function OrderTracking({ orderId, order: initialOrder, accessToken }: OrderTrackingProps) {
   const [order, setOrder] = useState<Order | null>(initialOrder || null);
   const [loading, setLoading] = useState(!initialOrder);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +45,8 @@ export default function OrderTracking({ orderId, order: initialOrder }: OrderTra
     
     try {
       setLoading(true);
-      const response = await fetch(`/api/orders/${orderId}`);
+      const params = accessToken ? `?t=${encodeURIComponent(accessToken)}` : '';
+      const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}${params}`);
       
       if (!response.ok) {
         throw new Error('Order not found');
@@ -55,7 +59,7 @@ export default function OrderTracking({ orderId, order: initialOrder }: OrderTra
     } finally {
       setLoading(false);
     }
-  }, [orderId]);
+  }, [accessToken, orderId]);
 
   useEffect(() => {
     if (orderId && !initialOrder) {
@@ -83,6 +87,9 @@ export default function OrderTracking({ orderId, order: initialOrder }: OrderTra
       minute: '2-digit'
     });
   };
+
+  const packageTrackingUrl = trackingUrl(order?.shippingCarrier, order?.trackingNumber);
+  const carrierLabel = shippingCarrierLabel(order?.shippingCarrier);
 
   if (loading) {
     return (
@@ -165,6 +172,12 @@ export default function OrderTracking({ orderId, order: initialOrder }: OrderTra
             <div>
               <p className="text-sm text-gray-600">Tracking Number</p>
               <p className="font-medium text-blue-600">{order.trackingNumber}</p>
+              {carrierLabel && <p className="text-sm text-gray-500">{carrierLabel}</p>}
+              {packageTrackingUrl && (
+                <a href={packageTrackingUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-sm font-medium text-blue-700 hover:text-blue-800">
+                  Track package
+                </a>
+              )}
             </div>
             {order.estimatedDelivery && (
               <div>
@@ -211,7 +224,7 @@ export default function OrderTracking({ orderId, order: initialOrder }: OrderTra
           {order.items.map((item) => (
             <div key={item.id} className="flex items-center space-x-4 p-4 border border-gray-200 rounded-lg">
               <Image
-                src={item.product.images.thumbnail}
+                src={productImageSrc(item.product)}
                 alt={item.product.title}
                 width={64}
                 height={64}
@@ -220,8 +233,8 @@ export default function OrderTracking({ orderId, order: initialOrder }: OrderTra
               <div className="flex-1">
                 <h3 className="font-medium text-gray-900">{item.product.title}</h3>
                 <div className="text-sm text-gray-600 mt-1">
-                  {item.selectedVariant && (
-                    <p>Variant: {item.selectedVariant.name}</p>
+                  {formatCartItemVariant(item.selectedVariant) && (
+                    <p>Variant: {formatCartItemVariant(item.selectedVariant)}</p>
                   )}
                   {item.customizations && item.customizations.length > 0 && (
                     <p>Customizations: {item.customizations.map(c => c.name).join(', ')}</p>

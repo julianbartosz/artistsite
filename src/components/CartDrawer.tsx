@@ -1,13 +1,21 @@
 'use client';
 
-import { Fragment } from 'react';
+import { Fragment, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useCart, CartItem } from '@/components/CartContext';
-import { formatPrice } from '@/lib/commerce';
+import { formatPrice, productImageSrc } from '@/lib/commerce';
 
 export function CartDrawer() {
   const { state, removeItem, updateQuantity, closeCart, getItemKey } = useCart();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    if (state.isOpen) {
+      closeCart();
+    }
+  }, [pathname]);
 
   if (!state.isOpen) return null;
 
@@ -121,7 +129,7 @@ function CartItemCard({
       {/* Product Image */}
       <div className="relative w-20 h-20 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
         <Image
-          src={product.images.thumbnail}
+          src={productImageSrc(product)}
           alt={product.title}
           fill
           className="object-cover"
