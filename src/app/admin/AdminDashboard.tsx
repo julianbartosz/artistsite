@@ -2,34 +2,52 @@
 
 import React, { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { redirect } from 'next/navigation';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import useSWR from 'swr';
-import BlogPostEditor from '@/components/BlogPostEditor';
-import RichTextEditor from '@/components/RichTextEditor';
+import AdminContentManager from '@/components/AdminContentManager';
+import AnalyticsDashboard from '@/components/AnalyticsDashboard';
+import AdminOrders from '@/components/AdminOrders';
+import AdminSettings from '@/components/AdminSettings';
+import { InventoryDashboard } from '@/components/InventoryDashboard';
+import { UnifiedMarketingDashboard } from '@/components/UnifiedMarketingDashboard';
 import { 
   FileText, 
-  Image, 
   ShoppingBag, 
   BarChart3, 
+  Image as ImageIcon,
+  ClipboardList,
+  Package,
+  Megaphone,
   Plus, 
-  Edit, 
-  Trash2,
   Eye,
   Calendar,
+  Settings,
   TrendingUp,
-  Users
 } from 'lucide-react';
 
-const fetcher = (url: string) => fetch(url).then(res => res.json());
+const fetcher = async (url: string) => {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Request failed with status ${res.status}`);
+  }
+  return res.json();
+};
 
 interface DashboardStats {
   totalPosts: number;
   publishedPosts: number;
   draftPosts: number;
   totalProducts: number;
+  totalArtworks: number;
   totalViews: number;
   monthlyViews: number;
 }
+
+type SettingRecord = {
+  key: string;
+  status: 'configured' | 'not_set';
+};
 
 interface BlogPost {
   id: string;
@@ -43,13 +61,49 @@ interface BlogPost {
 
 export default function AdminDashboard() {
   const { data: session, status } = useSession();
-  const [activeTab, setActiveTab] = useState<'overview' | 'posts' | 'products' | 'analytics'>('overview');
-  const [isCreatingPost, setIsCreatingPost] = useState(false);
-  const [editingPost, setEditingPost] = useState<BlogPost | null>(null);
+  const router = useRouter();
+  const [activeTab, setActiveTab] = useState<'overview' | 'posts' | 'products' | 'portfolio' | 'orders' | 'inventory' | 'marketing' | 'analytics' | 'settings'>('overview');
 
   // Fetch dashboard data
   const { data: stats, error: statsError } = useSWR<DashboardStats>('/api/admin/stats', fetcher);
-  const { data: posts, error: postsError, mutate: mutatePosts } = useSWR<BlogPost[]>('/api/admin/posts', fetcher);
+  const { data: posts, error: postsError } = useSWR<BlogPost[]>('/api/admin/posts', fetcher);
+  const { data: settingsData, error: settingsError } = useSWR<{ settings: SettingRecord[] }>('/api/admin/settings', fetcher);
+
+  const safeStats: DashboardStats = {
+    totalPosts: Number(stats?.totalPosts || 0),
+    publishedPosts: Number(stats?.publishedPosts || 0),
+    draftPosts: Number(stats?.draftPosts || 0),
+    totalProducts: Number(stats?.totalProducts || 0),
+    totalArtworks: Number(stats?.totalArtworks || 0),
+    totalViews: Number(stats?.totalViews || 0),
+    monthlyViews: Number(stats?.monthlyViews || 0),
+  };
+
+  const safePosts: BlogPost[] = Array.isArray(posts) ? posts : [];
+  const settingStatus = new Map((settingsData?.settings || []).map((setting) => [setting.key, setting.status]));
+  const hasAnyConfigured = (keys: string[]) => keys.some((key) => settingStatus.get(key) === 'configured');
+  const readinessItems: Array<{ key: string; label: string; complete: boolean; tab: typeof activeTab; action: string }> = [
+    { key: 'products', label: 'Add at least one artwork for sale', complete: safeStats.totalProducts > 0, tab: 'products', action: 'Open products' },
+    { key: 'portfolio', label: 'Build the public portfolio', complete: safeStats.totalArtworks > 0, tab: 'portfolio', action: 'Open portfolio' },
+    { key: 'blog', label: 'Publish at least one blog post', complete: safeStats.publishedPosts > 0, tab: 'posts', action: 'Open posts' },
+    { key: 'payments', label: 'Configure Stripe checkout', complete: hasAnyConfigured(['STRIPE_SECRET_KEY']) && hasAnyConfigured(['NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY']), tab: 'settings', action: 'Open settings' },
+    { key: 'email', label: 'Configure contact and email delivery', complete: hasAnyConfigured(['CONTACT_EMAIL', 'SMTP_FROM', 'SMTP_USER']) && hasAnyConfigured(['EMAIL_DELIVERY_MODE']), tab: 'settings', action: 'Open settings' },
+    { key: 'marketing', label: 'Connect or prepare marketing channels', complete: hasAnyConfigured(['NEWSLETTER_DELIVERY_MODE', 'SOCIAL_PUBLISH_MODE', 'NEXT_PUBLIC_GA4_MEASUREMENT_ID']), tab: 'marketing', action: 'Open marketing' },
+  ];
+  const incompleteReadinessItems = readinessItems.filter((item) => !item.complete);
+
+  useEffect(() => {
+    if (status === 'loading') return;
+
+    if (!session) {
+      router.replace('/auth/signin');
+      return;
+    }
+
+    if (!session.user.isAdmin) {
+      router.replace('/');
+    }
+  }, [router, session, status]);
 
   // Check authentication
   if (status === 'loading') {
@@ -61,58 +115,38 @@ export default function AdminDashboard() {
   }
 
   if (!session) {
-    redirect('/auth/signin');
+    return null;
   }
 
-  // Save blog post
-  const handleSaveBlogPost = async (data: any) => {
-    try {
-      const url = editingPost ? `/api/admin/posts/${editingPost.id}` : '/api/admin/posts';
-      const method = editingPost ? 'PATCH' : 'POST';
-      
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-
-      if (response.ok) {
-        await mutatePosts();
-        setIsCreatingPost(false);
-        setEditingPost(null);
-        alert(editingPost ? 'Post updated successfully!' : 'Post created successfully!');
-      } else {
-        throw new Error('Failed to save post');
-      }
-    } catch (error) {
-      console.error('Save error:', error);
-      alert('Failed to save post. Please try again.');
-    }
-  };
-
-  // Delete blog post
-  const handleDeletePost = async (postId: string) => {
-    if (!confirm('Are you sure you want to delete this post?')) return;
-
-    try {
-      const response = await fetch(`/api/admin/posts/${postId}`, {
-        method: 'DELETE',
-      });
-
-      if (response.ok) {
-        await mutatePosts();
-        alert('Post deleted successfully!');
-      } else {
-        throw new Error('Failed to delete post');
-      }
-    } catch (error) {
-      console.error('Delete error:', error);
-      alert('Failed to delete post. Please try again.');
-    }
-  };
+  if (!session.user.isAdmin) {
+    return null;
+  }
 
   const renderOverview = () => (
     <div className="space-y-6">
+      {incompleteReadinessItems.length > 0 && !settingsError && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-6">
+          <h2 className="text-lg font-semibold text-blue-950">Launch readiness</h2>
+          <p className="mt-1 text-sm text-blue-900">
+            Complete these items from this dashboard before launch. No code changes are required.
+          </p>
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {incompleteReadinessItems.map((item) => (
+              <button key={item.key} type="button" onClick={() => setActiveTab(item.tab)} className="rounded border border-blue-200 bg-white px-4 py-3 text-left text-sm font-medium text-blue-950 hover:bg-blue-100">
+                <span className="block">{item.label}</span>
+                <span className="mt-1 block text-xs font-normal text-blue-700">{item.action}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(statsError || postsError || settingsError) && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          Some admin data is temporarily unavailable. You can still navigate tabs and continue editing content.
+        </div>
+      )}
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white rounded-lg shadow-sm border p-6">
@@ -122,7 +156,7 @@ export default function AdminDashboard() {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Total Posts</p>
-              <p className="text-2xl font-semibold text-gray-900">{stats?.totalPosts || 0}</p>
+              <p className="text-2xl font-semibold text-gray-900">{safeStats.totalPosts}</p>
             </div>
           </div>
         </div>
@@ -134,7 +168,7 @@ export default function AdminDashboard() {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Products</p>
-              <p className="text-2xl font-semibold text-gray-900">{stats?.totalProducts || 0}</p>
+              <p className="text-2xl font-semibold text-gray-900">{safeStats.totalProducts}</p>
             </div>
           </div>
         </div>
@@ -146,7 +180,7 @@ export default function AdminDashboard() {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Total Views</p>
-              <p className="text-2xl font-semibold text-gray-900">{stats?.totalViews?.toLocaleString() || 0}</p>
+              <p className="text-2xl font-semibold text-gray-900">{safeStats.totalViews.toLocaleString()}</p>
             </div>
           </div>
         </div>
@@ -158,7 +192,7 @@ export default function AdminDashboard() {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Monthly Views</p>
-              <p className="text-2xl font-semibold text-gray-900">{stats?.monthlyViews?.toLocaleString() || 0}</p>
+              <p className="text-2xl font-semibold text-gray-900">{safeStats.monthlyViews.toLocaleString()}</p>
             </div>
           </div>
         </div>
@@ -169,19 +203,19 @@ export default function AdminDashboard() {
         <h3 className="text-lg font-medium text-gray-900 mb-4">Quick Actions</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <button
-            onClick={() => setIsCreatingPost(true)}
+            onClick={() => setActiveTab('posts')}
             className="flex items-center justify-center p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors"
           >
-            <Plus className="h-6 w-6 text-gray-400 mr-2" />
-            <span className="text-gray-600">Create New Post</span>
+            <FileText className="h-6 w-6 text-gray-400 mr-2" />
+            <span className="text-gray-600">Write Post</span>
           </button>
           
-          <button className="flex items-center justify-center p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-green-500 hover:bg-green-50 transition-colors">
+          <button onClick={() => setActiveTab('products')} className="flex items-center justify-center p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-green-500 hover:bg-green-50 transition-colors">
             <Plus className="h-6 w-6 text-gray-400 mr-2" />
             <span className="text-gray-600">Add Product</span>
           </button>
           
-          <button className="flex items-center justify-center p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition-colors">
+          <button onClick={() => setActiveTab('analytics')} className="flex items-center justify-center p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition-colors">
             <BarChart3 className="h-6 w-6 text-gray-400 mr-2" />
             <span className="text-gray-600">View Analytics</span>
           </button>
@@ -194,7 +228,7 @@ export default function AdminDashboard() {
           <h3 className="text-lg font-medium text-gray-900">Recent Posts</h3>
         </div>
         <div className="divide-y">
-          {posts?.slice(0, 5).map((post) => (
+          {safePosts.slice(0, 5).map((post) => (
             <div key={post.id} className="px-6 py-4 flex items-center justify-between">
               <div>
                 <h4 className="text-sm font-medium text-gray-900">{post.title}</h4>
@@ -203,15 +237,9 @@ export default function AdminDashboard() {
                 </p>
               </div>
               <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => setEditingPost(post)}
-                  className="text-gray-400 hover:text-blue-600"
-                >
-                  <Edit size={16} />
-                </button>
-                <button className="text-gray-400 hover:text-green-600">
+                <Link href={`/blog/${post.slug}`} className="text-gray-400 hover:text-green-600">
                   <Eye size={16} />
-                </button>
+                </Link>
               </div>
             </div>
           ))}
@@ -225,13 +253,6 @@ export default function AdminDashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-gray-900">Blog Posts</h2>
-        <button
-          onClick={() => setIsCreatingPost(true)}
-          className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-        >
-          <Plus size={16} className="mr-2" />
-          New Post
-        </button>
       </div>
 
       {/* Posts List */}
@@ -258,7 +279,7 @@ export default function AdminDashboard() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {posts?.map((post) => (
+              {safePosts.map((post) => (
                 <tr key={post.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div>
@@ -290,21 +311,9 @@ export default function AdminDashboard() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex items-center justify-end space-x-2">
-                      <button
-                        onClick={() => setEditingPost(post)}
-                        className="text-blue-600 hover:text-blue-900"
-                      >
-                        <Edit size={16} />
-                      </button>
-                      <button className="text-green-600 hover:text-green-900">
+                      <Link href={`/blog/${post.slug}`} className="text-green-600 hover:text-green-900">
                         <Eye size={16} />
-                      </button>
-                      <button
-                        onClick={() => handleDeletePost(post.id)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      </Link>
                     </div>
                   </td>
                 </tr>
@@ -315,29 +324,6 @@ export default function AdminDashboard() {
       </div>
     </div>
   );
-
-  if (isCreatingPost || editingPost) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-6">
-          <button
-            onClick={() => {
-              setIsCreatingPost(false);
-              setEditingPost(null);
-            }}
-            className="text-blue-600 hover:text-blue-800"
-          >
-            ← Back to Dashboard
-          </button>
-        </div>
-        <BlogPostEditor
-          initialData={editingPost || undefined}
-          onSave={handleSaveBlogPost}
-          isLoading={false}
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -354,7 +340,12 @@ export default function AdminDashboard() {
             { key: 'overview', label: 'Overview', icon: BarChart3 },
             { key: 'posts', label: 'Blog Posts', icon: FileText },
             { key: 'products', label: 'Products', icon: ShoppingBag },
+            { key: 'portfolio', label: 'Portfolio', icon: ImageIcon },
+            { key: 'orders', label: 'Orders', icon: ClipboardList },
+            { key: 'inventory', label: 'Inventory', icon: Package },
+            { key: 'marketing', label: 'Marketing', icon: Megaphone },
             { key: 'analytics', label: 'Analytics', icon: TrendingUp },
+            { key: 'settings', label: 'Settings', icon: Settings },
           ].map(({ key, label, icon: Icon }) => (
             <button
               key={key}
@@ -374,16 +365,27 @@ export default function AdminDashboard() {
 
       {/* Tab Content */}
       {activeTab === 'overview' && renderOverview()}
-      {activeTab === 'posts' && renderPosts()}
+      {activeTab === 'posts' && <AdminContentManager section="posts" />}
       {activeTab === 'products' && (
-        <div className="text-center py-12">
-          <p className="text-gray-500">Product management coming soon...</p>
-        </div>
+        <AdminContentManager section="products" />
+      )}
+      {activeTab === 'portfolio' && (
+        <AdminContentManager section="artworks" />
+      )}
+      {activeTab === 'orders' && (
+        <AdminOrders />
+      )}
+      {activeTab === 'inventory' && (
+        <InventoryDashboard />
+      )}
+      {activeTab === 'marketing' && (
+        <UnifiedMarketingDashboard />
       )}
       {activeTab === 'analytics' && (
-        <div className="text-center py-12">
-          <p className="text-gray-500">Analytics dashboard coming soon...</p>
-        </div>
+        <AnalyticsDashboard />
+      )}
+      {activeTab === 'settings' && (
+        <AdminSettings />
       )}
     </div>
   );
