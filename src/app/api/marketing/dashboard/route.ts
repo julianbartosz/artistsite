@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireAdmin } from '@/lib/auth';
+import { ApiError } from '@/lib/api-error-handler';
+import { getConfig } from '@/lib/config';
 
 // Type assertion to access marketing models until TypeScript recognizes them
 const dbWithMarketing = db as any;
 
 export async function POST(request: NextRequest) {
   try {
+    await requireAdmin();
     const { dateRange, channels } = await request.json();
     
     // Calculate date filter
@@ -36,7 +40,9 @@ export async function POST(request: NextRequest) {
       roi: 0, // Will be calculated below
       activeCustomers: await getActiveCustomers(startDate),
       campaignPerformance: await getCampaignPerformance(startDate, channels),
-      topPerformingChannels: await getTopPerformingChannels(startDate, channels)
+      topPerformingChannels: await getTopPerformingChannels(startDate, channels),
+      automation: await getAutomationSummary(startDate),
+      analytics: await getJourneyAnalytics(startDate)
     };
 
     // Calculate ROI
@@ -44,6 +50,13 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(overview);
   } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status }
+      );
+    }
+
     console.error('Error generating marketing dashboard:', error);
     return NextResponse.json(
       { error: 'Failed to load dashboard data' },
@@ -57,7 +70,7 @@ async function getTotalRevenue(startDate: Date): Promise<number> {
   const orders = await db.order.findMany({
     where: {
       createdAt: { gte: startDate },
-      status: 'completed'
+      paymentStatus: 'paid'
     }
   });
   
@@ -75,7 +88,7 @@ async function getTotalCost(startDate: Date, channels: string[]): Promise<number
         timestamp: { gte: startDate }
       }
     });
-    totalCost += emailEvents.length * 0.01; // $0.01 per email
+    totalCost += emailEvents.length * await getConfiguredCost('MARKETING_EMAIL_UNIT_COST');
   }
 
   // Social media costs (organic - time cost estimate)
@@ -85,7 +98,7 @@ async function getTotalCost(startDate: Date, channels: string[]): Promise<number
         publishedAt: { gte: startDate }
       }
     });
-    totalCost += socialPosts.length * 25; // $25 per post (time cost)
+    totalCost += socialPosts.length * await getConfiguredCost('MARKETING_SOCIAL_POST_COST');
   }
 
   // Paid advertising costs
@@ -262,7 +275,7 @@ async function getTopPerformingChannels(startDate: Date, channels: string[]) {
   }
 
   // Add direct/organic channel
-  const directRevenue = channelRevenue['direct'] || (await getTotalRevenue(startDate)) * 0.15;
+  const directRevenue = channelRevenue['direct'] || 0;
   channelPerformance.push({
     channel: 'direct',
     revenue: directRevenue,
@@ -297,7 +310,7 @@ async function getChannelCost(channel: string, startDate: Date): Promise<number>
             timestamp: { gte: startDate }
           }
         });
-        channelCost = emailEvents * 0.01;
+        channelCost = emailEvents * await getConfiguredCost('MARKETING_EMAIL_UNIT_COST');
         break;
       case 'social':
         const socialPosts = await dbWithMarketing.socialMediaPost.count({
@@ -305,7 +318,7 @@ async function getChannelCost(channel: string, startDate: Date): Promise<number>
             publishedAt: { gte: startDate }
           }
         });
-        channelCost = socialPosts * 25;
+        channelCost = socialPosts * await getConfiguredCost('MARKETING_SOCIAL_POST_COST');
         break;
       case 'ads':
         const adCampaigns = await dbWithMarketing.adCampaign.findMany({
@@ -338,4 +351,99 @@ async function getChannelConversions(channel: string, startDate: Date): Promise<
   });
 
   return attributions.length;
+}
+
+async function getConfiguredCost(key: string): Promise<number> {
+  const value = Number(await getConfig(key) || 0);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+async function countEvents(eventNames: string[], startDate: Date): Promise<number> {
+  return db.analyticsEvent.count({
+    where: {
+      eventName: { in: eventNames },
+      timestamp: { gte: startDate }
+    }
+  });
+}
+
+async function getAutomationSummary(startDate: Date) {
+  const [emailSent, cartAbandonment, postPurchase, socialPosts] = await Promise.all([
+    countEvents(['email_sent'], startDate),
+    countEvents(['cart_abandoned'], startDate),
+    countEvents(['post_purchase_sequence_triggered'], startDate),
+    dbWithMarketing.socialMediaPost.count({ where: { createdAt: { gte: startDate } } })
+  ]);
+
+  return {
+    email: {
+      active: emailSent > 0 ? 1 : 0,
+      total: 3,
+      sent: emailSent,
+      cartAbandonment,
+      postPurchase
+    },
+    social: {
+      active: socialPosts > 0 ? 1 : 0,
+      total: 1,
+      posts: socialPosts
+    }
+  };
+}
+
+async function getJourneyAnalytics(startDate: Date) {
+  const [discovery, interest, checkout, paidOrders, repeatCustomers, profiles] = await Promise.all([
+    countEvents(['page_view', 'portfolio_view', 'blog_post_view'], startDate),
+    countEvents(['view_item', 'artwork_view', 'search', 'add_to_cart'], startDate),
+    countEvents(['begin_checkout'], startDate),
+    db.order.findMany({ where: { paymentStatus: 'paid', createdAt: { gte: startDate } }, select: { id: true } }),
+    getRepeatCustomerCount(startDate),
+    getActiveProfiles(startDate)
+  ]);
+  const purchases = paidOrders.length;
+
+  const lifetimeValues = profiles.map(profile => profile.lifetimeValue || 0);
+  const engagementScores = profiles.map(profile => profile.engagementScore || 0);
+  const totalLifetimeValue = lifetimeValues.reduce((sum, value) => sum + value, 0);
+  const averageLifetimeValue = lifetimeValues.length > 0 ? totalLifetimeValue / lifetimeValues.length : 0;
+  const averageEngagementScore = engagementScores.length > 0
+    ? engagementScores.reduce((sum, value) => sum + value, 0) / engagementScores.length
+    : 0;
+
+  return {
+    journey: [
+      { step: 'Discovery', visitors: discovery },
+      { step: 'Interest', visitors: interest },
+      { step: 'Checkout', visitors: checkout },
+      { step: 'Purchase', visitors: purchases },
+      { step: 'Repeat Customers', visitors: repeatCustomers }
+    ],
+    metrics: {
+      averageLifetimeValue,
+      averageEngagementScore,
+      purchaseCount: purchases,
+      activeProfiles: profiles.length
+    }
+  };
+}
+
+async function getActiveProfiles(startDate: Date): Promise<Array<{ lifetimeValue: number; engagementScore: number }>> {
+  try {
+    return await (db as any).customerProfile.findMany({ where: { lastActivity: { gte: startDate } } });
+  } catch {
+    return [];
+  }
+}
+
+async function getRepeatCustomerCount(startDate: Date): Promise<number> {
+  const paidOrders = await db.order.findMany({
+    where: { paymentStatus: 'paid', createdAt: { gte: startDate } },
+    select: { userId: true, userEmail: true }
+  });
+  const counts = new Map<string, number>();
+  for (const order of paidOrders) {
+    const key = order.userId || order.userEmail;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return Array.from(counts.values()).filter(count => count > 1).length;
 }

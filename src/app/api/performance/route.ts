@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
+import { getConfig } from '@/lib/config';
 
 interface WebVitalsMetric {
   name: string;
@@ -17,6 +19,16 @@ export async function POST(request: NextRequest) {
     // In production, you would send this to your analytics service
     // For now, we'll log and store in memory/database
     console.log('Web Vitals metrics received:', metrics);
+    await Promise.all(metrics.map((metric) => db.analyticsEvent.create({
+      data: {
+        eventName: 'web_vital',
+        properties: JSON.stringify(metric),
+        pageUrl: metric.url,
+        timestamp: new Date(metric.timestamp || Date.now()),
+      },
+    }).catch((error) => {
+      console.error('Failed to persist web vital metric:', error);
+    })));
     
     // You could implement analytics here:
     // - Send to Google Analytics 4
@@ -24,7 +36,7 @@ export async function POST(request: NextRequest) {
     // - Send to monitoring service like DataDog or New Relic
     
     // Example: Send to Google Analytics 4
-    if (process.env.GA_MEASUREMENT_ID) {
+    if (await getConfig('NEXT_PUBLIC_GA4_MEASUREMENT_ID')) {
       for (const metric of metrics) {
         await sendToGA4(metric);
       }
@@ -41,8 +53,8 @@ export async function POST(request: NextRequest) {
 }
 
 async function sendToGA4(metric: WebVitalsMetric) {
-  const measurementId = process.env.GA_MEASUREMENT_ID;
-  const apiSecret = process.env.GA_API_SECRET;
+  const measurementId = await getConfig('NEXT_PUBLIC_GA4_MEASUREMENT_ID');
+  const apiSecret = await getConfig('GA_API_SECRET');
   
   if (!measurementId || !apiSecret) {
     return;
@@ -71,23 +83,64 @@ async function sendToGA4(metric: WebVitalsMetric) {
 
 // GET endpoint for retrieving performance data
 export async function GET() {
-  // This could return aggregated performance data
-  // For demo purposes, return sample data
-  const sampleData = {
-    averageMetrics: {
-      lcp: 2400,
-      fid: 95,
-      cls: 0.08,
-      fcp: 1600,
-      ttfb: 750,
-    },
-    pageViews: 1250,
-    issues: [
-      { type: 'LCP', count: 12, description: 'Images without optimization' },
-      { type: 'CLS', count: 8, description: 'Layout shifts on mobile' },
-    ],
-    lastUpdated: new Date().toISOString(),
-  };
-  
-  return NextResponse.json(sampleData);
+  try {
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const events = await db.analyticsEvent.findMany({
+      where: {
+        eventName: 'web_vital',
+        timestamp: { gte: since },
+      },
+      select: { properties: true, pageUrl: true, timestamp: true },
+      take: 5000,
+      orderBy: { timestamp: 'desc' },
+    });
+
+    const grouped = new Map<string, { total: number; count: number; poor: number }>();
+    for (const event of events) {
+      const metric = parseMetric(event.properties);
+      if (!metric?.name || typeof metric.value !== 'number') continue;
+      const key = metric.name.toLowerCase();
+      const current = grouped.get(key) || { total: 0, count: 0, poor: 0 };
+      current.total += metric.value;
+      current.count += 1;
+      if (metric.rating === 'poor') current.poor += 1;
+      grouped.set(key, current);
+    }
+
+    const averageMetrics = Object.fromEntries(
+      Array.from(grouped.entries()).map(([name, value]) => [name, value.count ? Math.round(value.total / value.count) : 0])
+    );
+
+    const issues = Array.from(grouped.entries())
+      .filter(([, value]) => value.poor > 0)
+      .map(([name, value]) => ({ type: name.toUpperCase(), count: value.poor, description: `${value.poor} poor ${name.toUpperCase()} measurements in the last 30 days` }));
+
+    return NextResponse.json({
+      averageMetrics: {
+        lcp: averageMetrics.lcp || 0,
+        inp: averageMetrics.inp || 0,
+        cls: averageMetrics.cls || 0,
+        fcp: averageMetrics.fcp || 0,
+        ttfb: averageMetrics.ttfb || 0,
+      },
+      pageViews: new Set(events.map((event) => event.pageUrl).filter(Boolean)).size,
+      issues,
+      lastUpdated: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error reading performance metrics:', error);
+    return NextResponse.json({ error: 'Failed to load performance metrics' }, { status: 500 });
+  }
+}
+
+function parseMetric(value: unknown): Partial<WebVitalsMetric> | null {
+  if (!value) return null;
+  if (typeof value === 'object') return value as Partial<WebVitalsMetric>;
+  if (typeof value !== 'string') return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
 }
