@@ -3,8 +3,7 @@ import { Suspense } from 'react';
 import { Metadata } from 'next';
 import { getAllPosts, BlogPost } from '@/lib/markdown';
 
-// Enable ISR with 30-minute revalidation for blog index
-export const revalidate = 1800;
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'Art Blog - Creative Process & Insights',
@@ -108,8 +107,8 @@ async function BlogContent() {
                   href={`/blog/${post.slug}`}
                   className="inline-flex items-center text-blue-600 hover:text-blue-700 font-medium group"
                 >
-                  Read more 
-                  <span className="ml-1 transition-transform group-hover:translate-x-1">→</span>
+                  Read more
+                  <span className="ml-1 transition-transform group-hover:translate-x-1">-&gt;</span>
                 </Link>
               </footer>
             </article>
@@ -122,44 +121,51 @@ async function BlogContent() {
 
 export default async function BlogPage() {
   return (
-    <div className="max-w-4xl mx-auto px-6 py-12">
-      <header className="mb-12">
-        <h1 className="text-4xl font-bold mb-4">Art Blog</h1>
-        <p className="text-lg text-gray-600 mb-6">
-          Thoughts on art, creativity, and the artistic process. Discover insights into my creative journey, 
-          techniques, and the stories behind my artwork.
-        </p>
-        
-        {/* Subscribe and RSS Links */}
-        <div className="flex flex-wrap gap-4 text-sm">
-          <Link 
-            href="/subscribe" 
-            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-          >
-            Subscribe for Updates
-          </Link>
-          <Link 
-            href="/rss.xml" 
-            className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
-          >
-            RSS Feed
-          </Link>
-          <Link 
-            href="/atom.xml" 
-            className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
-          >
-            Atom Feed
-          </Link>
-        </div>
-      </header>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header Section */}
+      <section className="bg-white shadow-sm">
+        <div className="max-w-7xl mx-auto px-6 py-8">
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold text-gray-900 mb-4">Art Blog</h1>
+            <p className="text-lg text-gray-600 max-w-2xl mx-auto mb-8">
+              Thoughts on art, creativity, and the artistic process. Discover insights into my creative journey,
+              techniques, and the stories behind my artwork.
+            </p>
 
-      <Suspense fallback={
-        <div className="space-y-8">
-          {[1, 2, 3].map(i => <BlogPostSkeleton key={i} />)}
+            {/* Subscribe and RSS Links */}
+            <div className="flex flex-wrap justify-center gap-4 text-sm">
+              <Link
+                href="/subscribe"
+                className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+              >
+                Subscribe for Updates
+              </Link>
+              <Link
+                href="/rss.xml"
+                className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
+              >
+                RSS Feed
+              </Link>
+              <Link
+                href="/atom.xml"
+                className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
+              >
+                Atom Feed
+              </Link>
+            </div>
+          </div>
         </div>
-      }>
-        <BlogContent />
-      </Suspense>
+      </section>
+
+      <div className="max-w-4xl mx-auto px-6 py-12">
+        <Suspense fallback={
+          <div className="space-y-8">
+            {[1, 2, 3].map(i => <BlogPostSkeleton key={i} />)}
+          </div>
+        }>
+          <BlogContent />
+        </Suspense>
+      </div>
     </div>
   );
 }

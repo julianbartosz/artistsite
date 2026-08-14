@@ -1,9 +1,12 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { validateContactForm, sanitizeFormData, isRateLimited, type ContactFormData, type ValidationErrors } from '@/lib/form-validation';
 
+const DEFAULT_CONTACT_EMAIL = 'hello@artistsite.com';
+
 export default function ContactPage() {
+  const [contactEmail, setContactEmail] = useState(DEFAULT_CONTACT_EMAIL);
   const [formData, setFormData] = useState<ContactFormData>({
     name: '',
     email: '',
@@ -16,6 +19,24 @@ export default function ContactPage() {
   const [responseMessage, setResponseMessage] = useState('');
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [touched, setTouched] = useState<{[key: string]: boolean}>({});
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'test') return;
+
+    let active = true;
+
+    fetch('/api/config/public')
+      .then((response) => response.ok ? response.json() : null)
+      .then((config) => {
+        const configuredEmail = config?.CONTACT_EMAIL || config?.ARTIST_EMAIL || config?.SUPPORT_EMAIL;
+        if (active && configuredEmail) setContactEmail(configuredEmail);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,7 +90,7 @@ export default function ContactPage() {
         });
         setTouched({});
       } else {
-        throw new Error(result.error || 'Failed to send message');
+        throw new Error(result.message || result.error || 'Failed to send message');
       }
     } catch (error) {
       console.error('Contact form error:', error);
@@ -77,7 +98,7 @@ export default function ContactPage() {
       setResponseMessage(
         error instanceof Error 
           ? error.message 
-          : 'Something went wrong. Please try again or email me directly at hello@artistsite.com'
+          : `Something went wrong. Please try again or email me directly at ${contactEmail}`
       );
     }
   };
@@ -141,6 +162,12 @@ export default function ContactPage() {
             <h2 className="text-2xl font-bold text-gray-900 mb-6">Send a Message</h2>
             
             <form onSubmit={handleSubmit} className="space-y-6" noValidate>
+              {Object.keys(errors).length > 0 && (
+                <div data-testid="form-errors" role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                  Please fix the highlighted fields before sending your message.
+                </div>
+              )}
+
               {/* Inquiry Type */}
               <div>
                 <label htmlFor="inquiryType" className="block text-sm font-medium text-gray-700 mb-2">
@@ -349,7 +376,7 @@ export default function ContactPage() {
                   <svg className="w-5 h-5 text-gray-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                   </svg>
-                  <span className="text-gray-700">hello@artistsite.com</span>
+                  <span className="text-gray-700">{contactEmail}</span>
                 </div>
                 <div className="flex items-center">
                   <svg className="w-5 h-5 text-gray-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">

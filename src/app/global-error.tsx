@@ -25,7 +25,6 @@ export default function GlobalError({
           fallback={
             <div className="min-h-screen bg-red-50 flex items-center justify-center p-4">
               <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-6 text-center">
-                <div className="text-red-500 text-6xl mb-4">💥</div>
                 <h2 className="text-2xl font-bold text-gray-800 mb-2">
                   Critical Error
                 </h2>
@@ -54,7 +53,7 @@ export default function GlobalError({
             <div className="max-w-4xl mx-auto">
               <div className="bg-white rounded-lg shadow-lg p-6">
                 <h1 className="text-3xl font-bold text-red-600 mb-4">
-                  🚨 Critical Application Error
+                  Critical Application Error
                 </h1>
                 <p className="text-gray-700 mb-6">
                   A critical error occurred that couldn&apos;t be handled by the normal error boundaries.

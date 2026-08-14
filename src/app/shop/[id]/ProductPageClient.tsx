@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { formatPrice, Product } from '@/lib/commerce';
+import { formatPrice, Product, productImageSrc } from '@/lib/commerce';
 import AddToCartButton from '@/components/AddToCartButton';
 import ProductRecommendations from '@/components/ProductRecommendations';
 import RecentlyViewed from '@/components/RecentlyViewed';
@@ -96,7 +96,7 @@ export default function ProductPageClient({ product }: ProductPageClientProps) {
             {/* Main Image */}
             <div className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden">
               <Image
-                src={product.images.gallery[0] || product.images.thumbnail}
+                src={productImageSrc(product, product.images.gallery[0])}
                 alt={product.title}
                 fill
                 className="object-cover"
@@ -118,7 +118,7 @@ export default function ProductPageClient({ product }: ProductPageClientProps) {
                 {product.images.gallery.map((image, index) => (
                   <div key={index} className="relative aspect-square bg-gray-100 rounded overflow-hidden">
                     <Image
-                      src={image}
+                      src={productImageSrc(product, image)}
                       alt={`${product.title} view ${index + 1}`}
                       fill
                       className="object-cover hover:scale-105 transition-transform cursor-pointer"

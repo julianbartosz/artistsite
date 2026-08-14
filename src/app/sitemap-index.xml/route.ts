@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAllProducts } from '@/lib/commerce';
+import { getAllProducts } from '@/lib/commerce-server';
 import { getAllPosts } from '@/lib/markdown';
 import { getAllArtworks } from '@/lib/portfolio';
 

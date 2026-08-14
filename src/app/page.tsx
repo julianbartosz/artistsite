@@ -4,6 +4,8 @@ import { getAllPosts } from "@/lib/markdown";
 import { getFeaturedArtworks } from "@/lib/portfolio";
 import { NewsletterSignup } from "@/components/NewsletterSignup";
 
+export const dynamic = 'force-dynamic';
+
 export default async function Home() {
   const [recentPosts, featuredArtworks] = await Promise.all([
     getAllPosts().then(posts => posts.slice(0, 3)),
@@ -26,16 +28,22 @@ export default async function Home() {
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link
-              href="/portfolio"
+              href="/shop"
               className="bg-gray-900 text-white px-8 py-4 rounded-lg hover:bg-gray-800 transition-colors font-medium text-lg"
+            >
+              Shop Art
+            </Link>
+            <Link
+              href="/portfolio"
+              className="border-2 border-gray-900 text-gray-900 px-8 py-4 rounded-lg hover:bg-gray-900 hover:text-white transition-colors font-medium text-lg"
             >
               View Portfolio
             </Link>
             <Link
-              href="/blog"
+              href="/contact"
               className="border-2 border-gray-900 text-gray-900 px-8 py-4 rounded-lg hover:bg-gray-900 hover:text-white transition-colors font-medium text-lg"
             >
-              Read Blog
+              Commission a Piece
             </Link>
           </div>
         </div>
@@ -96,7 +104,7 @@ export default async function Home() {
               href="/portfolio"
               className="inline-flex items-center text-blue-600 hover:text-blue-700 font-medium text-lg"
             >
-              View Full Portfolio →
+              View Full Portfolio -&gt;
             </Link>
           </div>
         </div>
@@ -126,7 +134,7 @@ export default async function Home() {
               </Link>
             </div>
             <div className="relative">
-              <div className="aspect-square rounded-lg overflow-hidden bg-gray-200">
+              <div className="relative aspect-square rounded-lg overflow-hidden bg-gray-200">
                 <Image
                   src="/images/artist-studio.jpg"
                   alt="Artist studio"
@@ -186,7 +194,7 @@ export default async function Home() {
               href="/blog"
               className="inline-flex items-center text-blue-600 hover:text-blue-700 font-medium text-lg"
             >
-              Read All Posts →
+              Read All Posts -&gt;
             </Link>
           </div>
         </div>

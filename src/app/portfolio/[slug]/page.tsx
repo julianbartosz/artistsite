@@ -10,6 +10,8 @@ interface ArtworkDetailProps {
   params: Promise<{ slug: string }>;
 }
 
+export const dynamic = 'force-dynamic';
+
 export default async function ArtworkDetail({ params }: ArtworkDetailProps) {
   const { slug } = await params;
   const artwork = await getArtworkBySlug(slug);
@@ -133,10 +135,7 @@ export default async function ArtworkDetail({ params }: ArtworkDetailProps) {
 
 // Generate static paths for all artworks
 export async function generateStaticParams() {
-  const slugs = await getArtworkSlugs();
-  return slugs.map((slug) => ({
-    slug,
-  }));
+  return [];
 }
 
 // Generate metadata for SEO

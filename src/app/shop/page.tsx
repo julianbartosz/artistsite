@@ -3,7 +3,7 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { Product } from '@/lib/commerce';
 import { SearchResults, SortOption } from '@/lib/types';
@@ -12,7 +12,7 @@ import FilterSidebar from '@/components/FilterSidebar';
 import ProductRecommendations from '@/components/ProductRecommendations';
 import RecentlyViewed from '@/components/RecentlyViewed';
 import StockIndicator from '@/components/StockIndicator';
-import { formatPrice } from '@/lib/commerce';
+import { formatPrice, productImageSrc } from '@/lib/commerce';
 
 // Sort options for the dropdown
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
@@ -24,6 +24,7 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
 ];
 
 function ShopPageContent() {
+  const router = useRouter();
   const { data: session } = useSession();
   const searchParams = useSearchParams();
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
@@ -75,7 +76,7 @@ function ShopPageContent() {
     const params = new URLSearchParams(searchParams);
     params.set('sort', newSort);
     params.delete('page'); // Reset to first page
-    window.location.href = `/shop?${params.toString()}`;
+    router.push(`/shop?${params.toString()}`);
   };
 
   return (
@@ -302,12 +303,12 @@ function ProductCard({ product }: ProductCardProps) {
   const isLimitedEdition = product.edition && product.edition.remaining < product.edition.total;
   
   return (
-    <Link href={`/shop/${product.id}`} className="group">
+    <Link href={`/shop/${product.id}`} data-testid="product-card-link" className="group">
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow">
         {/* Product Image */}
         <div className="relative aspect-square bg-gray-100">
           <Image
-            src={product.images.thumbnail}
+            src={productImageSrc(product)}
             alt={product.title}
             fill
             className="object-cover group-hover:scale-105 transition-transform duration-300"

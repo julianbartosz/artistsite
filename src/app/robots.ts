@@ -26,7 +26,6 @@ export default function robots(): MetadataRoute.Robots {
           '/auth/',
           '/checkout/',
           '/account/',
-          '/order-confirmation/',
           '/_next/',
           '/debug/',
         ],

@@ -4,10 +4,13 @@ import { draftMode } from 'next/headers';
 import { MDXContent } from '@/components/MDXContent';
 import { generateBlogMetadata } from '@/lib/seo';
 import { StructuredData, generateArticleSchema, generateBreadcrumbSchema } from '@/components/StructuredData';
+import { db } from '@/lib/db';
 
 interface BlogPostProps {
   params: Promise<{ slug: string }>;
 }
+
+export const dynamic = 'force-dynamic';
 
 export default async function BlogPost({ params }: BlogPostProps) {
   const { slug } = await params;
@@ -17,6 +20,15 @@ export default async function BlogPost({ params }: BlogPostProps) {
   if (!post) {
     notFound();
   }
+
+  await db.analyticsEvent.create({
+    data: {
+      eventName: 'blog_post_view',
+      properties: JSON.stringify({ slug, title: post.title }),
+      pageUrl: `/blog/${slug}`,
+      timestamp: new Date(),
+    },
+  }).catch(() => undefined);
 
   // Generate structured data
   const articleSchema = generateArticleSchema({
@@ -81,10 +93,7 @@ export default async function BlogPost({ params }: BlogPostProps) {
 
 // Generate static paths for all blog posts
 export async function generateStaticParams() {
-  const slugs = await getPostSlugs();
-  return slugs.map((slug) => ({
-    slug,
-  }));
+  return [];
 }
 
 // Generate metadata for SEO

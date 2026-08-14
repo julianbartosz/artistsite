@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getAllProducts } from '@/lib/commerce';
+import { productImageSrc } from '@/lib/commerce';
+import { getAllProducts } from '@/lib/commerce-server';
 
 const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://artistsite.com';
 
@@ -15,7 +16,7 @@ ${products.map(product => `  <url>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
     <image:image>
-      <image:loc>${baseUrl}${product.images.thumbnail}</image:loc>
+      <image:loc>${baseUrl}${productImageSrc(product)}</image:loc>
       <image:title>${product.title}</image:title>
       <image:caption>${product.description}</image:caption>
     </image:image>

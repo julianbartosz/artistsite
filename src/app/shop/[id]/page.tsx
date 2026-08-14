@@ -1,7 +1,8 @@
 import React from 'react';
 import { notFound } from 'next/navigation';
 import { Metadata } from 'next';
-import { getProductById, getAllProducts } from '@/lib/commerce';
+import { getProductById } from '@/lib/commerce-server';
+import { productImageSrc } from '@/lib/commerce';
 import ProductPageClient from './ProductPageClient';
 
 interface ProductPageProps {
@@ -17,19 +18,12 @@ export const revalidate = 3600;
 export const dynamic = 'force-dynamic';
 
 export async function generateStaticParams() {
-  const products = getAllProducts();
-  
-  // Only pre-render featured products to reduce build time
-  const featuredProducts = products.filter(product => product.featured);
-  
-  return featuredProducts.map((product) => ({
-    id: product.id,
-  }));
+  return [];
 }
 
 export async function generateMetadata({ params }: ProductPageProps): Promise<Metadata> {
   const { id } = await params;
-  const product = getProductById(id);
+  const product = await getProductById(id);
   
   if (!product) {
     return {
@@ -38,7 +32,7 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
     };
   }
   
-  const mainImage = product.images.gallery[0] || product.images.thumbnail;
+  const mainImage = productImageSrc(product, product.images.gallery[0]);
   
   return {
     title: `${product.title} - Art Shop`,
@@ -67,7 +61,7 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
 
 export default async function ProductPage({ params }: ProductPageProps) {
   const { id } = await params;
-  const product = getProductById(id);
+  const product = await getProductById(id);
   
   if (!product) {
     notFound();
