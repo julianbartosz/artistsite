@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { 
-  Order, 
+  Order,
   CreateOrderRequest, 
   OrderManager, 
   OrderItem,
-  OrderTimeline 
+  OrderTimeline,
+  createOrder,
+  getAllOrders,
+  getOrdersByCustomer
 } from '@/lib/orders';
-import { getAllProducts } from '@/lib/commerce';
-import { OrderEmailService } from '@/lib/email';
-
-// In-memory order storage (replace with database in production)
-const orders: Map<string, Order> = new Map();
+import { getAllProducts } from '@/lib/commerce-server';
+import { requireUser } from '@/lib/auth';
+import { ApiError } from '@/lib/api-error-handler';
 
 export async function POST(request: NextRequest) {
   try {
@@ -50,7 +51,10 @@ export async function POST(request: NextRequest) {
       // Calculate item pricing
       let unitPrice = product.price;
       if (item.selectedVariant) {
-        unitPrice += item.selectedVariant.priceModifier || 0;
+        unitPrice += item.selectedVariant.size?.price || 0;
+        unitPrice += item.selectedVariant.framing?.price || 0;
+        unitPrice += item.selectedVariant.material?.price || 0;
+        unitPrice += item.selectedVariant.customizations?.reduce((sum, custom) => sum + custom.price, 0) || 0;
       }
       if (item.customizations) {
         unitPrice += item.customizations.reduce((sum, custom) => 
@@ -116,19 +120,18 @@ export async function POST(request: NextRequest) {
       updatedAt: new Date()
     };
 
-    // Store the order
-    orders.set(order.id, order);
+    const savedOrder = await createOrder(order);
 
-    console.log(`Order created: ${order.orderNumber} for ${order.customerEmail}`);
+    console.log(`Order created: ${savedOrder.orderNumber} for ${savedOrder.customerEmail}`);
 
     return NextResponse.json({
       success: true,
       order: {
-        id: order.id,
-        orderNumber: order.orderNumber,
-        status: order.status,
-        total: order.total,
-        currency: order.currency
+        id: savedOrder.id,
+        orderNumber: savedOrder.orderNumber,
+        status: savedOrder.status,
+        total: savedOrder.total,
+        currency: savedOrder.currency
       }
     });
 
@@ -144,30 +147,24 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const customerEmail = searchParams.get('customerEmail');
-    const customerId = searchParams.get('customerId');
     const status = searchParams.get('status');
+    const scope = searchParams.get('scope');
+    const search = searchParams.get('search');
+    const session = await requireUser();
 
-    if (!customerEmail && !customerId) {
-      return NextResponse.json(
-        { error: 'Customer email or ID is required' },
-        { status: 400 }
-      );
+    if (session.user.isAdmin && scope === 'all') {
+      const orders = await getAllOrders({ status, search });
+      return NextResponse.json({
+        success: true,
+        orders
+      });
     }
 
-    // Filter orders by customer
-    const customerOrders = Array.from(orders.values()).filter(order => {
-      const matchesCustomer = customerEmail 
-        ? order.customerEmail === customerEmail 
-        : order.customerId === customerId;
-      
-      const matchesStatus = status ? order.status === status : true;
-      
-      return matchesCustomer && matchesStatus;
+    const customerOrders = await getOrdersByCustomer({
+      customerEmail: session.user.email,
+      customerId: session.user.id,
+      status
     });
-
-    // Sort by creation date (newest first)
-    customerOrders.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
     return NextResponse.json({
       success: true,
@@ -175,6 +172,13 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status }
+      );
+    }
+
     console.error('Error fetching orders:', error);
     return NextResponse.json(
       { error: 'Failed to fetch orders' },

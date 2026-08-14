@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiErrorHandler } from '@/lib/api-error-handler';
+import { sendTemplateEmail } from '@/lib/email';
+import { getConfig } from '@/lib/config';
 
 interface CommissionRequestData {
   type: 'similar' | 'custom' | 'consultation';
@@ -77,15 +79,7 @@ async function handleCommissionRequest(req: NextRequest) {
   // Generate commission request ID
   const requestId = `COMM-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-  // In a real application, you would:
-  // 1. Save to database
-  // 2. Send email notifications
-  // 3. Create calendar events for consultations
-  // 4. Integrate with CRM systems
-
-  // For now, we'll simulate the process
   try {
-    // Simulate email sending
     await sendCommissionRequestEmails(data, requestId);
 
     // Log the request for monitoring
@@ -121,54 +115,58 @@ async function handleCommissionRequest(req: NextRequest) {
 }
 
 async function sendCommissionRequestEmails(data: CommissionRequestData, requestId: string) {
-  // This would integrate with your email service (Mailchimp, SendGrid, etc.)
-  // For now, we'll just log what would be sent
+  const artistEmail = await getConfig('ARTIST_EMAIL') || await getConfig('CONTACT_EMAIL') || await getConfig('SMTP_FROM') || await getConfig('SMTP_USER');
+  if (!artistEmail) {
+    throw new Error('Artist email recipient is not configured');
+  }
 
   const customerEmailContent = {
-    to: data.customerInfo.email,
     subject: `Commission Request Confirmation - ${requestId}`,
-    template: 'commission-confirmation',
-    data: {
-      customerName: data.customerInfo.name,
-      requestId,
-      type: data.type,
-      description: data.description,
-      timeline: data.timeline,
-      budget: data.budget,
-      estimatedResponse: '24-48 hours'
-    }
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2>Commission Request Received</h2>
+        <p>Hello ${data.customerInfo.name},</p>
+        <p>Your commission request <strong>${requestId}</strong> has been received.</p>
+        <p><strong>Type:</strong> ${data.type}</p>
+        <p><strong>Medium:</strong> ${data.medium}</p>
+        <p><strong>Dimensions:</strong> ${data.dimensions}</p>
+        <p><strong>Timeline:</strong> ${data.timeline}</p>
+        <p><strong>Budget:</strong> $${data.budget?.min ?? 0} - $${data.budget?.max ?? 0}</p>
+        <p>Estimated response: 24-48 hours.</p>
+      </div>
+    `,
+    text: `Commission request received\n\nRequest ID: ${requestId}\nType: ${data.type}\nMedium: ${data.medium}\nDimensions: ${data.dimensions}\nTimeline: ${data.timeline}\nBudget: $${data.budget?.min ?? 0} - $${data.budget?.max ?? 0}\nEstimated response: 24-48 hours.`,
   };
 
   const artistEmailContent = {
-    to: process.env.ARTIST_EMAIL || 'artist@example.com',
     subject: `New Commission Request - ${requestId}`,
-    template: 'commission-notification',
-    data: {
-      requestId,
-      customerInfo: data.customerInfo,
-      projectDetails: {
-        type: data.type,
-        medium: data.medium,
-        dimensions: data.dimensions,
-        description: data.description,
-        timeline: data.timeline,
-        budget: data.budget,
-        specialRequests: data.specialRequests
-      },
-      variants: data.variants
-    }
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2>New Commission Request</h2>
+        <p><strong>Request ID:</strong> ${requestId}</p>
+        <p><strong>Customer:</strong> ${data.customerInfo.name} (${data.customerInfo.email})</p>
+        <p><strong>Preferred Contact:</strong> ${data.customerInfo.preferredContact}</p>
+        <p><strong>Type:</strong> ${data.type}</p>
+        <p><strong>Medium:</strong> ${data.medium}</p>
+        <p><strong>Dimensions:</strong> ${data.dimensions}</p>
+        <p><strong>Timeline:</strong> ${data.timeline}</p>
+        <p><strong>Budget:</strong> $${data.budget?.min ?? 0} - $${data.budget?.max ?? 0}</p>
+        <p><strong>Description:</strong></p>
+        <div style="white-space: pre-wrap; border-left: 4px solid #2563eb; padding-left: 12px;">${data.description}</div>
+        ${data.specialRequests ? `<p><strong>Special Requests:</strong> ${data.specialRequests}</p>` : ''}
+      </div>
+    `,
+    text: `New commission request\n\nRequest ID: ${requestId}\nCustomer: ${data.customerInfo.name} <${data.customerInfo.email}>\nPreferred Contact: ${data.customerInfo.preferredContact}\nType: ${data.type}\nMedium: ${data.medium}\nDimensions: ${data.dimensions}\nTimeline: ${data.timeline}\nBudget: $${data.budget?.min ?? 0} - $${data.budget?.max ?? 0}\n\n${data.description}\n\n${data.specialRequests || ''}`,
   };
 
-  // Log email content for development
-  console.log('Customer email would be sent:', customerEmailContent);
-  console.log('Artist notification would be sent:', artistEmailContent);
+  const [customerDelivered, artistDelivered] = await Promise.all([
+    sendTemplateEmail(data.customerInfo.email, customerEmailContent),
+    sendTemplateEmail(artistEmail, artistEmailContent),
+  ]);
 
-  // In production, you would send actual emails here:
-  // await emailService.send(customerEmailContent);
-  // await emailService.send(artistEmailContent);
-
-  // Simulate email delivery delay
-  await new Promise(resolve => setTimeout(resolve, 100));
+  if (!customerDelivered || !artistDelivered) {
+    throw new Error('Failed to send commission request emails');
+  }
 }
 
 export const POST = withApiErrorHandler(handleCommissionRequest);

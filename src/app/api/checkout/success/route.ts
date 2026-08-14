@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-06-30.basil',
-});
+import { markOrderPaid } from '@/lib/orders';
+import { getStripe } from '@/lib/stripe';
 
 export async function GET(req: NextRequest) {
   try {
@@ -17,6 +14,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const stripe = await getStripe();
+
     // Retrieve the checkout session from Stripe
     const session = await stripe.checkout.sessions.retrieve(sessionId, {
       expand: ['line_items', 'customer', 'shipping_cost'],
@@ -29,27 +28,48 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Format the response
-    const orderDetails = {
-      sessionId: session.id,
-      customerEmail: session.customer_email,
-      amount: session.amount_total,
-      items: session.line_items?.data || [],
-      paymentStatus: session.payment_status,
-      shippingAddress: session.shipping_cost ? {
-        // Use customer_details instead of shipping_details
-        name: session.customer_details?.name,
-        email: session.customer_details?.email,
-        address: session.customer_details?.address
-      } : null,
-    };
+    const orderId = session.metadata?.orderId || session.client_reference_id;
+    if (!orderId) {
+      return NextResponse.json(
+        { error: 'Order ID is missing from checkout session' },
+        { status: 400 }
+      );
+    }
 
-    return NextResponse.json(orderDetails);
+    const order = await markOrderPaid(
+      orderId,
+      typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id,
+      session.payment_method_types?.[0],
+      {
+        shipping: centsToDollars(session.total_details?.amount_shipping),
+        tax: centsToDollars(session.total_details?.amount_tax),
+        total: centsToDollars(session.amount_total),
+      }
+    );
+
+    if (!order) {
+      return NextResponse.json(
+        { error: 'Order not found' },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      sessionId: session.id,
+      paymentStatus: session.payment_status,
+      order
+    });
   } catch (error) {
     console.error('Error retrieving session:', error);
     return NextResponse.json(
-      { error: 'Failed to retrieve order details' },
-      { status: 500 }
+      { error: error instanceof Error && /not configured/i.test(error.message) ? error.message : 'Failed to retrieve order details' },
+      { status: error instanceof Error && /not configured/i.test(error.message) ? 503 : 500 }
     );
   }
+}
+
+function centsToDollars(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  return Math.round(value) / 100;
 }
