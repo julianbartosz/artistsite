@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -124,7 +124,10 @@ model Order {
   shippingAddressId String?
   billingAddressId  String?
   shippingAddress   Address? @relation(fields: [shippingAddressId], references: [id])
+  shippingCarrier    String?
   trackingNumber    String?
+  shipmentId        String?
+  shippingLabelUrl  String?
   estimatedDelivery DateTime?
   
   // Special instructions
@@ -272,6 +275,82 @@ model ProductRecommendation {
   updatedAt     DateTime @updatedAt
   
   @@unique([sourceProductId, recommendedProductId, type])
+}
+
+model Product {
+  id              String   @id
+  slug            String   @unique
+  title           String
+  description     String
+  price           Float
+  currency        String   @default("USD")
+  category        String
+  medium          String
+  dimensions      String
+  year            Int
+  availability    String   @default("available")
+  featured        Boolean  @default(false)
+  images          Json
+  tags            Json
+  shipping        Json
+  specifications  Json
+  variants        Json?
+  customizations  Json?
+  relatedProducts Json?
+  bundle          Json?
+  commissionInfo  Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([availability])
+  @@index([category])
+  @@index([featured])
+}
+
+model BlogPost {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  excerpt     String   @default("")
+  content     String
+  publishedAt DateTime @default(now())
+  tags        Json
+  isDraft     Boolean  @default(true)
+  featured    Boolean  @default(false)
+  coverImage  String?
+  author      String   @default("Artist")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isDraft, publishedAt])
+}
+
+model SiteSetting {
+  key       String   @id
+  value     String
+  encrypted Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+}
+
+model Artwork {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  description String   @default("")
+  medium      String   @default("Mixed Media")
+  dimensions  String   @default("")
+  year        String
+  category    Json
+  featured    Boolean  @default(false)
+  available   Boolean  @default(false)
+  price       String?
+  images      Json
+  content     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([available])
+  @@index([featured])
 }
 
 // Phase 4: Inventory Management Models
@@ -431,8 +510,10 @@ model EmailCampaign {
   type        String   // 'sequence', 'broadcast', 'automated'
   templateId  String   @map("template_id")
   segments    String   // JSON array of target segments
+  content     Json?
   metrics     String   // JSON object for campaign metrics
   status      String   @default("draft")
+  scheduledAt DateTime? @map("scheduled_at")
   createdAt   DateTime @default(now()) @map("created_at")
 
   // Relations
