@@ -6,7 +6,7 @@ export async function POST(request: NextRequest) {
     
     // In development, just log the SEO data
     if (process.env.NODE_ENV === 'development') {
-      console.log('🔍 SEO Data received:', {
+      console.log('SEO Data received:', {
         url: seoData.url,
         title: seoData.title,
         description: seoData.description?.substring(0, 100) + '...',

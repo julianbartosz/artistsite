@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { CustomerInsights } from '@/lib/analytics/customer-insights'
+import { requireAdmin } from '@/lib/auth'
+import { ApiError } from '@/lib/api-error-handler'
 
 export async function GET(request: NextRequest) {
   try {
+    await requireAdmin()
+
     // Get basic analytics metrics
     const [
       totalEvents,
@@ -38,7 +42,7 @@ export async function GET(request: NextRequest) {
       }),
       
       // Customer segments
-      CustomerInsights.getCustomerSegments(),
+      CustomerInsights.getCustomerSegmentsWithStats(),
       
       // LTV analysis
       CustomerInsights.calculateLifetimeValue(),
@@ -77,6 +81,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(dashboardData)
 
   } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status }
+      )
+    }
+
     console.error('Analytics dashboard error:', error)
     return NextResponse.json(
       { error: 'Failed to fetch analytics dashboard data' },

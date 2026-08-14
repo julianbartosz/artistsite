@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
 
 interface DeploymentMetrics {
   environment: string;
@@ -27,30 +28,52 @@ interface DeploymentMetrics {
   }>;
 }
 
-// In-memory metrics storage (in production, use Redis or database)
-const metricsStore = {
-  requests: [] as Array<{ timestamp: number; responseTime: number; status: number }>,
-  errors: [] as Array<{ timestamp: number; error: string; severity: string }>,
-  alerts: [] as Array<{ level: 'info' | 'warning' | 'error' | 'critical'; message: string; timestamp: string }>,
-};
-
 export async function GET(req: NextRequest) {
   try {
     const now = Date.now();
     const oneHourAgo = now - (60 * 60 * 1000);
+    const oneDayAgo = now - (24 * 60 * 60 * 1000);
+    const sinceHour = new Date(oneHourAgo);
+    const sinceDay = new Date(oneDayAgo);
     
-    // Filter recent metrics
-    const recentRequests = metricsStore.requests.filter(r => r.timestamp > oneHourAgo);
-    const recentErrors = metricsStore.errors.filter(e => e.timestamp > oneHourAgo);
+    const [recentEvents, recentErrors, recentRequestMetrics, recentAlerts] = await Promise.all([
+      db.analyticsEvent.count({ where: { timestamp: { gte: sinceHour } } }),
+      db.analyticsEvent.count({
+        where: {
+          eventName: { in: ['monitoring_error', 'error_reported'] },
+          timestamp: { gte: sinceHour },
+        },
+      }),
+      db.analyticsEvent.findMany({
+        where: {
+          eventName: 'monitoring_request',
+          timestamp: { gte: sinceHour },
+        },
+        select: { properties: true },
+        take: 1000,
+      }),
+      db.analyticsEvent.findMany({
+        where: {
+          eventName: { in: ['monitoring_error', 'error_reported'] },
+          timestamp: { gte: sinceDay },
+        },
+        orderBy: { timestamp: 'desc' },
+        select: { properties: true, timestamp: true },
+        take: 10,
+      }),
+    ]);
     
-    // Calculate performance metrics
-    const averageResponseTime = recentRequests.length > 0
-      ? recentRequests.reduce((sum, r) => sum + r.responseTime, 0) / recentRequests.length
+    const responseTimes = recentRequestMetrics
+      .map((event) => parseProperties(event.properties).responseTime)
+      .map(Number)
+      .filter((value) => Number.isFinite(value) && value >= 0);
+    const averageResponseTime = responseTimes.length > 0
+      ? responseTimes.reduce((sum, value) => sum + value, 0) / responseTimes.length
       : 0;
     
-    const requestsPerMinute = recentRequests.length / 60;
-    const errorRate = recentRequests.length > 0 
-      ? (recentErrors.length / recentRequests.length) * 100 
+    const requestsPerMinute = recentEvents / 60;
+    const errorRate = recentEvents > 0 
+      ? (recentErrors / recentEvents) * 100 
       : 0;
 
     // Get system info
@@ -76,25 +99,19 @@ export async function GET(req: NextRequest) {
         cpuUsage: Math.round(process.cpuUsage().system / 1000000), // Convert to percentage
         diskUsage: 0, // Would need additional monitoring for real disk usage
       },
-      alerts: metricsStore.alerts.slice(-10), // Last 10 alerts
+      alerts: recentAlerts.map((event) => {
+        const properties = parseProperties(event.properties);
+        const severity = String(properties.severity || properties.level || 'error');
+        return {
+          level: ['info', 'warning', 'error', 'critical'].includes(severity) ? severity as any : 'error',
+          message: String(properties.message || properties.error || 'Monitoring error recorded'),
+          timestamp: new Date(event.timestamp).toISOString(),
+        };
+      }).reverse(),
     };
 
-    // Generate alerts based on metrics
-    if (metrics.performance.errorRate > 5) {
-      metricsStore.alerts.push({
-        level: 'warning',
-        message: `High error rate detected: ${metrics.performance.errorRate}%`,
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (metrics.infrastructure.memoryUsage > 85) {
-      metricsStore.alerts.push({
-        level: 'critical',
-        message: `High memory usage: ${metrics.infrastructure.memoryUsage}%`,
-        timestamp: new Date().toISOString(),
-      });
-    }
+    if (metrics.performance.errorRate > 5) metrics.alerts.push({ level: 'warning', message: `High error rate detected: ${metrics.performance.errorRate}%`, timestamp: new Date().toISOString() });
+    if (metrics.infrastructure.memoryUsage > 85) metrics.alerts.push({ level: 'critical', message: `High memory usage: ${metrics.infrastructure.memoryUsage}%`, timestamp: new Date().toISOString() });
 
     return NextResponse.json(metrics);
   } catch (error) {
@@ -109,33 +126,20 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const timestamp = Date.now();
-
-    // Log request metrics
-    if (body.type === 'request') {
-      metricsStore.requests.push({
-        timestamp,
-        responseTime: body.responseTime || 0,
-        status: body.status || 200,
-      });
-    }
-
-    // Log error metrics
     if (body.type === 'error') {
-      metricsStore.errors.push({
-        timestamp,
-        error: body.message || 'Unknown error',
-        severity: body.severity || 'error',
+      await db.analyticsEvent.create({
+        data: {
+          eventName: 'monitoring_error',
+          pageUrl: body.path || body.url,
+          properties: JSON.stringify({
+            message: body.message || 'Unknown error',
+            severity: body.severity || 'error',
+            status: body.status,
+          }),
+          timestamp: new Date(),
+        },
       });
     }
-
-    // Clean up old metrics (keep last 24 hours)
-    const twentyFourHoursAgo = timestamp - (24 * 60 * 60 * 1000);
-    metricsStore.requests = metricsStore.requests.filter(r => r.timestamp > twentyFourHoursAgo);
-    metricsStore.errors = metricsStore.errors.filter(e => e.timestamp > twentyFourHoursAgo);
-    metricsStore.alerts = metricsStore.alerts.filter(a => 
-      new Date(a.timestamp).getTime() > twentyFourHoursAgo
-    );
 
     return NextResponse.json({ received: true });
   } catch (error) {
@@ -143,5 +147,16 @@ export async function POST(req: NextRequest) {
       { error: 'Invalid monitoring data' },
       { status: 400 }
     );
+  }
+}
+
+function parseProperties(value: unknown): Record<string, any> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, any>;
+  if (typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
   }
 }

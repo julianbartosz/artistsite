@@ -1,6 +1,7 @@
 // Performance Analytics API
 import { NextRequest, NextResponse } from 'next/server';
 import { PerformanceMonitor } from '@/lib/performance/performance-monitor';
+import { db } from '@/lib/db';
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,14 +24,14 @@ export async function POST(request: NextRequest) {
       });
     }
     
-    // TODO: In production, you could store this in analytics database
-    // await db.analyticsEvent.create({
-    //   data: {
-    //     eventName: 'performance_metrics',
-    //     properties: JSON.stringify(performanceData),
-    //     timestamp: new Date(performanceData.timestamp)
-    //   }
-    // });
+    await db.analyticsEvent.create({
+      data: {
+        eventName: 'performance_metrics',
+        properties: JSON.stringify(performanceData),
+        timestamp: performanceData.timestamp ? new Date(performanceData.timestamp) : new Date(),
+        pageUrl: performanceData.url || performanceData.pathname,
+      }
+    });
     
     return NextResponse.json({ success: true });
   } catch (error) {

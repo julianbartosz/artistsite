@@ -35,17 +35,22 @@ export async function GET() {
     const timeSpan = 24; // hours
     const requestsPerSecond = totalRequests / (timeSpan * 3600);
     
-    // Calculate error rate (placeholder - would need actual error tracking)
-    const errorRate = Math.random() * 2; // Mock 0-2% error rate
+    const recentErrors = await db.analyticsEvent.count({
+      where: {
+        eventName: 'error_reported',
+        timestamp: {
+          gte: new Date(Date.now() - 24 * 60 * 60 * 1000)
+        }
+      }
+    });
+    const errorRate = totalRequests > 0 ? (recentErrors / totalRequests) * 100 : 0;
     
     // Calculate P95 response time
     const responseTimes = metrics.map(m => m.pageLoadTime || 0).sort((a, b) => a - b);
     const p95Index = Math.floor(responseTimes.length * 0.95);
     const p95ResponseTime = responseTimes[p95Index] || 0;
     
-    // System metrics (would come from actual monitoring)
     const memoryUsage = process.memoryUsage().heapUsed / 1024 / 1024; // Convert to MB
-    const cpuUsage = Math.random() * 50; // Mock CPU usage
 
     return NextResponse.json({
       averageResponseTime: Math.round(avgResponseTime),
@@ -53,7 +58,7 @@ export async function GET() {
       errorRate: Math.round(errorRate * 100) / 100,
       p95ResponseTime: Math.round(p95ResponseTime),
       memoryUsage: Math.round(memoryUsage),
-      cpuUsage: Math.round(cpuUsage * 100) / 100
+      cpuUsage: null
     });
   } catch (error) {
     console.error('Error fetching performance metrics:', error);
