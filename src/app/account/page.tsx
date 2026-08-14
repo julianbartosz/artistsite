@@ -6,13 +6,16 @@ import Link from 'next/link';
 
 interface Order {
   id: string;
+  orderNumber?: string;
   total: number;
   status: string;
   createdAt: string;
   items: {
     id: string;
-    title: string;
-    price: number;
+    product?: { title?: string };
+    unitPrice?: number;
+    title?: string;
+    price?: number;
     quantity: number;
   }[];
 }
@@ -31,13 +34,18 @@ export default function AccountPage() {
       return;
     }
 
-    // Fetch user orders (placeholder for now)
     const fetchOrders = async () => {
       try {
-        // TODO: Implement order fetching API
-        setOrders([]);
+        const response = await fetch('/api/orders');
+        if (!response.ok) {
+          throw new Error('Failed to load orders');
+        }
+
+        const data = await response.json();
+        setOrders(data.orders || []);
       } catch (error) {
         console.error('Failed to fetch orders:', error);
+        setOrders([]);
       } finally {
         setIsLoading(false);
       }
@@ -135,7 +143,9 @@ export default function AccountPage() {
                         <div key={order.id} className="border border-gray-200 rounded-lg p-4">
                           <div className="flex items-center justify-between mb-2">
                             <div>
-                              <p className="text-sm font-medium text-gray-900">Order #{order.id}</p>
+                              <Link href={`/orders/${order.id}`} className="text-sm font-medium text-gray-900 hover:text-indigo-700">
+                                Order #{order.orderNumber || order.id}
+                              </Link>
                               <p className="text-sm text-gray-500">{new Date(order.createdAt).toLocaleDateString()}</p>
                             </div>
                             <div className="text-right">
@@ -152,8 +162,8 @@ export default function AccountPage() {
                           <div className="border-t border-gray-200 pt-2">
                             {order.items.map((item) => (
                               <div key={item.id} className="flex justify-between text-sm">
-                                <span>{item.title} × {item.quantity}</span>
-                                <span>${item.price * item.quantity}</span>
+                                <span>{item.product?.title || item.title || 'Artwork'} × {item.quantity}</span>
+                                <span>${((item.unitPrice ?? item.price ?? 0) * item.quantity).toFixed(2)}</span>
                               </div>
                             ))}
                           </div>
