@@ -17,6 +17,7 @@ copilot-instructions.md
 
 # testing
 /coverage
+/test-results/
 
 # next.js
 /.next/
@@ -28,6 +29,8 @@ copilot-instructions.md
 # misc
 .DS_Store
 *.pem
+.cursorindexingignore
+.specstory/
 
 # debug
 npm-debug.log*
@@ -566,4 +569,3 @@ FodyWeavers.xsd
 .contextstream/config.json
 playwright-report/
 .playwright-mcp/
-test-results/skills-lock.json
