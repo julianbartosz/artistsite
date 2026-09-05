@@ -8,6 +8,13 @@ export interface ApiErrorResponse {
   timestamp: string
   path?: string
   stack?: string
+  details?: unknown
+}
+
+function isNextNavigationError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const digest = 'digest' in error ? String((error as { digest?: unknown }).digest ?? '') : ''
+  return digest.startsWith('NEXT_REDIRECT') || digest.startsWith('NEXT_NOT_FOUND')
 }
 
 export class ApiError extends Error {
@@ -70,6 +77,10 @@ export function withApiErrorHandler<T extends unknown[]>(
     try {
       return await handler(...args)
     } catch (error) {
+      if (isNextNavigationError(error)) {
+        throw error
+      }
+
       const request = args[0] as Request
       const errorResponse = handleApiError(error, request)
       

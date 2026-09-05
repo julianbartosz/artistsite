@@ -87,6 +87,10 @@ export interface SearchResults {
   filters: SearchFilters;
   sortBy: SortOption;
   suggestions?: string[];
+  filterOptions?: {
+    categories: string[];
+    mediums: string[];
+  };
 }
 
 export interface RecommendationResult {

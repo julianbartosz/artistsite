@@ -2,9 +2,10 @@
 
 import Link from 'next/link';
 import { useCart } from '@/components/CartContext';
+import { cartItemLineTotal, formatPrice } from '@/lib/commerce';
 
 export default function CheckoutCancelPage() {
-  const { state } = useCart();
+  const { state, getItemKey } = useCart();
 
   return (
     <div className="min-h-screen bg-gray-50 py-16">
@@ -35,15 +36,18 @@ export default function CheckoutCancelPage() {
             <div className="bg-gray-50 rounded-lg p-6 mb-8">
               <h3 className="font-semibold text-gray-900 mb-4">Your Cart</h3>
               <div className="space-y-2 text-sm">
-                {state.items.map((item) => (
-                  <div key={item.product.id} className="flex justify-between">
+                {state.items.map((item) => {
+                  const itemKey = getItemKey(item.product.id, item.variant);
+                  return (
+                  <div key={itemKey} className="flex justify-between">
                     <span className="text-gray-700">{item.product.title} × {item.quantity}</span>
-                    <span className="font-medium">${(item.product.price * item.quantity).toFixed(2)}</span>
+                    <span className="font-medium">{formatPrice(cartItemLineTotal(item))}</span>
                   </div>
-                ))}
+                  );
+                })}
                 <div className="border-t border-gray-200 pt-2 flex justify-between font-semibold">
                   <span>Total</span>
-                  <span>${state.total.toFixed(2)}</span>
+                  <span>{formatPrice(state.total)}</span>
                 </div>
               </div>
             </div>

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { ApiError } from '@/lib/api-error-handler';
 import { requireAdmin } from '@/lib/auth';
-import { StorageConfigurationError, storeImageAsset } from '@/lib/storage';
+import { listStoredImages, StorageConfigurationError, storeImageAsset } from '@/lib/storage';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -21,7 +21,6 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Validate file type
     if (!ALLOWED_TYPES.includes(file.type)) {
       return NextResponse.json(
         { error: 'Invalid file type. Only JPEG, PNG, WebP, and GIF are allowed.' },
@@ -29,7 +28,6 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Validate file size
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
         { error: 'File too large. Maximum size is 10MB.' },
@@ -37,11 +35,9 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Generate unique filename
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
     
-    // Create hash of file content for deduplication
     const hash = crypto.createHash('md5').update(buffer).digest('hex');
     const extension = file.name.split('.').pop() || 'jpg';
     const filename = `${hash}.${extension}`;
@@ -79,12 +75,33 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET() {
-  return NextResponse.json(
-    { 
+export async function GET(request: NextRequest) {
+  const wantsLibrary = request.nextUrl.searchParams.get('library') === '1';
+
+  if (!wantsLibrary) {
+    return NextResponse.json({
       message: 'Image upload endpoint',
       maxFileSize: MAX_FILE_SIZE,
-      allowedTypes: ALLOWED_TYPES
+      allowedTypes: ALLOWED_TYPES,
+    });
+  }
+
+  try {
+    await requireAdmin();
+    const items = await listStoredImages();
+    return NextResponse.json({ success: true, items });
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status }
+      );
     }
-  );
+
+    console.error('Media library list error:', error);
+    return NextResponse.json(
+      { error: 'Failed to load media library' },
+      { status: 500 }
+    );
+  }
 }

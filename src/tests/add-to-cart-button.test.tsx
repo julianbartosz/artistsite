@@ -56,7 +56,8 @@ describe('AddToCartButton', () => {
         total: 0,
         itemCount: 0,
         isOpen: false,
-        lastUpdated: Date.now(), // Add missing lastUpdated property
+        lastUpdated: Date.now(),
+        isLoaded: true,
       },
       ...mockCartFunctions,
     });

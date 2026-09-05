@@ -80,8 +80,6 @@ const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: Array<{
       { key: 'SOCIAL_PUBLISH_MODE', label: 'Social publish mode', help: 'assist or auto. Assist is safest and works without platform credentials.' },
       { key: 'MARKETING_EMAIL_UNIT_COST', label: 'Estimated cost per email', help: 'Optional dollar amount used for ROI estimates. Leave blank or 0 for actual spend only.' },
       { key: 'MARKETING_SOCIAL_POST_COST', label: 'Estimated cost per social post', help: 'Optional dollar amount used for ROI estimates. Leave blank or 0 for actual spend only.' },
-      { key: 'CART_ABANDONMENT_ENABLED', label: 'Cart recovery enabled', help: 'Use true or false.' },
-      { key: 'CART_RECOVERY_PROMO_CODE', label: 'Cart recovery promo code', help: 'Optional existing promo code to include in recovery emails.' },
       { key: 'SOCIAL_INSTAGRAM_URL', label: 'Instagram profile URL' },
       { key: 'SOCIAL_FACEBOOK_URL', label: 'Facebook page URL' },
       { key: 'SOCIAL_X_URL', label: 'X profile URL' },
@@ -110,6 +108,15 @@ const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: Array<{
     ],
   },
   {
+    title: 'Automation',
+    description: 'Scheduled emails, cart recovery, and social posts. Save a cron secret, then use Run automations now or schedule your host to call the cron URL hourly.',
+    keys: [
+      { key: 'CRON_SECRET', label: 'Automation secret', type: 'password', help: 'Used to authorize scheduled automation runs. Click Run automations now after saving.' },
+      { key: 'CART_ABANDONMENT_ENABLED', label: 'Cart recovery enabled', help: 'Use true or false.' },
+      { key: 'CART_RECOVERY_PROMO_CODE', label: 'Cart recovery promo code', help: 'Optional existing promo code to include in recovery emails.' },
+    ],
+  },
+  {
     title: 'Site Pages',
     description: 'Public legal content editable without code changes.',
     keys: [
@@ -124,6 +131,7 @@ export default function AdminSettings() {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [runningAutomation, setRunningAutomation] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -169,6 +177,25 @@ export default function AdminSettings() {
     }
   }
 
+  async function runAutomationsNow() {
+    setRunningAutomation(true);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/admin/automation/run', { method: 'POST' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Automation run failed');
+      setMessage(`Automations completed. Processed ${data.processed ?? 0} job(s).`);
+      if (typeof data.lastRunAt === 'string' && data.lastRunAt) {
+        setDraft((prev) => ({ ...prev, CRON_LAST_RUN_AT: data.lastRunAt }));
+      }
+      await loadSettings();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Automation run failed');
+    } finally {
+      setRunningAutomation(false);
+    }
+  }
+
   if (loading) {
     return <div className="rounded-lg border bg-white p-6 text-gray-600">Loading settings...</div>;
   }
@@ -180,6 +207,24 @@ export default function AdminSettings() {
           {message}
         </div>
       )}
+
+      <section className="rounded-lg border bg-white p-6">
+        <h2 className="text-lg font-semibold text-gray-900">Automation status</h2>
+        <p className="mt-1 text-sm text-gray-600">
+          Last run: {draft.CRON_LAST_RUN_AT ? new Date(draft.CRON_LAST_RUN_AT).toLocaleString() : 'Not recorded yet'}
+        </p>
+        <p className="mt-2 text-sm text-gray-600">
+          Cron URL: <code className="rounded bg-gray-100 px-1">{typeof window !== 'undefined' ? `${window.location.origin}/api/cron/marketing` : '/api/cron/marketing'}</code>
+        </p>
+        <button
+          type="button"
+          onClick={runAutomationsNow}
+          disabled={runningAutomation}
+          className="mt-4 rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+        >
+          {runningAutomation ? 'Running...' : 'Run automations now'}
+        </button>
+      </section>
 
       {SETTINGS_GROUPS.map((group) => (
         <section key={group.title} className="rounded-lg border bg-white p-6">

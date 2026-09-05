@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getConfig } from '@/lib/config';
+import { getConfig, getConfigBool } from '@/lib/config';
 
 const PUBLIC_CONFIG_KEYS = [
   'NEXT_PUBLIC_BASE_URL',
@@ -20,5 +20,10 @@ export async function GET() {
     PUBLIC_CONFIG_KEYS.map(async (key) => [key, await getConfig(key)] as const)
   );
 
-  return NextResponse.json(Object.fromEntries(entries));
+  const stripeAutomaticTaxEnabled = await getConfigBool('STRIPE_AUTOMATIC_TAX_ENABLED');
+
+  return NextResponse.json({
+    ...Object.fromEntries(entries),
+    STRIPE_AUTOMATIC_TAX_ENABLED: stripeAutomaticTaxEnabled,
+  });
 }

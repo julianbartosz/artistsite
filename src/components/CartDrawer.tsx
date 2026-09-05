@@ -5,7 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCart, CartItem } from '@/components/CartContext';
-import { formatPrice, productImageSrc } from '@/lib/commerce';
+import { formatPrice, productImageSrc, cartItemLineTotal } from '@/lib/commerce';
 
 export function CartDrawer() {
   const { state, removeItem, updateQuantity, closeCart, getItemKey } = useCart();
@@ -28,7 +28,7 @@ export function CartDrawer() {
       />
       
       {/* Cart Drawer */}
-      <div className="fixed right-0 top-0 h-full w-96 bg-white shadow-xl z-50 transform transition-transform duration-300 ease-in-out">
+      <div className="fixed right-0 top-0 h-full w-full max-w-sm sm:max-w-md bg-white shadow-xl z-50 transform transition-transform duration-300 ease-in-out">
         <div className="flex flex-col h-full">
           {/* Header */}
           <div className="flex items-center justify-between p-6 border-b border-gray-200">
@@ -93,6 +93,7 @@ export function CartDrawer() {
                 <Link
                   href="/checkout"
                   onClick={closeCart}
+                  data-testid="proceed-to-checkout"
                   className="w-full bg-gray-900 text-white py-3 px-4 rounded-lg hover:bg-gray-800 transition-colors font-medium text-center block"
                 >
                   Proceed to Checkout
@@ -190,9 +191,9 @@ function CartItemCard({
 
       {/* Price */}
       <div className="text-right">
-        <p className="font-medium text-gray-900">{formatPrice(product.price * quantity)}</p>
+        <p className="font-medium text-gray-900">{formatPrice(cartItemLineTotal(item))}</p>
         {quantity > 1 && (
-          <p className="text-xs text-gray-500">{formatPrice(product.price)} each</p>
+          <p className="text-xs text-gray-500">{formatPrice(item.totalPrice)} each</p>
         )}
       </div>
     </div>

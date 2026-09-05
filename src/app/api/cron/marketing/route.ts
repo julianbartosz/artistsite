@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { processDueCartRecovery, processDueEmailCampaigns, processDueSocialPosts } from '@/lib/marketing/campaign-execution';
 import { InventoryService } from '@/lib/inventory';
+import { getConfig, setConfig } from '@/lib/config';
 
-function isAuthorized(request: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
+async function resolveCronSecret(): Promise<string | undefined> {
+  return (await getConfig('CRON_SECRET')) || process.env.CRON_SECRET;
+}
+
+async function isAuthorized(request: NextRequest): Promise<boolean> {
+  const secret = await resolveCronSecret();
   if (!secret) return false;
 
   const authorization = request.headers.get('authorization') || '';
@@ -14,11 +19,12 @@ function isAuthorized(request: NextRequest): boolean {
 }
 
 async function runScheduledMarketing(request: NextRequest) {
-  if (!process.env.CRON_SECRET) {
+  const secret = await resolveCronSecret();
+  if (!secret) {
     return NextResponse.json({ error: 'CRON_SECRET is not configured' }, { status: 503 });
   }
 
-  if (!isAuthorized(request)) {
+  if (!(await isAuthorized(request))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -29,9 +35,13 @@ async function runScheduledMarketing(request: NextRequest) {
     InventoryService.releaseExpiredReservations(),
   ]);
 
+  await setConfig('CRON_LAST_RUN_AT', new Date().toISOString(), { encrypt: false });
+  const lastRunAt = await getConfig('CRON_LAST_RUN_AT');
+
   return NextResponse.json({
     success: true,
     processed: email.length + social.attempted + cartRecovery.attempted,
+    lastRunAt,
     results: { email, social, cartRecovery, inventory: { expiredReservationsReleased } },
   });
 }

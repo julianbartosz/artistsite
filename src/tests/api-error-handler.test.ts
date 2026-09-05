@@ -1,31 +1,14 @@
-import { withApiErrorHandler, ApiError } from '@/lib/api-error-handler';
-import { NextRequest, NextResponse } from 'next/server';
+/** @jest-environment node */
 
-// Mock NextRequest and NextResponse
-jest.mock('next/server', () => ({
-  NextRequest: jest.fn(),
-  NextResponse: {
-    json: jest.fn((data, options) => ({ json: data, status: options?.status || 200 })),
-  },
-}));
+import { withApiErrorHandler, ApiError } from '@/lib/api-error-handler';
 
 describe('API Error Handler', () => {
-  let mockRequest: jest.Mocked<NextRequest>;
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockRequest = {
-      json: jest.fn(),
-      headers: new Headers(),
-      url: 'http://localhost:3000/api/test',
-      method: 'POST',
-    } as any;
-  });
+  const mockRequest = new Request('http://localhost:3000/api/test', { method: 'POST' });
 
   describe('ApiError', () => {
     it('should create error with correct properties', () => {
       const error = new ApiError(400, 'Test error', 'TEST_ERROR');
-      
+
       expect(error.status).toBe(400);
       expect(error.message).toBe('Test error');
       expect(error.code).toBe('TEST_ERROR');
@@ -34,7 +17,7 @@ describe('API Error Handler', () => {
 
     it('should default to no code when not provided', () => {
       const error = new ApiError(500, 'Test error');
-      
+
       expect(error.status).toBe(500);
       expect(error.code).toBeUndefined();
     });
@@ -43,7 +26,7 @@ describe('API Error Handler', () => {
   describe('withApiErrorHandler', () => {
     it('should handle successful requests', async () => {
       const mockHandler = jest.fn().mockResolvedValue(
-        new Response(JSON.stringify({ success: true }), { status: 200 })
+        Response.json({ success: true }, { status: 200 })
       );
       const wrappedHandler = withApiErrorHandler(mockHandler);
 
@@ -69,9 +52,7 @@ describe('API Error Handler', () => {
     });
 
     it('should handle generic errors', async () => {
-      const mockHandler = jest.fn().mockRejectedValue(
-        new Error('Unexpected error')
-      );
+      const mockHandler = jest.fn().mockRejectedValue(new Error('Unexpected error'));
       const wrappedHandler = withApiErrorHandler(mockHandler);
 
       const result = await wrappedHandler(mockRequest);
@@ -98,26 +79,23 @@ describe('API Error Handler', () => {
 
     it('should log errors in development', async () => {
       const originalEnv = process.env.NODE_ENV;
-      // Use Object.defineProperty to properly mock NODE_ENV
       Object.defineProperty(process.env, 'NODE_ENV', {
         value: 'development',
-        configurable: true
+        configurable: true,
       });
-      
-      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-      const mockHandler = jest.fn().mockRejectedValue(
-        new Error('Test error')
-      );
+
+      const debugModule = await import('@/lib/debug');
+      const debugSpy = jest.spyOn(debugModule.debug, 'error').mockImplementation(() => undefined);
+      const mockHandler = jest.fn().mockRejectedValue(new Error('Test error'));
       const wrappedHandler = withApiErrorHandler(mockHandler);
       await wrappedHandler(mockRequest);
-      
-      expect(consoleSpy).toHaveBeenCalled();
-      consoleSpy.mockRestore();
-      
-      // Restore original NODE_ENV
+
+      expect(debugSpy).toHaveBeenCalled();
+      debugSpy.mockRestore();
+
       Object.defineProperty(process.env, 'NODE_ENV', {
         value: originalEnv,
-        configurable: true
+        configurable: true,
       });
     });
   });

@@ -3,8 +3,11 @@ import { CartItemVariant, calculateVariantPrice, formatCartItemVariant, Product,
 import { db } from './db';
 import { getProductById } from './commerce-server';
 import { SHIPPING_CARRIERS, trackingUrl } from '@/lib/shipping';
+import { type ShippingAddress, shippingAddressIsPopulated } from '@/lib/shipping-address';
 
 export { SHIPPING_CARRIERS, trackingUrl };
+export type { ShippingAddress } from '@/lib/shipping-address';
+export { shippingAddressIsPopulated } from '@/lib/shipping-address';
 
 function orderAccessSecret(): string | undefined {
   return process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET;
@@ -76,19 +79,7 @@ export interface OrderCustomization {
   priceModifier?: number;
 }
 
-// Shipping Information
-export interface ShippingAddress {
-  firstName: string;
-  lastName: string;
-  company?: string;
-  address1: string;
-  address2?: string;
-  city: string;
-  state: string;
-  postalCode: string;
-  country: string;
-  phone?: string;
-}
+// Shipping Information — see @/lib/shipping-address for the shared type
 
 // Order Timeline Entry
 export interface OrderTimeline {

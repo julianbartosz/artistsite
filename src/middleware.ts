@@ -28,7 +28,11 @@ export async function middleware(request: NextRequest) {
 
       const redirectUrl = request.nextUrl.clone();
       redirectUrl.pathname = token ? '/' : '/auth/signin';
-      redirectUrl.search = '';
+      if (!token) {
+        redirectUrl.searchParams.set('callbackUrl', pathname);
+      } else {
+        redirectUrl.search = '';
+      }
       return NextResponse.redirect(redirectUrl);
     }
   }
@@ -40,7 +44,8 @@ export async function middleware(request: NextRequest) {
   response.headers.set('x-request-start', startTime.toString());
   
   // Add security headers
-  response.headers.set('X-Frame-Options', 'DENY');
+  // SAMEORIGIN allows the admin Site Pages live-preview iframe while blocking third-party embeds.
+  response.headers.set('X-Frame-Options', 'SAMEORIGIN');
   response.headers.set('X-Content-Type-Options', 'nosniff');
   response.headers.set('Referrer-Policy', 'origin-when-cross-origin');
   response.headers.set('X-XSS-Protection', '1; mode=block');

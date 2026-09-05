@@ -567,6 +567,8 @@ function CampaignsTab() {
         <h2 className="text-xl font-semibold">Active Campaigns</h2>
       </div>
 
+      <PromoCodesPanel />
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <CampaignSection
           title="Email Marketing"
@@ -608,6 +610,7 @@ function ShareAssistPanel({ assist }: { assist: ShareAssistPayload }) {
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <h3 className="font-semibold">{assist.label}</h3>
+          <p className="mt-1 text-xs text-amber-900">Step 1: Copy caption · Step 2: Open platform · Step 3: Mark as posted</p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             {assist.instructions.map((instruction) => <li key={instruction}>{instruction}</li>)}
           </ul>
@@ -624,6 +627,142 @@ function ShareAssistPanel({ assist }: { assist: ShareAssistPayload }) {
         {assist.links.map((link) => <a key={link.url} href={link.url} target="_blank" rel="noreferrer" className="rounded bg-gray-900 px-3 py-2 text-white">{link.label}</a>)}
       </div>
     </div>
+  );
+}
+
+interface PromoCodeRecord {
+  id: string;
+  code: string;
+  discountType: 'percentage' | 'fixed';
+  discountValue: number;
+  usageLimit: number | null;
+  usageCount: number;
+  expiresAt: string | null;
+}
+
+function PromoCodesPanel() {
+  const [promoCodes, setPromoCodes] = useState<PromoCodeRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState<string | null>(null);
+  const [draft, setDraft] = useState({
+    code: '',
+    discountType: 'percentage' as 'percentage' | 'fixed',
+    discountValue: '10',
+    usageLimit: '',
+    expiresAt: '',
+  });
+
+  async function loadPromoCodes() {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/admin/promo-codes');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to load promo codes');
+      setPromoCodes(data.promoCodes || []);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Failed to load promo codes');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadPromoCodes();
+  }, []);
+
+  async function createPromoCode() {
+    setMessage(null);
+    try {
+      const response = await fetch('/api/admin/promo-codes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: draft.code,
+          discountType: draft.discountType,
+          discountValue: Number(draft.discountValue),
+          usageLimit: draft.usageLimit ? Number(draft.usageLimit) : null,
+          expiresAt: draft.expiresAt ? new Date(draft.expiresAt).toISOString() : null,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to create promo code');
+      setDraft({ code: '', discountType: 'percentage', discountValue: '10', usageLimit: '', expiresAt: '' });
+      setMessage('Promo code created. Collectors can enter it at checkout.');
+      await loadPromoCodes();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Failed to create promo code');
+    }
+  }
+
+  async function useForCartRecovery(code: string) {
+    const response = await fetch('/api/admin/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings: { CART_RECOVERY_PROMO_CODE: code } }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      setMessage(data.error || 'Failed to save cart recovery promo');
+      return;
+    }
+    setMessage(`Cart recovery will use promo code ${code}.`);
+  }
+
+  return (
+    <section className="rounded-lg border bg-white p-6 space-y-4">
+      <div>
+        <h3 className="text-lg font-semibold text-gray-900">Promo codes</h3>
+        <p className="text-sm text-gray-600">Create a discount code collectors can enter at checkout.</p>
+      </div>
+      {message && <p className="text-sm text-blue-800 bg-blue-50 border border-blue-200 rounded p-3">{message}</p>}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+        <label className="text-sm font-medium text-gray-700">
+          Code
+          <input value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value.toUpperCase() })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" placeholder="SPRING10" />
+        </label>
+        <label className="text-sm font-medium text-gray-700">
+          Type
+          <select value={draft.discountType} onChange={(e) => setDraft({ ...draft, discountType: e.target.value as 'percentage' | 'fixed' })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2">
+            <option value="percentage">Percentage</option>
+            <option value="fixed">Fixed amount</option>
+          </select>
+        </label>
+        <label className="text-sm font-medium text-gray-700">
+          Value
+          <input type="number" min="0" step="0.01" value={draft.discountValue} onChange={(e) => setDraft({ ...draft, discountValue: e.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
+        </label>
+        <label className="text-sm font-medium text-gray-700">
+          Usage limit
+          <input type="number" min="1" value={draft.usageLimit} onChange={(e) => setDraft({ ...draft, usageLimit: e.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" placeholder="Optional" />
+        </label>
+        <label className="text-sm font-medium text-gray-700">
+          Expires
+          <input type="datetime-local" value={draft.expiresAt} onChange={(e) => setDraft({ ...draft, expiresAt: e.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
+        </label>
+      </div>
+      <button type="button" onClick={createPromoCode} className="rounded bg-gray-900 px-4 py-2 text-white text-sm">Create promo code</button>
+      {loading ? (
+        <p className="text-sm text-gray-500">Loading promo codes...</p>
+      ) : promoCodes.length === 0 ? (
+        <p className="text-sm text-gray-500">No promo codes yet.</p>
+      ) : (
+        <ul className="divide-y border rounded-md">
+          {promoCodes.map((promo) => (
+            <li key={promo.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm">
+              <div>
+                <span className="font-semibold">{promo.code}</span>
+                <span className="text-gray-600"> · {promo.discountType === 'percentage' ? `${promo.discountValue}%` : `$${promo.discountValue}`}</span>
+                <span className="text-gray-500"> · used {promo.usageCount}{promo.usageLimit ? `/${promo.usageLimit}` : ''}</span>
+              </div>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => navigator.clipboard?.writeText(promo.code)} className="rounded border px-2 py-1">Copy</button>
+                <button type="button" onClick={() => useForCartRecovery(promo.code)} className="rounded border px-2 py-1">Use for cart recovery</button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Product, CartItemVariant, formatPrice } from '@/lib/commerce';
+import { Product, CartItemVariant, formatPrice, calculateVariantPrice } from '@/lib/commerce';
 import { useCart } from './CartContext';
 import ProductVariantSelector from './ProductVariantSelector';
 import CustomCommissionRequest from './CustomCommissionRequest';
@@ -22,7 +22,6 @@ export default function AddToCartButton({
   const { addItem, openCart, state } = useCart();
   const [selectedVariant, setSelectedVariant] = useState<CartItemVariant>({});
   const [customizations, setCustomizations] = useState<Record<string, string>>({});
-  const [currentPrice, setCurrentPrice] = useState(product.price);
   const [isAdding, setIsAdding] = useState(false);
   const [showCommissionForm, setShowCommissionForm] = useState(false);
   const [isSubmittingCommission, setIsSubmittingCommission] = useState(false);
@@ -57,13 +56,11 @@ export default function AddToCartButton({
     return itemKey === currentKey;
   });
 
+  const displayPrice = calculateVariantPrice(product.price, selectedVariant);
+
   const handleVariantChange = (variant: CartItemVariant, customizationValues: Record<string, string>) => {
     setSelectedVariant(variant);
     setCustomizations(customizationValues);
-  };
-
-  const handlePriceChange = (totalPrice: number) => {
-    setCurrentPrice(totalPrice);
   };
 
   const handleAddToCart = async () => {
@@ -185,7 +182,7 @@ export default function AddToCartButton({
         <ProductVariantSelector
           product={product}
           onVariantChange={handleVariantChange}
-          onPriceChange={handlePriceChange}
+          onPriceChange={() => {}}
         />
       )}
 
@@ -200,7 +197,7 @@ export default function AddToCartButton({
             className={`w-full font-medium rounded-lg transition-all duration-200 ${buttonSizes[size]} ${
               isAdding || !isInStock()
                 ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg hover:shadow-xl transform hover:-translate-y-0.5'
+                : 'btn-primary shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 motion-reduce:transform-none'
             } ${className}`}
           >
             {isAdding ? (
@@ -214,9 +211,9 @@ export default function AddToCartButton({
             ) : !isInStock() ? (
               'Out of Stock'
             ) : itemInCart ? (
-              `Update Cart (${formatPrice(currentPrice)})`
+              `Update Cart (${formatPrice(displayPrice)})`
             ) : (
-              `Add to Cart • ${formatPrice(currentPrice)}`
+              `Add to Cart • ${formatPrice(displayPrice)}`
             )}
           </button>
         )}
@@ -225,7 +222,7 @@ export default function AddToCartButton({
         {(isCommissionOnly || product.commissionInfo?.available) && (
           <button
             onClick={() => setShowCommissionForm(true)}
-            className={`w-full font-medium rounded-lg transition-all duration-200 border-2 border-indigo-600 text-indigo-600 hover:bg-indigo-50 ${buttonSizes[size]} ${className}`}
+            className={`w-full font-medium rounded-lg transition-all duration-200 btn-primary-outline ${buttonSizes[size]} ${className}`}
           >
             {isCommissionOnly ? 'Request Commission' : 'Commission Similar Piece'}
           </button>
@@ -240,7 +237,7 @@ export default function AddToCartButton({
             {product.commissionInfo?.available && (
               <button
                 onClick={() => setShowCommissionForm(true)}
-                className="mt-2 text-indigo-600 hover:text-indigo-700 text-sm underline"
+                className="mt-2 text-primary hover:opacity-80 text-sm underline"
               >
                 Commission a similar piece
               </button>

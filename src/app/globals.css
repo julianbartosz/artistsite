@@ -3,21 +3,93 @@
 @tailwind utilities;
 
 :root {
+  color-scheme: light;
   --background: #ffffff;
   --foreground: #171717;
+  --color-primary: #111827;
+  --color-primary-hover: #1f2937;
+  --color-accent: #374151;
+  --font-site: var(--font-geist-sans), Arial, Helvetica, sans-serif;
   --font-geist-sans: Arial, Helvetica, sans-serif;
   --font-geist-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  font-family: var(--font-site), var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+@layer base {
+  input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='hidden']):not([type='submit']):not([type='button']):not([type='reset']):not([type='image']),
+  textarea,
+  select {
+    @apply bg-white text-gray-900 placeholder:text-gray-400;
+  }
+
+  input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='hidden']):not([type='submit']):not([type='button']):not([type='reset']):not([type='image']):disabled,
+  textarea:disabled,
+  select:disabled {
+    @apply bg-gray-100 text-gray-500;
+  }
+
+  input:-webkit-autofill,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0 1000px #ffffff inset;
+    -webkit-text-fill-color: #111827;
+    caret-color: #111827;
+  }
+}
+
+@layer components {
+  .section-space {
+    @apply py-12 md:py-16 lg:py-20;
+  }
+
+  .section-space-tight {
+    @apply py-8 md:py-12 lg:py-14;
+  }
+
+  .btn-primary {
+    @apply bg-primary text-white hover:bg-primary-hover transition-colors font-medium;
+  }
+
+  .btn-primary-outline {
+    @apply border-2 border-primary text-primary hover:bg-primary hover:text-white transition-colors font-medium;
+  }
+
+  .form-input {
+    @apply block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary;
+  }
+
+  .form-link {
+    @apply font-medium text-primary hover:opacity-80;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  details.desktop-open > *:not(summary) {
+    display: block !important;
+  }
+
+  details.desktop-open > summary {
+    list-style: none;
+    cursor: default;
+  }
+
+  details.desktop-open > summary::-webkit-details-marker {
+    display: none;
+  }
 }

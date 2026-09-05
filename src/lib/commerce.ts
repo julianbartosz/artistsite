@@ -7,7 +7,8 @@ export interface ProductVariant {
   stock?: number;
 }
 
-export const PRODUCT_IMAGE_FALLBACK = '/images/shop/placeholder-1.jpg';
+export const PRODUCT_IMAGE_FALLBACK = '/images/fallback-artwork.svg';
+export const E2E_CHECKOUT_SESSION_PREFIX = 'e2e_';
 
 export interface ProductCustomization {
   id: string;
@@ -187,6 +188,10 @@ export function formatPrice(price: number, currency: string = 'USD'): string {
     style: 'currency',
     currency: currency,
   }).format(price);
+}
+
+export function cartItemLineTotal(item: { totalPrice: number; quantity: number }): number {
+  return item.totalPrice * item.quantity;
 }
 
 export function calculateTotal(price: number, shipping: number): number {

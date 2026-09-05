@@ -8,13 +8,14 @@ import AddToCartButton from '@/components/AddToCartButton';
 import ProductRecommendations from '@/components/ProductRecommendations';
 import RecentlyViewed from '@/components/RecentlyViewed';
 import StockIndicator from '@/components/StockIndicator';
+import { WishlistButton } from '@/components/WishlistButton';
 
 interface ProductPageClientProps {
   product: Product;
 }
 
 export default function ProductPageClient({ product }: ProductPageClientProps) {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const [viewStartTime] = useState(Date.now());
   const [sessionId] = useState(() => {
     // Generate a simple session ID for guest users
@@ -22,7 +23,8 @@ export default function ProductPageClient({ product }: ProductPageClientProps) {
   });
 
   useEffect(() => {
-    // Track product view
+    if (status === 'loading') return;
+
     const trackView = async () => {
       try {
         await fetch('/api/recommendations', {
@@ -32,10 +34,9 @@ export default function ProductPageClient({ product }: ProductPageClientProps) {
           },
           body: JSON.stringify({
             productId: product.id,
-            userId: session?.user?.id,
             sessionId: sessionId,
-            source: 'direct'
-          })
+            source: 'direct',
+          }),
         });
       } catch (error) {
         console.error('Failed to track product view:', error);
@@ -55,10 +56,9 @@ export default function ProductPageClient({ product }: ProductPageClientProps) {
           },
           body: JSON.stringify({
             productId: product.id,
-            userId: session?.user?.id,
             sessionId: sessionId,
             source: 'direct',
-            duration: duration
+            duration: duration,
           }),
           keepalive: true // Ensure request completes even if page is closing
         }).catch(() => {
@@ -69,7 +69,7 @@ export default function ProductPageClient({ product }: ProductPageClientProps) {
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [product, session?.user?.id, sessionId, viewStartTime]);
+  }, [product.id, status, sessionId, viewStartTime]);
 
   const isAvailable = product.availability === 'available';
   const isLimitedEdition = product.edition && product.edition.remaining < product.edition.total;
@@ -133,9 +133,14 @@ export default function ProductPageClient({ product }: ProductPageClientProps) {
           {/* Product Information */}
           <div className="space-y-6">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">{product.title}</h1>
-              <p className="text-lg text-gray-600">{product.medium} • {product.year}</p>
-              <p className="text-gray-600">{product.dimensions}</p>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h1 className="text-3xl font-bold text-gray-900 mb-2">{product.title}</h1>
+                  <p className="text-lg text-gray-600">{product.medium} • {product.year}</p>
+                  <p className="text-gray-600">{product.dimensions}</p>
+                </div>
+                <WishlistButton productId={product.id} />
+              </div>
             </div>
 
             {/* Price and Availability */}

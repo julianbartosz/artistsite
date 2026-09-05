@@ -31,7 +31,7 @@ function markdownToHtml(markdown) {
   }).join('\n');
 }
 
-function existingPublicImageOrFallback(imagePath, fallback = '/images/shop/placeholder-1.jpg') {
+function existingPublicImageOrFallback(imagePath, fallback = '/images/fallback-artwork.svg') {
   if (!imagePath || typeof imagePath !== 'string') return fallback;
   if (!imagePath.startsWith('/')) return imagePath;
 
@@ -188,10 +188,133 @@ async function seedArtworks() {
   }
 }
 
+function productSnapshotFromRecord(product) {
+  const images = product?.images && typeof product.images === 'object' ? product.images : {};
+  const thumbnail = existingPublicImageOrFallback(images.thumbnail || images.main);
+  return {
+    productTitle: product?.title || 'Artwork',
+    productImage: thumbnail,
+    productPrice: product?.price ?? 0,
+  };
+}
+
+async function seedDemoCustomer() {
+  const bcrypt = require('bcryptjs');
+  const email = 'buyer@example.com';
+  const passwordHash = await bcrypt.hash('CustomerPass123!', 12);
+
+  const user = await prisma.user.upsert({
+    where: { email },
+    create: {
+      email,
+      password: passwordHash,
+      firstName: 'Alex',
+      lastName: 'Buyer',
+      name: 'Alex Buyer',
+      phone: '555-0100',
+    },
+    update: {
+      firstName: 'Alex',
+      lastName: 'Buyer',
+      name: 'Alex Buyer',
+      phone: '555-0100',
+    },
+  });
+
+  const demoProductId = 'oil-painting-urban-twilight';
+  const product = await prisma.product.findUnique({ where: { id: demoProductId } });
+  const { productTitle, productImage, productPrice } = productSnapshotFromRecord(product);
+
+  await prisma.wishlistItem.upsert({
+    where: { userId_productId: { userId: user.id, productId: demoProductId } },
+    create: {
+      userId: user.id,
+      productId: demoProductId,
+      productTitle,
+      productImage,
+      productPrice,
+    },
+    update: {
+      productTitle,
+      productImage,
+      productPrice,
+    },
+  });
+
+  const demoShipping = {
+    firstName: 'Alex',
+    lastName: 'Buyer',
+    address1: '123 Collector Lane',
+    city: 'Brooklyn',
+    state: 'NY',
+    postalCode: '11201',
+    country: 'US',
+    phone: '555-0100',
+  };
+
+  let shippingAddress = await prisma.address.findFirst({
+    where: {
+      userId: user.id,
+      type: 'shipping',
+      address1: demoShipping.address1,
+    },
+  });
+
+  if (!shippingAddress) {
+    shippingAddress = await prisma.address.create({
+      data: {
+        userId: user.id,
+        type: 'shipping',
+        isDefault: true,
+        ...demoShipping,
+      },
+    });
+  }
+
+  const existingOrder = await prisma.order.findFirst({ where: { userId: user.id } });
+  if (!existingOrder) {
+    await prisma.order.create({
+      data: {
+        orderNumber: 'ORD-DEMO-1001',
+        userId: user.id,
+        userEmail: user.email,
+        status: 'processing',
+        type: 'standard',
+        subtotal: productPrice,
+        shipping: 45,
+        tax: Math.round(productPrice * 0.08),
+        total: productPrice + 45 + Math.round(productPrice * 0.08),
+        paymentStatus: 'paid',
+        paymentMethod: 'card',
+        shippingAddressId: shippingAddress.id,
+        items: {
+          create: [{
+            productId: demoProductId,
+            quantity: 1,
+            unitPrice: productPrice,
+            totalPrice: productPrice,
+            productTitle,
+            productImage,
+          }],
+        },
+        timeline: {
+          create: [{ status: 'processing', message: 'Order confirmed and being prepared.' }],
+        },
+      },
+    });
+  } else if (!existingOrder.shippingAddressId) {
+    await prisma.order.update({
+      where: { id: existingOrder.id },
+      data: { shippingAddressId: shippingAddress.id },
+    });
+  }
+}
+
 async function main() {
   await seedProducts();
   await seedBlogPosts();
   await seedArtworks();
+  await seedDemoCustomer();
 }
 
 main()

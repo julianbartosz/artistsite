@@ -3,11 +3,17 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { SearchFilters } from '@/lib/types';
-import { ChevronDownIcon, ChevronUpIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { stableSearchParamsKey, displayFilterLabel } from '@/lib/search-params';
+import { ChevronDownIcon, ChevronUpIcon, XMarkIcon, AdjustmentsHorizontalIcon } from '@heroicons/react/24/outline';
 
 interface FilterSidebarProps {
   className?: string;
   onFiltersChange?: (filters: SearchFilters) => void;
+  categories?: string[];
+  mediums?: string[];
+  mobileOpen?: boolean;
+  onMobileOpenChange?: (open: boolean) => void;
+  hideMobileTrigger?: boolean;
 }
 
 interface FilterSection {
@@ -15,26 +21,6 @@ interface FilterSection {
   title: string;
   isOpen: boolean;
 }
-
-const CATEGORIES = [
-  'Paintings',
-  'Sculptures',
-  'Prints',
-  'Digital Art',
-  'Mixed Media',
-  'Photography'
-];
-
-const MEDIUMS = [
-  'Oil',
-  'Acrylic',
-  'Watercolor',
-  'Digital',
-  'Bronze',
-  'Marble',
-  'Canvas',
-  'Paper'
-];
 
 const DIMENSIONS = [
   { label: 'Small (under 12")', value: 'small' },
@@ -50,9 +36,21 @@ const PRICE_RANGES = [
   { label: 'Over $5,000', min: 5000, max: 50000 }
 ];
 
-export function FilterSidebar({ className = "", onFiltersChange }: FilterSidebarProps) {
+export function FilterSidebar({
+  className = "",
+  onFiltersChange,
+  categories = [],
+  mediums = [],
+  mobileOpen: controlledMobileOpen,
+  onMobileOpenChange,
+  hideMobileTrigger = false,
+}: FilterSidebarProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const searchParamsKey = stableSearchParamsKey(searchParams);
+  const [internalMobileOpen, setInternalMobileOpen] = useState(false);
+  const mobileOpen = controlledMobileOpen ?? internalMobileOpen;
+  const setMobileOpen = onMobileOpenChange ?? setInternalMobileOpen;
   
   const [filters, setFilters] = useState<SearchFilters>({});
   const [sections, setSections] = useState<FilterSection[]>([
@@ -64,25 +62,26 @@ export function FilterSidebar({ className = "", onFiltersChange }: FilterSidebar
 
   // Initialize filters from URL params
   useEffect(() => {
+    const params = new URLSearchParams(searchParamsKey);
     const initialFilters: SearchFilters = {};
 
-    const categories = searchParams.get('categories');
+    const categories = params.get('categories');
     if (categories) {
       initialFilters.categories = categories.split(',');
     }
 
-    const medium = searchParams.get('medium');
+    const medium = params.get('medium');
     if (medium) {
       initialFilters.medium = medium.split(',');
     }
 
-    const dimensions = searchParams.get('dimensions');
+    const dimensions = params.get('dimensions');
     if (dimensions) {
       initialFilters.dimensions = dimensions.split(',');
     }
 
-    const priceMin = searchParams.get('priceMin');
-    const priceMax = searchParams.get('priceMax');
+    const priceMin = params.get('priceMin');
+    const priceMax = params.get('priceMax');
     if (priceMin || priceMax) {
       initialFilters.priceRange = {
         min: priceMin ? parseFloat(priceMin) : 0,
@@ -90,13 +89,13 @@ export function FilterSidebar({ className = "", onFiltersChange }: FilterSidebar
       };
     }
 
-    const availability = searchParams.get('availability');
+    const availability = params.get('availability');
     if (availability === 'in_stock') {
       initialFilters.availability = 'in_stock';
     }
 
     setFilters(initialFilters);
-  }, [searchParams]);
+  }, [searchParamsKey]);
 
   const toggleSection = (sectionId: string) => {
     setSections(prev => prev.map(section => 
@@ -200,7 +199,18 @@ export function FilterSidebar({ className = "", onFiltersChange }: FilterSidebar
     } else {
       router.push('/shop');
     }
+    setMobileOpen(false);
   };
+
+  useEffect(() => {
+    if (mobileOpen) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+    document.body.style.overflow = '';
+  }, [mobileOpen]);
 
   const getActiveFilterCount = () => {
     let count = 0;
@@ -214,15 +224,15 @@ export function FilterSidebar({ className = "", onFiltersChange }: FilterSidebar
 
   const activeFilterCount = getActiveFilterCount();
 
-  return (
-    <div className={`bg-white border border-gray-200 rounded-lg p-6 ${className}`}>
-      {/* Header */}
+  const filterPanel = (
+    <>
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold text-gray-900">Filters</h3>
         {activeFilterCount > 0 && (
           <button
+            type="button"
             onClick={clearAllFilters}
-            className="text-sm text-blue-600 hover:text-blue-800 flex items-center space-x-1"
+            className="text-sm text-gray-700 hover:text-gray-900 flex items-center gap-1"
           >
             <XMarkIcon className="h-4 w-4" />
             <span>Clear all ({activeFilterCount})</span>
@@ -230,28 +240,28 @@ export function FilterSidebar({ className = "", onFiltersChange }: FilterSidebar
         )}
       </div>
 
-      {/* Categories Filter */}
+      {categories.length > 0 && (
       <FilterSection
         title="Categories"
         isOpen={sections.find(s => s.id === 'categories')?.isOpen || false}
         onToggle={() => toggleSection('categories')}
       >
         <div className="space-y-3">
-          {CATEGORIES.map(category => (
-            <label key={category} className="flex items-center space-x-3 cursor-pointer">
+          {categories.map(category => (
+            <label key={category} className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={filters.categories?.includes(category) || false}
                 onChange={(e) => handleCategoryChange(category, e.target.checked)}
-                className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                className="h-4 w-4 text-gray-900 rounded border-gray-300 focus:ring-gray-500"
               />
-              <span className="text-sm text-gray-700">{category}</span>
+              <span className="text-sm text-gray-700">{displayFilterLabel(category)}</span>
             </label>
           ))}
         </div>
       </FilterSection>
+      )}
 
-      {/* Price Range Filter */}
       <FilterSection
         title="Price Range"
         isOpen={sections.find(s => s.id === 'price')?.isOpen || false}
@@ -259,16 +269,16 @@ export function FilterSidebar({ className = "", onFiltersChange }: FilterSidebar
       >
         <div className="space-y-3">
           {PRICE_RANGES.map(range => (
-            <label key={range.label} className="flex items-center space-x-3 cursor-pointer">
+            <label key={range.label} className="flex items-center gap-3 cursor-pointer">
               <input
                 type="radio"
                 name="priceRange"
                 checked={
-                  filters.priceRange?.min === range.min && 
+                  filters.priceRange?.min === range.min &&
                   filters.priceRange?.max === range.max
                 }
                 onChange={() => handlePriceRangeChange(range.min, range.max)}
-                className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                className="h-4 w-4 text-gray-900 border-gray-300 focus:ring-gray-500"
               />
               <span className="text-sm text-gray-700">{range.label}</span>
             </label>
@@ -276,28 +286,28 @@ export function FilterSidebar({ className = "", onFiltersChange }: FilterSidebar
         </div>
       </FilterSection>
 
-      {/* Medium Filter */}
+      {mediums.length > 0 && (
       <FilterSection
         title="Medium"
         isOpen={sections.find(s => s.id === 'medium')?.isOpen || false}
         onToggle={() => toggleSection('medium')}
       >
         <div className="space-y-3">
-          {MEDIUMS.map(medium => (
-            <label key={medium} className="flex items-center space-x-3 cursor-pointer">
+          {mediums.map(medium => (
+            <label key={medium} className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={filters.medium?.includes(medium) || false}
                 onChange={(e) => handleMediumChange(medium, e.target.checked)}
-                className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                className="h-4 w-4 text-gray-900 rounded border-gray-300 focus:ring-gray-500"
               />
-              <span className="text-sm text-gray-700">{medium}</span>
+              <span className="text-sm text-gray-700">{displayFilterLabel(medium)}</span>
             </label>
           ))}
         </div>
       </FilterSection>
+      )}
 
-      {/* Dimensions Filter */}
       <FilterSection
         title="Size"
         isOpen={sections.find(s => s.id === 'dimensions')?.isOpen || false}
@@ -305,19 +315,86 @@ export function FilterSidebar({ className = "", onFiltersChange }: FilterSidebar
       >
         <div className="space-y-3">
           {DIMENSIONS.map(dimension => (
-            <label key={dimension.value} className="flex items-center space-x-3 cursor-pointer">
+            <label key={dimension.value} className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={filters.dimensions?.includes(dimension.value) || false}
                 onChange={(e) => handleDimensionChange(dimension.value, e.target.checked)}
-                className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                className="h-4 w-4 text-gray-900 rounded border-gray-300 focus:ring-gray-500"
               />
               <span className="text-sm text-gray-700">{dimension.label}</span>
             </label>
           ))}
         </div>
       </FilterSection>
-    </div>
+    </>
+  );
+
+  return (
+    <>
+      {!hideMobileTrigger && (
+      <div className="lg:hidden mb-4">
+        <button
+          type="button"
+          onClick={() => setMobileOpen(true)}
+          className="w-full flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-900 hover:bg-gray-50"
+          aria-expanded={mobileOpen}
+          aria-controls="shop-filters-panel"
+        >
+          <AdjustmentsHorizontalIcon className="h-5 w-5" />
+          Filters
+          {activeFilterCount > 0 && (
+            <span className="inline-flex min-w-[1.5rem] items-center justify-center rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-white">
+              {activeFilterCount}
+            </span>
+          )}
+        </button>
+      </div>
+      )}
+
+      {mobileOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+            onClick={() => setMobileOpen(false)}
+            aria-hidden="true"
+          />
+          <div
+            id="shop-filters-panel"
+            className="fixed inset-y-0 left-0 z-50 flex w-full max-w-sm flex-col bg-white shadow-xl lg:hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Shop filters"
+          >
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <h2 className="text-lg font-semibold text-gray-900">Filter Artworks</h2>
+              <button
+                type="button"
+                onClick={() => setMobileOpen(false)}
+                className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                aria-label="Close filters"
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">{filterPanel}</div>
+            <div className="border-t border-gray-200 p-4">
+              <button
+                type="button"
+                onClick={() => setMobileOpen(false)}
+                className="w-full rounded-lg bg-gray-900 px-4 py-3 text-sm font-medium text-white hover:bg-gray-800"
+              >
+                View Results
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      <div className={`hidden lg:block bg-white border border-gray-200 rounded-lg p-6 ${className}`}>
+        {filterPanel}
+      </div>
+    </>
   );
 }
 

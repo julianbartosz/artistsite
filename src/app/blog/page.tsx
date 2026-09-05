@@ -2,24 +2,28 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { Metadata } from 'next';
 import { getAllPosts, BlogPost } from '@/lib/markdown';
+import { getSiteContent, listingHeroPaddingClass } from '@/lib/site-content';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = {
-  title: 'Art Blog - Creative Process & Insights',
-  description: 'Read about my artistic journey, creative process, techniques, and inspiration behind my artwork. Explore art tutorials and behind-the-scenes content.',
-  openGraph: {
-    title: 'Art Blog - Creative Process & Insights',
-    description: 'Read about my artistic journey, creative process, techniques, and inspiration behind my artwork.',
-    type: 'website',
-  },
-  alternates: {
-    types: {
-      'application/rss+xml': '/rss.xml',
-      'application/atom+xml': '/atom.xml',
+export async function generateMetadata(): Promise<Metadata> {
+  const blog = await getSiteContent('blog');
+  return {
+    title: blog.title,
+    description: blog.subtitle,
+    openGraph: {
+      title: blog.title,
+      description: blog.subtitle,
+      type: 'website',
     },
-  },
-};
+    alternates: {
+      types: {
+        'application/rss+xml': '/rss.xml',
+        'application/atom+xml': '/atom.xml',
+      },
+    },
+  };
+}
 
 // Loading component for better UX
 function BlogPostSkeleton() {
@@ -63,7 +67,7 @@ async function BlogContent() {
                 <h2 className="text-2xl font-semibold mb-2">
                   <Link 
                     href={`/blog/${post.slug}`}
-                    className="hover:text-blue-600 transition-colors"
+                    className="hover:text-gray-700 transition-colors"
                   >
                     {post.title}
                   </Link>
@@ -105,7 +109,7 @@ async function BlogContent() {
               <footer>
                 <Link 
                   href={`/blog/${post.slug}`}
-                  className="inline-flex items-center text-blue-600 hover:text-blue-700 font-medium group"
+                  className="inline-flex items-center text-gray-900 hover:text-gray-700 font-medium group"
                 >
                   Read more
                   <span className="ml-1 transition-transform group-hover:translate-x-1">-&gt;</span>
@@ -120,26 +124,31 @@ async function BlogContent() {
 }
 
 export default async function BlogPage() {
+  const blog = await getSiteContent('blog');
+  const heroPadding = listingHeroPaddingClass(blog.hero.height);
+
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header Section */}
       <section className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className={`max-w-7xl mx-auto px-6 ${heroPadding}`}>
           <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold text-gray-900 mb-4">Art Blog</h1>
+            <h1 className="text-4xl font-bold text-gray-900 mb-4">{blog.title}</h1>
             <p className="text-lg text-gray-600 max-w-2xl mx-auto mb-8">
-              Thoughts on art, creativity, and the artistic process. Discover insights into my creative journey,
-              techniques, and the stories behind my artwork.
+              {blog.subtitle}
             </p>
 
-            {/* Subscribe and RSS Links */}
+            {(blog.showSubscribe || blog.showRss) && (
             <div className="flex flex-wrap justify-center gap-4 text-sm">
+              {blog.showSubscribe && (
               <Link
                 href="/subscribe"
-                className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                className="btn-primary inline-flex items-center px-4 py-2 rounded-md"
               >
-                Subscribe for Updates
+                {blog.subscribeLabel}
               </Link>
+              )}
+              {blog.showRss && (
+              <>
               <Link
                 href="/rss.xml"
                 className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
@@ -152,7 +161,10 @@ export default async function BlogPage() {
               >
                 Atom Feed
               </Link>
+              </>
+              )}
             </div>
+            )}
           </div>
         </div>
       </section>

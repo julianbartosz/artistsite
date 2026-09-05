@@ -1,18 +1,18 @@
 'use client';
 
 import React, { useState, useEffect, Suspense } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { Product } from '@/lib/commerce';
 import { SearchResults, SortOption } from '@/lib/types';
 import SearchBar from '@/components/SearchBar';
 import FilterSidebar from '@/components/FilterSidebar';
 import ProductRecommendations from '@/components/ProductRecommendations';
 import RecentlyViewed from '@/components/RecentlyViewed';
-import StockIndicator from '@/components/StockIndicator';
-import { formatPrice, productImageSrc } from '@/lib/commerce';
+import { stableSearchParamsKey, activeFilterCount, activeFilterChips, removeFilterChip } from '@/lib/search-params';
+import { ShopProductCard } from '@/components/ProductCard';
+import { DEFAULT_SHOP_PAGE, listingHeroPaddingClass, shopPageSchema, type ShopPageContent } from '@/lib/site-content-shared';
+import { AdjustmentsHorizontalIcon } from '@heroicons/react/24/outline';
 
 // Sort options for the dropdown
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
@@ -30,21 +30,47 @@ function ShopPageContent() {
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pageContent, setPageContent] = useState<ShopPageContent>(DEFAULT_SHOP_PAGE);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   // Get current search parameters
   const query = searchParams.get('q') || '';
   const currentSort = (searchParams.get('sort') || 'relevance') as SortOption;
   const currentPage = parseInt(searchParams.get('page') || '1');
+  const searchParamsKey = stableSearchParamsKey(searchParams);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch('/api/site-content/public')
+      .then((response) => response.json())
+      .then((data) => {
+        const parsed = shopPageSchema.safeParse(data?.shop);
+        if (!cancelled && parsed.success) {
+          setPageContent(parsed.data);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPageContent(DEFAULT_SHOP_PAGE);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Fetch search results
   useEffect(() => {
+    let cancelled = false;
+
     const fetchResults = async () => {
       setIsLoading(true);
       setError(null);
 
       try {
-        // Build search URL with all parameters
-        const params = new URLSearchParams(searchParams);
+        const params = new URLSearchParams(searchParamsKey);
         if (!params.has('limit')) {
           params.set('limit', '12');
         }
@@ -55,21 +81,30 @@ function ShopPageContent() {
         const response = await fetch(`/api/search?${params.toString()}`);
         const data = await response.json();
 
+        if (cancelled) return;
+
         if (data.success) {
           setSearchResults(data);
         } else {
           setError('Failed to load products');
         }
       } catch (err) {
+        if (cancelled) return;
         console.error('Search error:', err);
         setError('Failed to load products');
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     };
 
     fetchResults();
-  }, [searchParams, session?.user?.id]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParamsKey, session?.user?.id]);
 
   // Handle sort change
   const handleSortChange = (newSort: SortOption) => {
@@ -79,82 +114,121 @@ function ShopPageContent() {
     router.push(`/shop?${params.toString()}`);
   };
 
+  const purchaseInfo = pageContent.purchaseInfo ?? DEFAULT_SHOP_PAGE.purchaseInfo;
+  const heroPadding = listingHeroPaddingClass(pageContent.hero?.height ?? 'compact');
+  const filterCount = activeFilterCount(searchParams);
+  const filterChips = activeFilterChips(searchParams);
+
+  const handleRemoveFilterChip = (chipId: string) => {
+    const next = removeFilterChip(searchParams, chipId);
+    router.push(next ? `/shop?${next}` : '/shop');
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header Section */}
       <section className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 py-8">
-          <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold text-gray-900 mb-4">Art Shop</h1>
-            <p className="text-lg text-gray-600 max-w-2xl mx-auto mb-8">
-              Discover original paintings, drawings, prints, and collections. Each piece is 
-              carefully crafted and comes with a certificate of authenticity.
-            </p>
+        <div className={`max-w-7xl mx-auto px-6 ${heroPadding}`}>
+          <div className="text-center mb-6">
+            <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-3">{pageContent.title}</h1>
+            {pageContent.subtitle && (
+              <p className="text-base md:text-lg text-gray-600 max-w-2xl mx-auto">
+                {pageContent.subtitle}
+              </p>
+            )}
           </div>
 
-          {/* Search Bar */}
           <div className="max-w-2xl mx-auto">
-            <SearchBar className="w-full" />
+            <SearchBar className="w-full" placeholder={pageContent.searchPlaceholder} />
           </div>
         </div>
       </section>
 
-      {/* Personalized Recommendations (for authenticated users without search) */}
-      {!query && session?.user?.id && (
-        <section className="bg-white py-12 border-b border-gray-200">
-          <div className="max-w-7xl mx-auto px-6">
-            <ProductRecommendations 
-              userId={session.user.id}
-              maxSections={1}
-              className="mb-0"
-            />
+      <div className="sticky top-16 z-40 border-b border-gray-200 bg-gray-50/95 backdrop-blur lg:hidden">
+        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => setMobileFiltersOpen(true)}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900"
+            aria-expanded={mobileFiltersOpen}
+            aria-controls="shop-filters-panel"
+          >
+            <AdjustmentsHorizontalIcon className="h-4 w-4" />
+            Filters
+            {filterCount > 0 && (
+              <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-primary px-1.5 py-0.5 text-xs font-semibold text-white">
+                {filterCount}
+              </span>
+            )}
+          </button>
+          <div className="text-sm text-gray-600 min-w-0 truncate">
+            {searchResults
+              ? `${searchResults.totalResults} ${searchResults.totalResults === 1 ? 'work' : 'works'}`
+              : 'Loading...'}
           </div>
-        </section>
+          <select
+            id="sort-mobile"
+            value={currentSort}
+            onChange={(e) => handleSortChange(e.target.value as SortOption)}
+            className="border border-gray-300 rounded-md px-2 py-2 text-sm max-w-[9rem]"
+            aria-label="Sort by"
+          >
+            {SORT_OPTIONS.map(option => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {filterChips.length > 0 && (
+        <div className="lg:hidden border-b border-gray-200 bg-white">
+          <div className="max-w-7xl mx-auto px-6 py-2 flex flex-wrap gap-2">
+            {filterChips.map((chip) => (
+              <button
+                key={chip.id}
+                type="button"
+                onClick={() => handleRemoveFilterChip(chip.id)}
+                className="inline-flex items-center gap-1 rounded-full border border-gray-300 bg-gray-50 px-3 py-1 text-xs font-medium text-gray-800"
+                aria-label={`Remove ${chip.label} filter`}
+              >
+                {chip.label}
+                <span aria-hidden="true">×</span>
+              </button>
+            ))}
+          </div>
+        </div>
       )}
 
-      {/* Recently Viewed (for all users) */}
-      {!query && (
-        <section className="bg-gray-50 py-12 border-b border-gray-200">
-          <div className="max-w-7xl mx-auto px-6">
-            <RecentlyViewed 
-              maxItems={8}
-              className="mb-0"
-            />
-          </div>
-        </section>
-      )}
-
-      {/* Main Content */}
       <div className="max-w-7xl mx-auto px-6 py-8">
         <div className="flex flex-col lg:flex-row gap-8">
-          {/* Sidebar */}
           <aside className="lg:w-64 flex-shrink-0">
-            <FilterSidebar />
+            <FilterSidebar
+              categories={searchResults?.filterOptions?.categories}
+              mediums={searchResults?.filterOptions?.mediums}
+              mobileOpen={mobileFiltersOpen}
+              onMobileOpenChange={setMobileFiltersOpen}
+              hideMobileTrigger
+            />
           </aside>
 
-          {/* Main Content */}
           <main className="flex-1">
-            {/* Results Header */}
             {searchResults && (
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-8">
+              <div className="hidden lg:flex lg:items-center lg:justify-between mb-8">
                 <div className="mb-4 sm:mb-0">
-                  <h2 className="text-xl font-semibold text-gray-900">
-                    {query ? `Search Results for "${query}"` : 'All Artworks'}
-                  </h2>
-                  <p className="text-gray-600 text-sm mt-1">
-                    {searchResults.totalResults} {searchResults.totalResults === 1 ? 'result' : 'results'}
-                    {searchResults.searchTime && ` found in ${searchResults.searchTime}ms`}
+                  <p className="text-gray-600 text-sm">
+                    {query
+                      ? `${searchResults.totalResults} ${searchResults.totalResults === 1 ? 'result' : 'results'} for "${query}"`
+                      : `${searchResults.totalResults} ${searchResults.totalResults === 1 ? 'artwork' : 'artworks'}`}
+                    {searchResults.searchTime > 0 ? ` · ${searchResults.searchTime}ms` : ''}
                   </p>
                 </div>
 
-                {/* Sort Dropdown */}
                 <div className="flex items-center space-x-2">
                   <label htmlFor="sort" className="text-sm text-gray-700">Sort by:</label>
                   <select
                     id="sort"
                     value={currentSort}
                     onChange={(e) => handleSortChange(e.target.value as SortOption)}
-                    className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-transparent"
                   >
                     {SORT_OPTIONS.map(option => (
                       <option key={option.value} value={option.value}>
@@ -194,7 +268,7 @@ function ShopPageContent() {
                 <p className="text-gray-600 mb-4">{error}</p>
                 <button
                   onClick={() => window.location.reload()}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+                  className="btn-primary px-4 py-2 rounded-md"
                 >
                   Try Again
                 </button>
@@ -207,7 +281,7 @@ function ShopPageContent() {
                 {searchResults.products.length > 0 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {searchResults.products.map((product) => (
-                      <ProductCard key={product.id} product={product} />
+                      <ShopProductCard key={product.id} product={product} />
                     ))}
                   </div>
                 ) : (
@@ -229,7 +303,7 @@ function ShopPageContent() {
                             <Link
                               key={index}
                               href={`/shop?q=${encodeURIComponent(suggestion)}`}
-                              className="text-blue-600 hover:text-blue-800 text-sm underline"
+                              className="text-gray-900 hover:text-gray-700 text-sm underline"
                             >
                               {suggestion}
                             </Link>
@@ -253,114 +327,71 @@ function ShopPageContent() {
             )}
           </main>
         </div>
+
+        {!query && pageContent.showRecommendations && (
+          <div className="mt-10">
+            <ProductRecommendations
+              userId={session?.user?.id}
+              maxSections={1}
+              className="mb-0"
+            />
+          </div>
+        )}
+
+        {!query && pageContent.showRecentlyViewed && (
+          <div className="mt-10">
+            <RecentlyViewed
+              maxItems={8}
+              className="mb-0"
+            />
+          </div>
+        )}
       </div>
 
-      {/* Info Section */}
-      <section className="bg-white py-16 border-t border-gray-200">
+      {pageContent.showPurchaseInfo && (
+      <section className="bg-white section-space-tight border-t border-gray-200">
         <div className="max-w-4xl mx-auto px-6 text-center">
-          <h2 className="text-3xl font-bold text-gray-900 mb-8">Purchase Information</h2>
+          <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-8">{purchaseInfo.title}</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {(purchaseInfo.authenticityTitle.trim() || purchaseInfo.authenticityText.trim()) && (
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Authenticity</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">{purchaseInfo.authenticityTitle}</h3>
               <p className="text-gray-600">
-                All original works come with a signed certificate of authenticity.
+                {purchaseInfo.authenticityText}
               </p>
             </div>
+            )}
+            {(purchaseInfo.shippingTitle.trim() || purchaseInfo.shippingText.trim()) && (
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Shipping</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">{purchaseInfo.shippingTitle}</h3>
               <p className="text-gray-600">
-                Carefully packaged and insured shipping worldwide. Domestic shipping 
-                starts at $15.
+                {purchaseInfo.shippingText}
               </p>
             </div>
+            )}
+            {(purchaseInfo.commissionsTitle.trim() || purchaseInfo.commissionsText.trim()) && (
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Commissions</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">{purchaseInfo.commissionsTitle}</h3>
               <p className="text-gray-600">
-                Interested in a custom piece? Contact me to discuss commission 
-                opportunities.
+                {purchaseInfo.commissionsText}
               </p>
             </div>
+            )}
           </div>
+          {purchaseInfo.ctaLabel.trim() && (
           <div className="mt-8">
             <Link
               href="/contact"
-              className="bg-gray-900 text-white px-6 py-3 rounded-lg hover:bg-gray-800 transition-colors font-medium"
+              className="btn-primary px-6 py-3 rounded-lg inline-block"
             >
-              Contact for Inquiries
+              {purchaseInfo.ctaLabel}
             </Link>
           </div>
+          )}
         </div>
       </section>
+      )}
     </div>
-  );
-}
-
-interface ProductCardProps {
-  product: Product;
-}
-
-function ProductCard({ product }: ProductCardProps) {
-  const isLimitedEdition = product.edition && product.edition.remaining < product.edition.total;
-  
-  return (
-    <Link href={`/shop/${product.id}`} data-testid="product-card-link" className="group">
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow">
-        {/* Product Image */}
-        <div className="relative aspect-square bg-gray-100">
-          <Image
-            src={productImageSrc(product)}
-            alt={product.title}
-            fill
-            className="object-cover group-hover:scale-105 transition-transform duration-300"
-            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-          />
-          {product.featured && (
-            <div className="absolute top-3 left-3">
-              <span className="bg-blue-600 text-white px-2 py-1 text-xs font-medium rounded">
-                Featured
-              </span>
-            </div>
-          )}
-          {isLimitedEdition && (
-            <div className="absolute top-3 right-3">
-              <span className="bg-red-600 text-white px-2 py-1 text-xs font-medium rounded">
-                Limited Edition
-              </span>
-            </div>
-          )}
-        </div>
-        
-        {/* Product Info */}
-        <div className="p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
-            {product.title}
-          </h3>
-          <p className="text-sm text-gray-600 mb-2">{product.medium}</p>
-          <p className="text-sm text-gray-500 mb-3">{product.dimensions}</p>
-          <p className="text-gray-700 text-sm mb-4 line-clamp-2">{product.description}</p>
-          
-          <div className="flex justify-between items-start mb-3">
-            <span className="text-xl font-bold text-gray-900">
-              {formatPrice(product.price, product.currency)}
-            </span>
-            <span className="text-sm text-gray-500 capitalize">
-              {product.category.replace('-', ' ')}
-            </span>
-          </div>
-
-          {/* Stock Indicator */}
-          <div className="mb-3">
-            <StockIndicator productId={product.id} />
-          </div>
-          
-          {isLimitedEdition && (
-            <p className="text-xs text-red-600 mt-2">
-              Only {product.edition!.remaining} of {product.edition!.total} remaining
-            </p>
-          )}
-        </div>
-      </div>
-    </Link>
   );
 }
 
@@ -428,7 +459,7 @@ function Pagination({ currentPage, totalResults, resultsPerPage, searchParams }:
               href={createPageUrl(page)}
               className={`px-3 py-2 text-sm font-medium rounded-md ${
                 page === currentPage
-                  ? 'bg-blue-600 text-white'
+                  ? 'bg-primary text-white'
                   : 'text-gray-500 bg-white border border-gray-300 hover:bg-gray-50'
               }`}
             >

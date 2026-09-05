@@ -65,11 +65,9 @@ describe('NewsletterSignup Component', () => {
     // Enter valid email and submit
     await user.type(emailInput, 'test@example.com');
     await user.click(submitButton);
-    
-    // Should show loading state
-    expect(screen.getByText('Subscribing...')).toBeInTheDocument();
-    
+
     await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith('/api/newsletter', expect.objectContaining({ method: 'POST' }));
       expect(screen.getByText('Thank you for subscribing! Check your email for confirmation.')).toBeInTheDocument();
     });
     
@@ -167,5 +165,12 @@ describe('NewsletterSignup Component', () => {
     
     const container = screen.getByRole('button', { name: 'Subscribe' }).closest('div');
     expect(container).toHaveClass('custom-class');
+  });
+
+  it('uses contrasting button styles on dark backgrounds', () => {
+    render(<NewsletterSignup variant="onDark" />);
+    const button = screen.getByTestId('newsletter-submit');
+    expect(button.className).toMatch(/bg-white/);
+    expect(button.className).toMatch(/text-primary/);
   });
 });

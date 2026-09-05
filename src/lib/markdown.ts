@@ -1,7 +1,8 @@
 import 'server-only';
 import { unstable_cache } from 'next/cache';
 import { db } from '@/lib/db';
-import { sanitizeRichHtml } from '@/lib/content-sanitize';
+import { sanitizeRichHtml, stripLeadingDuplicateHeading } from '@/lib/content-sanitize';
+import { isPublishableContentTitle } from '@/lib/admin-content';
 
 export interface BlogPost {
   slug: string;
@@ -64,7 +65,9 @@ const getCachedPublishedPosts = unstable_cache(
       where: { isDraft: false },
       orderBy: { publishedAt: 'desc' },
     });
-    return posts.map((post) => toPost(post as BlogPostRecord));
+    return posts
+      .filter((post) => isPublishableContentTitle(post.title))
+      .map((post) => toPost(post as BlogPostRecord));
   },
   ['blog-posts-published'],
   { tags: ['posts'], revalidate: 300 }
@@ -90,7 +93,11 @@ export async function getPostBySlug(slug: string, includeDrafts = false): Promis
     return null;
   }
 
-  const content = sanitizeRichHtml(post.content);
+  if (!includeDrafts && !isPublishableContentTitle(post.title)) {
+    return null;
+  }
+
+  const content = stripLeadingDuplicateHeading(sanitizeRichHtml(post.content), post.title);
   return {
     ...toPost(post as BlogPostRecord),
     content,
@@ -101,7 +108,9 @@ export async function getPostBySlug(slug: string, includeDrafts = false): Promis
 export async function getPostSlugs(): Promise<string[]> {
   const posts = await db.blogPost.findMany({
     where: { isDraft: false },
-    select: { slug: true },
+    select: { slug: true, title: true },
   });
-  return posts.map((post) => post.slug);
+  return posts
+    .filter((post) => isPublishableContentTitle(post.title))
+    .map((post) => post.slug);
 }

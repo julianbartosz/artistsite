@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import Link from 'next/link';
 import { getPostBySlug, getPostSlugs } from '@/lib/markdown';
 import { draftMode } from 'next/headers';
 import { MDXContent } from '@/components/MDXContent';
@@ -30,7 +31,6 @@ export default async function BlogPost({ params }: BlogPostProps) {
     },
   }).catch(() => undefined);
 
-  // Generate structured data
   const articleSchema = generateArticleSchema({
     title: post.title,
     description: post.excerpt,
@@ -51,62 +51,89 @@ export default async function BlogPost({ params }: BlogPostProps) {
     <>
       <StructuredData data={articleSchema} />
       <StructuredData data={breadcrumbSchema} />
-      
-      <article className="max-w-4xl mx-auto px-4 py-8">
-        <header className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">
-            {post.title}
-          </h1>
 
-          <div className="text-sm text-gray-500 mb-4 flex items-center gap-4">
-            <time dateTime={post.publishedAt}>
-              {new Date(post.publishedAt).toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-              })}
-            </time>
-            {post.author && <span>by {post.author}</span>}
+      <div className="min-h-screen bg-gray-50">
+        <section className="bg-white shadow-sm border-b border-gray-200">
+          <div className="max-w-4xl mx-auto px-6 py-8 md:py-10">
+            <nav className="mb-6" aria-label="Breadcrumb">
+              <ol className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
+                <li><Link href="/" className="hover:text-gray-700">Home</Link></li>
+                <li aria-hidden="true">/</li>
+                <li><Link href="/blog" className="hover:text-gray-700">Blog</Link></li>
+                <li aria-hidden="true">/</li>
+                <li className="text-gray-900 truncate">{post.title}</li>
+              </ol>
+            </nav>
+
+            <header>
+              <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+                {post.title}
+              </h1>
+
+              <div className="text-sm text-gray-500 mb-4 flex flex-wrap items-center gap-x-4 gap-y-1">
+                <time dateTime={post.publishedAt}>
+                  {new Date(post.publishedAt).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                  })}
+                </time>
+                {post.author && <span>by {post.author}</span>}
+                {post.readingTime && <span>{post.readingTime} min read</span>}
+              </div>
+
+              {post.excerpt && (
+                <p className="text-lg text-gray-600 leading-relaxed mb-4">{post.excerpt}</p>
+              )}
+
+              {post.tags && post.tags.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {post.tags.map((tag: string) => (
+                    <Link
+                      key={tag}
+                      href={`/blog/tag/${encodeURIComponent(tag.toLowerCase())}`}
+                      className="px-3 py-1 bg-gray-100 text-gray-700 text-sm rounded-full hover:bg-gray-200 transition-colors"
+                    >
+                      {tag}
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </header>
           </div>
+        </section>
 
-          {post.tags && post.tags.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-6">
-              {post.tags.map((tag: string) => (
-                <span 
-                  key={tag}
-                  className="px-2 py-1 bg-gray-100 text-gray-600 text-sm rounded"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )}
-        </header>
-
-        <div className="prose prose-lg max-w-none">
+        <article className="max-w-4xl mx-auto px-6 py-10 md:py-12">
           <MDXContent code={post.code} />
-        </div>
-      </article>
+
+          <footer className="mt-12 pt-8 border-t border-gray-200">
+            <Link
+              href="/blog"
+              className="inline-flex items-center text-gray-600 hover:text-gray-900 transition-colors font-medium"
+            >
+              ← Back to Blog
+            </Link>
+          </footer>
+        </article>
+      </div>
     </>
   );
 }
 
-// Generate static paths for all blog posts
 export async function generateStaticParams() {
   return [];
 }
 
-// Generate metadata for SEO
 export async function generateMetadata({ params }: BlogPostProps) {
   const { slug } = await params;
   const post = await getPostBySlug(slug);
-  
+
   if (!post) {
     return {
       title: 'Post Not Found',
     };
   }
-  
+
   return generateBlogMetadata({
     title: post.title,
     description: post.excerpt,

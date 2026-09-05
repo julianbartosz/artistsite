@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
 
 interface SystemMetrics {
   timestamp: string;
@@ -68,6 +69,14 @@ export async function GET(req: NextRequest) {
     const responseTime = Date.now() - startTime;
     const memUsage = process.memoryUsage();
 
+    let databaseStatus = 'unreachable';
+    try {
+      await db.$queryRaw`SELECT 1`;
+      databaseStatus = 'healthy';
+    } catch {
+      databaseStatus = process.env.DATABASE_URL ? 'unreachable' : 'not_configured';
+    }
+
     const metrics: SystemMetrics = {
       timestamp: new Date().toISOString(),
       environment: process.env.NODE_ENV || 'development',
@@ -83,7 +92,7 @@ export async function GET(req: NextRequest) {
         requestCount,
       },
       services: {
-        database: 'not_configured',
+        database: databaseStatus,
         stripe: process.env.STRIPE_SECRET_KEY ? 'configured' : 'not_configured',
         mailchimp: process.env.MAILCHIMP_API_KEY ? 'configured' : 'not_configured',
         external: externalServices,

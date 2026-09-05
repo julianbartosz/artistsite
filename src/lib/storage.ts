@@ -1,6 +1,6 @@
 import { BlobServiceClient } from '@azure/storage-blob';
 import { existsSync } from 'fs';
-import { mkdir, writeFile } from 'fs/promises';
+import { mkdir, readdir, writeFile } from 'fs/promises';
 import { join } from 'path';
 
 const LOCAL_UPLOAD_DIR = join(process.cwd(), 'public', 'uploads', 'images');
@@ -15,6 +15,12 @@ export class StorageConfigurationError extends Error {
 export interface StoredAsset {
   url: string;
   provider: 'azure_blob' | 'local';
+}
+
+export interface MediaLibraryItem {
+  url: string;
+  filename: string;
+  provider: StoredAsset['provider'];
 }
 
 function getAzureContainerName(): string | undefined {
@@ -83,4 +89,54 @@ export async function storeImageAsset(
     url: publicBaseUrl ? `${publicBaseUrl}/images/${filename}` : blobClient.url,
     provider: 'azure_blob',
   };
+}
+
+async function listLocalImages(): Promise<MediaLibraryItem[]> {
+  if (!existsSync(LOCAL_UPLOAD_DIR)) {
+    return [];
+  }
+
+  const entries = await readdir(LOCAL_UPLOAD_DIR, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => ({
+      url: `/uploads/images/${entry.name}`,
+      filename: entry.name,
+      provider: 'local' as const,
+    }))
+    .sort((a, b) => b.filename.localeCompare(a.filename));
+}
+
+async function listAzureImages(): Promise<MediaLibraryItem[]> {
+  const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
+  const containerName = getAzureContainerName();
+  if (!connectionString || !containerName) {
+    return listLocalImages();
+  }
+
+  const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+  const containerClient = blobServiceClient.getContainerClient(containerName);
+  const publicBaseUrl = getAzurePublicBaseUrl(containerName);
+  const items: MediaLibraryItem[] = [];
+
+  for await (const blob of containerClient.listBlobsFlat({ prefix: 'images/' })) {
+    const filename = blob.name.replace(/^images\//, '');
+    if (!filename) continue;
+    items.push({
+      url: publicBaseUrl ? `${publicBaseUrl}/images/${filename}` : containerClient.getBlockBlobClient(blob.name).url,
+      filename,
+      provider: 'azure_blob',
+    });
+  }
+
+  return items.sort((a, b) => b.filename.localeCompare(a.filename));
+}
+
+export async function listStoredImages(): Promise<MediaLibraryItem[]> {
+  const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
+  const containerName = getAzureContainerName();
+  if (connectionString && containerName) {
+    return listAzureImages();
+  }
+  return listLocalImages();
 }

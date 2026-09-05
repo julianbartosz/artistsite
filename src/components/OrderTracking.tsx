@@ -2,8 +2,10 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import type { Order, OrderStatus } from '@/lib/orders';
-import { formatCartItemVariant, productImageSrc } from '@/lib/commerce';
+import { shippingAddressIsPopulated } from '@/lib/shipping-address';
+import { formatCartItemVariant, formatPrice, productImageSrc } from '@/lib/commerce';
 import { shippingCarrierLabel, trackingUrl } from '@/lib/shipping';
 
 interface OrderTrackingProps {
@@ -94,7 +96,7 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
         <span className="ml-2 text-gray-600">Loading order details...</span>
       </div>
     );
@@ -111,6 +113,11 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
 
   return (
     <div className="max-w-4xl mx-auto p-6">
+      <div className="mb-4">
+        <Link href="/account" className="text-sm font-medium text-primary hover:opacity-80">
+          ← Back to my account
+        </Link>
+      </div>
       {/* Order Header */}
       <div className="bg-white rounded-lg shadow-md p-6 mb-6">
         <div className="flex justify-between items-start">
@@ -124,7 +131,7 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
               <span className="mr-2">{statusIcons[order.status]}</span>
               {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
             </span>
-            <p className="text-2xl font-bold text-gray-900 mt-2">${order.total.toFixed(2)}</p>
+            <p className="text-2xl font-bold text-gray-900 mt-2">{formatPrice(order.total, order.currency)}</p>
           </div>
         </div>
       </div>
@@ -142,19 +149,19 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
                 <div key={step} className="flex flex-col items-center flex-1">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium ${
                     isCompleted || isCurrent
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-primary text-white'
                       : 'bg-gray-200 text-gray-600'
                   }`}>
                     {isCompleted && !isCurrent ? '✓' : statusIcons[step]}
                   </div>
                   <span className={`mt-2 text-sm ${
-                    isCompleted || isCurrent ? 'text-blue-600 font-medium' : 'text-gray-500'
+                    isCompleted || isCurrent ? 'text-primary font-medium' : 'text-gray-500'
                   }`}>
                     {step.charAt(0).toUpperCase() + step.slice(1)}
                   </span>
                   {index < statusSteps.length - 1 && (
                     <div className={`hidden md:block absolute w-full h-0.5 mt-5 ${
-                      isCompleted ? 'bg-blue-600' : 'bg-gray-200'
+                      isCompleted ? 'bg-primary' : 'bg-gray-200'
                     }`} style={{ left: '50%', right: '-50%' }} />
                   )}
                 </div>
@@ -171,10 +178,10 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
           <div className="grid md:grid-cols-2 gap-4">
             <div>
               <p className="text-sm text-gray-600">Tracking Number</p>
-              <p className="font-medium text-blue-600">{order.trackingNumber}</p>
+              <p className="font-medium text-primary">{order.trackingNumber}</p>
               {carrierLabel && <p className="text-sm text-gray-500">{carrierLabel}</p>}
               {packageTrackingUrl && (
-                <a href={packageTrackingUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-sm font-medium text-blue-700 hover:text-blue-800">
+                <a href={packageTrackingUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-sm font-medium text-primary hover:opacity-80">
                   Track package
                 </a>
               )}
@@ -206,7 +213,7 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
                       <p className="text-sm text-gray-600 mt-1">{entry.details}</p>
                     )}
                     {entry.trackingNumber && (
-                      <p className="text-sm text-blue-600 mt-1">Tracking: {entry.trackingNumber}</p>
+                      <p className="text-sm text-primary mt-1">Tracking: {entry.trackingNumber}</p>
                     )}
                   </div>
                   <p className="text-sm text-gray-500">{formatDate(entry.timestamp)}</p>
@@ -243,14 +250,14 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
                 </div>
               </div>
               <div className="text-right">
-                <p className="font-medium text-gray-900">${item.totalPrice.toFixed(2)}</p>
+                <p className="font-medium text-gray-900">{formatPrice(item.totalPrice, order.currency)}</p>
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Shipping Address */}
+      {shippingAddressIsPopulated(order.shippingAddress) && (
       <div className="bg-white rounded-lg shadow-md p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Shipping Address</h2>
         <div className="text-gray-600">
@@ -263,6 +270,7 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
           {order.shippingAddress.phone && <p>Phone: {order.shippingAddress.phone}</p>}
         </div>
       </div>
+      )}
     </div>
   );
 }

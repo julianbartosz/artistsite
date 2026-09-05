@@ -6,11 +6,13 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import useSWR from 'swr';
 import AdminContentManager from '@/components/AdminContentManager';
+import AdminSiteContent from '@/components/AdminSiteContent';
 import AnalyticsDashboard from '@/components/AnalyticsDashboard';
 import AdminOrders from '@/components/AdminOrders';
 import AdminSettings from '@/components/AdminSettings';
 import { InventoryDashboard } from '@/components/InventoryDashboard';
 import { UnifiedMarketingDashboard } from '@/components/UnifiedMarketingDashboard';
+import { SITE_CONTENT_KEYS } from '@/lib/site-content-shared';
 import { 
   FileText, 
   ShoppingBag, 
@@ -24,6 +26,7 @@ import {
   Calendar,
   Settings,
   TrendingUp,
+  LayoutTemplate,
 } from 'lucide-react';
 
 const fetcher = async (url: string) => {
@@ -33,6 +36,25 @@ const fetcher = async (url: string) => {
   }
   return res.json();
 };
+
+const ADMIN_TABS = [
+  { key: 'overview', label: 'Overview', icon: BarChart3 },
+  { key: 'pages', label: 'Site Pages', icon: LayoutTemplate },
+  { key: 'posts', label: 'Blog Posts', icon: FileText },
+  { key: 'products', label: 'Products', icon: ShoppingBag },
+  { key: 'portfolio', label: 'Portfolio', icon: ImageIcon },
+  { key: 'orders', label: 'Orders', icon: ClipboardList },
+  { key: 'inventory', label: 'Inventory', icon: Package },
+  { key: 'marketing', label: 'Marketing', icon: Megaphone },
+  { key: 'analytics', label: 'Analytics', icon: TrendingUp },
+  { key: 'settings', label: 'Settings', icon: Settings },
+] as const;
+
+type AdminTab = typeof ADMIN_TABS[number]['key'];
+
+function isAdminTab(value: string): value is AdminTab {
+  return ADMIN_TABS.some((tab) => tab.key === value);
+}
 
 interface DashboardStats {
   totalPosts: number;
@@ -46,6 +68,7 @@ interface DashboardStats {
 
 type SettingRecord = {
   key: string;
+  value?: string;
   status: 'configured' | 'not_set';
 };
 
@@ -62,12 +85,13 @@ interface BlogPost {
 export default function AdminDashboard() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'overview' | 'posts' | 'products' | 'portfolio' | 'orders' | 'inventory' | 'marketing' | 'analytics' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<AdminTab>('overview');
 
   // Fetch dashboard data
   const { data: stats, error: statsError } = useSWR<DashboardStats>('/api/admin/stats', fetcher);
   const { data: posts, error: postsError } = useSWR<BlogPost[]>('/api/admin/posts', fetcher);
   const { data: settingsData, error: settingsError } = useSWR<{ settings: SettingRecord[] }>('/api/admin/settings', fetcher);
+  const { data: promoData } = useSWR<{ promoCodes: Array<{ id: string }> }>('/api/admin/promo-codes', fetcher);
 
   const safeStats: DashboardStats = {
     totalPosts: Number(stats?.totalPosts || 0),
@@ -81,14 +105,20 @@ export default function AdminDashboard() {
 
   const safePosts: BlogPost[] = Array.isArray(posts) ? posts : [];
   const settingStatus = new Map((settingsData?.settings || []).map((setting) => [setting.key, setting.status]));
+  const settingValues = new Map((settingsData?.settings || []).map((setting) => [setting.key, setting.value || '']));
   const hasAnyConfigured = (keys: string[]) => keys.some((key) => settingStatus.get(key) === 'configured');
+  const cronLastRun = settingValues.get('CRON_LAST_RUN_AT');
+  const cronStale = !cronLastRun || (Date.now() - new Date(cronLastRun).getTime()) > 25 * 60 * 60 * 1000;
   const readinessItems: Array<{ key: string; label: string; complete: boolean; tab: typeof activeTab; action: string }> = [
+    { key: 'pages', label: 'Customize site page copy and branding', complete: hasAnyConfigured(Object.values(SITE_CONTENT_KEYS)), tab: 'pages', action: 'Open site pages' },
     { key: 'products', label: 'Add at least one artwork for sale', complete: safeStats.totalProducts > 0, tab: 'products', action: 'Open products' },
     { key: 'portfolio', label: 'Build the public portfolio', complete: safeStats.totalArtworks > 0, tab: 'portfolio', action: 'Open portfolio' },
     { key: 'blog', label: 'Publish at least one blog post', complete: safeStats.publishedPosts > 0, tab: 'posts', action: 'Open posts' },
     { key: 'payments', label: 'Configure Stripe checkout', complete: hasAnyConfigured(['STRIPE_SECRET_KEY']) && hasAnyConfigured(['NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY']), tab: 'settings', action: 'Open settings' },
     { key: 'email', label: 'Configure contact and email delivery', complete: hasAnyConfigured(['CONTACT_EMAIL', 'SMTP_FROM', 'SMTP_USER']) && hasAnyConfigured(['EMAIL_DELIVERY_MODE']), tab: 'settings', action: 'Open settings' },
     { key: 'marketing', label: 'Connect or prepare marketing channels', complete: hasAnyConfigured(['NEWSLETTER_DELIVERY_MODE', 'SOCIAL_PUBLISH_MODE', 'NEXT_PUBLIC_GA4_MEASUREMENT_ID']), tab: 'marketing', action: 'Open marketing' },
+    { key: 'automations', label: 'Run scheduled automations at least once', complete: !cronStale, tab: 'settings', action: 'Open settings' },
+    { key: 'promos', label: 'Create a promo code (optional)', complete: (promoData?.promoCodes?.length || 0) > 0, tab: 'marketing', action: 'Open marketing' },
   ];
   const incompleteReadinessItems = readinessItems.filter((item) => !item.complete);
 
@@ -96,7 +126,7 @@ export default function AdminDashboard() {
     if (status === 'loading') return;
 
     if (!session) {
-      router.replace('/auth/signin');
+      router.replace('/auth/signin?callbackUrl=/admin');
       return;
     }
 
@@ -132,9 +162,17 @@ export default function AdminDashboard() {
           </p>
           <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
             {incompleteReadinessItems.map((item) => (
-              <button key={item.key} type="button" onClick={() => setActiveTab(item.tab)} className="rounded border border-blue-200 bg-white px-4 py-3 text-left text-sm font-medium text-blue-950 hover:bg-blue-100">
+              <button
+                key={item.key}
+                type="button"
+                aria-label={`${item.action}: ${item.label}`}
+                onClick={() => setActiveTab(item.tab)}
+                className="rounded border border-blue-200 bg-white px-4 py-3 text-left text-sm font-medium text-blue-950 hover:bg-blue-100"
+              >
                 <span className="block">{item.label}</span>
-                <span className="mt-1 block text-xs font-normal text-blue-700">{item.action}</span>
+                <span className="mt-1 block text-xs font-normal text-blue-700" aria-hidden="true">
+                  {item.action}
+                </span>
               </button>
             ))}
           </div>
@@ -333,30 +371,47 @@ export default function AdminDashboard() {
         <p className="text-gray-600 mt-2">Manage your content and monitor site performance</p>
       </div>
 
+      <div className="md:hidden mb-6">
+        <label htmlFor="admin-section" className="block text-sm font-medium text-gray-700 mb-2">
+          Admin section
+        </label>
+        <select
+          id="admin-section"
+          value={activeTab}
+          onChange={(event) => {
+            if (isAdminTab(event.target.value)) {
+              setActiveTab(event.target.value);
+            }
+          }}
+          className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900"
+        >
+          {ADMIN_TABS.map((tab) => (
+            <option key={tab.key} value={tab.key}>
+              {tab.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
       {/* Navigation Tabs */}
-      <div className="border-b border-gray-200 mb-8">
-        <nav className="-mb-px flex space-x-8">
-          {[
-            { key: 'overview', label: 'Overview', icon: BarChart3 },
-            { key: 'posts', label: 'Blog Posts', icon: FileText },
-            { key: 'products', label: 'Products', icon: ShoppingBag },
-            { key: 'portfolio', label: 'Portfolio', icon: ImageIcon },
-            { key: 'orders', label: 'Orders', icon: ClipboardList },
-            { key: 'inventory', label: 'Inventory', icon: Package },
-            { key: 'marketing', label: 'Marketing', icon: Megaphone },
-            { key: 'analytics', label: 'Analytics', icon: TrendingUp },
-            { key: 'settings', label: 'Settings', icon: Settings },
-          ].map(({ key, label, icon: Icon }) => (
+      <div className="sticky top-16 z-30 mb-8 hidden overflow-x-auto border-b border-gray-200 bg-gray-50/95 backdrop-blur md:block">
+        <nav className="-mb-px flex min-w-max gap-4 sm:gap-8" role="tablist" aria-label="Admin sections">
+          {ADMIN_TABS.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
-              onClick={() => setActiveTab(key as any)}
-              className={`flex items-center py-2 px-1 border-b-2 font-medium text-sm ${
+              type="button"
+              role="tab"
+              id={`admin-tab-${key}`}
+              aria-selected={activeTab === key}
+              aria-controls={`admin-panel-${key}`}
+              onClick={() => setActiveTab(key)}
+              className={`flex flex-shrink-0 items-center whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm ${
                 activeTab === key
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              <Icon size={16} className="mr-2" />
+              <Icon size={16} className="mr-2" aria-hidden="true" />
               {label}
             </button>
           ))}
@@ -364,29 +419,32 @@ export default function AdminDashboard() {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'overview' && renderOverview()}
-      {activeTab === 'posts' && <AdminContentManager section="posts" />}
-      {activeTab === 'products' && (
-        <AdminContentManager section="products" />
-      )}
-      {activeTab === 'portfolio' && (
-        <AdminContentManager section="artworks" />
-      )}
-      {activeTab === 'orders' && (
-        <AdminOrders />
-      )}
-      {activeTab === 'inventory' && (
-        <InventoryDashboard />
-      )}
-      {activeTab === 'marketing' && (
-        <UnifiedMarketingDashboard />
-      )}
-      {activeTab === 'analytics' && (
-        <AnalyticsDashboard />
-      )}
-      {activeTab === 'settings' && (
-        <AdminSettings />
-      )}
+      <div role="tabpanel" id={`admin-panel-${activeTab}`} aria-labelledby={`admin-tab-${activeTab}`}>
+        {activeTab === 'overview' && renderOverview()}
+        {activeTab === 'pages' && <AdminSiteContent />}
+        {activeTab === 'posts' && <AdminContentManager section="posts" />}
+        {activeTab === 'products' && (
+          <AdminContentManager section="products" />
+        )}
+        {activeTab === 'portfolio' && (
+          <AdminContentManager section="artworks" />
+        )}
+        {activeTab === 'orders' && (
+          <AdminOrders />
+        )}
+        {activeTab === 'inventory' && (
+          <InventoryDashboard />
+        )}
+        {activeTab === 'marketing' && (
+          <UnifiedMarketingDashboard />
+        )}
+        {activeTab === 'analytics' && (
+          <AnalyticsDashboard />
+        )}
+        {activeTab === 'settings' && (
+          <AdminSettings />
+        )}
+      </div>
     </div>
   );
 }

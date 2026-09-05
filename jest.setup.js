@@ -5,67 +5,12 @@
 // Learn more: https://github.com/testing-library/jest-dom
 import '@testing-library/jest-dom'
 
-// Mock Web APIs for Node.js environment
-global.Request = class MockRequest {
-  constructor(url, options = {}) {
-    this.url = url
-    this.method = options.method || 'GET'
-    this.headers = new Headers(options.headers)
-    this.body = options.body
-  }
-  
-  async json() {
-    return this.body ? JSON.parse(this.body) : {}
-  }
-}
-
-global.Response = class MockResponse {
-  constructor(body, options = {}) {
-    this.body = body
-    this.status = options.status || 200
-    this.headers = new Headers(options.headers)
-  }
-  
-  static json(data, options = {}) {
-    return new MockResponse(JSON.stringify(data), {
-      ...options,
-      headers: { 'Content-Type': 'application/json', ...options.headers }
-    })
-  }
-  
-  async json() {
-    return JSON.parse(this.body)
-  }
-}
-
-global.Headers = class MockHeaders extends Map {
-  constructor(init) {
-    super()
-    if (init) {
-      if (Array.isArray(init)) {
-        for (const [key, value] of init) {
-          this.set(key, value)
-        }
-      } else if (typeof init === 'object') {
-        for (const [key, value] of Object.entries(init)) {
-          this.set(key, value)
-        }
-      }
-    }
-  }
-  
-  get(key) {
-    return super.get(key.toLowerCase())
-  }
-  
-  set(key, value) {
-    return super.set(key.toLowerCase(), value)
-  }
-  
-  has(key) {
-    return super.has(key.toLowerCase())
-  }
-}
+Object.assign(global, {
+  Request: globalThis.Request,
+  Response: globalThis.Response,
+  Headers: globalThis.Headers,
+  fetch: globalThis.fetch,
+})
 
 // Mock Next.js router
 jest.mock('next/navigation', () => ({
@@ -100,6 +45,20 @@ jest.mock('next/image', () => ({
 process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = 'pk_test_mock'
 process.env.NEXTAUTH_SECRET = 'test-secret'
 process.env.NEXTAUTH_URL = 'http://localhost:3000'
+
+jest.mock('server-only', () => ({}))
+
+jest.mock('sanitize-html', () => jest.fn((html) => html))
+
+jest.mock('next/cache', () => ({
+  unstable_cache: (fn) => fn,
+  revalidatePath: jest.fn(),
+  revalidateTag: jest.fn(),
+}))
+
+jest.mock('@/components/AnalyticsProvider', () => ({
+  useNewsletterTracking: () => ({ trackFormView: jest.fn(), trackSignup: jest.fn() }),
+}))
 
 // Mock fetch globally
 global.fetch = jest.fn()

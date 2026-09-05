@@ -5,9 +5,19 @@ import { useNewsletterTracking } from '@/components/AnalyticsProvider';
 
 interface NewsletterSignupProps {
   className?: string;
+  placeholder?: string;
+  buttonLabel?: string;
+  disclaimer?: string;
+  variant?: 'onLight' | 'onDark';
 }
 
-export function NewsletterSignup({ className = "" }: NewsletterSignupProps) {
+export function NewsletterSignup({
+  className = "",
+  placeholder = "Enter your email",
+  buttonLabel = "Subscribe",
+  disclaimer = "No spam, unsubscribe at any time.",
+  variant = 'onLight',
+}: NewsletterSignupProps) {
   const [email, setEmail] = useState('');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
@@ -111,6 +121,10 @@ export function NewsletterSignup({ className = "" }: NewsletterSignupProps) {
     setMessage('');
   };
 
+  const buttonClass = variant === 'onDark'
+    ? 'bg-white text-primary px-6 py-3 rounded-lg hover:bg-gray-100 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed'
+    : 'btn-primary px-6 py-3 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed';
+
   return (
     <div className={className}>
       <form noValidate onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-4 justify-center max-w-md mx-auto">
@@ -122,17 +136,17 @@ export function NewsletterSignup({ className = "" }: NewsletterSignupProps) {
             setEmail(e.target.value);
             if (status === 'error') resetForm();
           }}
-          placeholder="Enter your email"
-          className="flex-1 px-4 py-3 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 border border-gray-300"
+          placeholder={placeholder}
+          className="flex-1 px-4 py-3 rounded-lg bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary border border-gray-300"
           disabled={status === 'loading'}
         />
         <button
           data-testid="newsletter-submit"
           type="submit"
           disabled={status === 'loading' || status === 'success'}
-          className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          className={buttonClass}
         >
-          {status === 'loading' ? 'Subscribing...' : 'Subscribe'}
+          {status === 'loading' ? 'Subscribing...' : buttonLabel}
         </button>
       </form>
       
@@ -155,9 +169,9 @@ export function NewsletterSignup({ className = "" }: NewsletterSignupProps) {
         </div>
       )}
       
-      {status === 'idle' && (
+      {status === 'idle' && disclaimer && (
         <p className="text-sm text-gray-400 mt-4 text-center">
-          No spam, unsubscribe at any time.
+          {disclaimer}
         </p>
       )}
     </div>

@@ -6,8 +6,10 @@ import {
   RecommendationType, 
   RecommendationResult
 } from './types';
-import { getAllProducts } from './commerce-server';
+import { getAllProducts, getFeaturedProducts, getAvailableProducts } from './commerce-server';
 import { prisma } from '@/lib/db';
+
+export { stableSearchParamsKey } from './search-params';
 
 export class SearchService {
   /**
@@ -48,6 +50,7 @@ export class SearchService {
         await this.logSearchQuery(query, filters, sortBy, filteredProducts.length, userId, sessionId);
       }
 
+      const filterOptions = this.collectFilterOptions(allProducts);
       const searchTime = Date.now() - startTime;
 
       return {
@@ -56,7 +59,8 @@ export class SearchService {
         searchTime,
         filters,
         sortBy,
-        suggestions: this.generateSuggestions(query, allProducts)
+        suggestions: this.generateSuggestions(query, allProducts),
+        filterOptions,
       };
     } catch (error) {
       console.error('Search error:', error);
@@ -65,7 +69,8 @@ export class SearchService {
         totalResults: 0,
         searchTime: Date.now() - startTime,
         filters,
-        sortBy
+        sortBy,
+        filterOptions: { categories: [], mediums: [] },
       };
     }
   }
@@ -127,6 +132,22 @@ export class SearchService {
   /**
    * Apply filters to products
    */
+  private static uniqueSorted(values: Array<string | undefined | null>): string[] {
+    const unique = new Set<string>();
+    for (const value of values) {
+      const trimmed = (value || '').trim();
+      if (trimmed) unique.add(trimmed);
+    }
+    return Array.from(unique).sort((a, b) => a.localeCompare(b));
+  }
+
+  private static collectFilterOptions(products: Product[]): { categories: string[]; mediums: string[] } {
+    return {
+      categories: this.uniqueSorted(products.map((product) => product.category)),
+      mediums: this.uniqueSorted(products.map((product) => product.medium)),
+    };
+  }
+
   private static applyFilters(products: Product[], filters: SearchFilters): Product[] {
     let filtered = [...products];
 
@@ -311,6 +332,27 @@ export class RecommendationService {
       return results;
     } catch (error) {
       console.error('Recommendation error:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Featured / popular works for anonymous visitors and cold-start sessions.
+   */
+  static async getPopularRecommendations(limit: number = 4): Promise<RecommendationResult[]> {
+    try {
+      const featured = await getFeaturedProducts();
+      const products = (featured.length > 0 ? featured : await getAvailableProducts()).slice(0, limit);
+      if (products.length === 0) return [];
+
+      return [{
+        type: 'trending' as RecommendationType,
+        products,
+        reason: featured.length > 0 ? 'Featured works from the studio' : 'Popular works from the shop',
+        score: 1,
+      }];
+    } catch (error) {
+      console.error('Popular recommendations error:', error);
       return [];
     }
   }

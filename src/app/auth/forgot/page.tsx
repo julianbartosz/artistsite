@@ -54,21 +54,21 @@ export default function ForgotPasswordPage() {
                 required
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-indigo-500"
+                className="mt-1 form-input"
               />
             </div>
 
             <button
               type="submit"
               disabled={isLoading}
-              className="flex w-full justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50"
+              className="flex w-full justify-center rounded-md border border-transparent px-4 py-2 text-sm btn-primary shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50"
             >
               {isLoading ? 'Sending...' : 'Send reset link'}
             </button>
           </form>
 
           <div className="mt-6 text-center text-sm">
-            <Link href="/auth/signin" className="font-medium text-indigo-600 hover:text-indigo-500">Back to sign in</Link>
+            <Link href="/auth/signin" className="form-link">Back to sign in</Link>
           </div>
         </div>
       </div>

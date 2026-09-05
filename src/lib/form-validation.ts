@@ -1,4 +1,4 @@
-// Form validation utilities for contact and other forms
+import { CONTACT_INQUIRY_KEYS } from '@/lib/site-content-shared';
 export interface ContactFormData {
   name: string;
   email: string;
@@ -57,8 +57,7 @@ export const validateContactForm = (data: ContactFormData): ValidationErrors => 
   }
 
   // Inquiry type validation
-  const validInquiryTypes = ['general', 'purchase', 'commission', 'press', 'exhibition'];
-  if (!validInquiryTypes.includes(data.inquiryType)) {
+  if (!(CONTACT_INQUIRY_KEYS as readonly string[]).includes(data.inquiryType)) {
     errors.inquiryType = 'Please select a valid inquiry type';
   }
 

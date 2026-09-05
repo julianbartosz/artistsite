@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { CartItemVariant, Product, productImageSrc } from '@/lib/commerce';
+import { CartItemVariant, Product, productImageSrc, E2E_CHECKOUT_SESSION_PREFIX } from '@/lib/commerce';
 import { getProductById } from '@/lib/commerce-server';
-import { createOrder, Order, OrderCustomization, OrderItem, OrderManager, ShippingAddress, updateOrder } from '@/lib/orders';
+import { createOrder, markOrderPaid, Order, OrderCustomization, OrderItem, OrderManager, ShippingAddress, updateOrder } from '@/lib/orders';
 import { InventoryService } from '@/lib/inventory';
 import { getConfigBool } from '@/lib/config';
 import { db } from '@/lib/db';
@@ -17,15 +17,6 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-
-    if (process.env.PLAYWRIGHT_E2E === 'true') {
-      return NextResponse.json(
-        { error: 'Checkout reached the payment-provider boundary in e2e mode' },
-        { status: 503 }
-      );
-    }
-
-    const stripe = await getStripe();
 
     const shippingAddress: ShippingAddress = {
       firstName: customerInfo.firstName,
@@ -74,7 +65,9 @@ export async function POST(req: NextRequest) {
         OrderManager.createTimelineEntry(
           'pending',
           OrderManager.getStatusMessage('pending'),
-          'Stripe checkout session created and awaiting payment confirmation'
+          process.env.PLAYWRIGHT_E2E === 'true'
+            ? 'E2E checkout session created'
+            : 'Stripe checkout session created and awaiting payment confirmation'
         ),
       ],
       createdAt: new Date(),
@@ -97,6 +90,26 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (process.env.PLAYWRIGHT_E2E === 'true') {
+      if (promoDiscount.code) {
+        await incrementPromoUsage(promoDiscount.code);
+      }
+
+      await markOrderPaid(
+        persistedOrder.id,
+        `e2e_payment_${persistedOrder.id}`,
+        'card',
+        { shipping, tax, total }
+      );
+
+      return NextResponse.json({
+        sessionId: `${E2E_CHECKOUT_SESSION_PREFIX}${persistedOrder.id}`,
+        e2e: true,
+      });
+    }
+
+    const stripe = await getStripe();
+
     const discountCoupon = promoDiscount.amount > 0
       ? await stripe.coupons.create({
           amount_off: toCents(promoDiscount.amount),
@@ -106,7 +119,6 @@ export async function POST(req: NextRequest) {
         })
       : undefined;
 
-    // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: orderItems.map((item) => ({
@@ -125,7 +137,6 @@ export async function POST(req: NextRequest) {
         },
         quantity: item.quantity,
       })),
-      // Add shipping as a separate line item
       ...(shipping > 0 && {
         shipping_options: [
           {
@@ -150,7 +161,6 @@ export async function POST(req: NextRequest) {
           },
         ],
       }),
-      // Add tax calculation
       automatic_tax: {
         enabled: await getConfigBool('STRIPE_AUTOMATIC_TAX_ENABLED'),
       },
@@ -176,7 +186,6 @@ export async function POST(req: NextRequest) {
           promoDiscount: promoDiscount.amount.toString(),
         } : {}),
       },
-      // Store customer information for order fulfillment
       custom_fields: [
         {
           key: 'phone',
@@ -389,6 +398,10 @@ function calculateProductShipping(items: OrderItem[], country: string): number {
 }
 
 async function reserveTrackedInventory(order: Order): Promise<string | null> {
+  if (process.env.PLAYWRIGHT_E2E === 'true') {
+    return null;
+  }
+
   for (const item of order.items) {
     const inventory = await InventoryService.getInventoryStatus(item.productId);
     if (!inventory) continue;

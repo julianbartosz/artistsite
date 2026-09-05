@@ -54,6 +54,14 @@ export const productPayloadSchema = z.object({
   commissionInfo: z.unknown().optional(),
 });
 
+export function isPublishableContentTitle(title: string): boolean {
+  const trimmed = title.trim();
+  return trimmed.length >= 3 && trimmed.toLowerCase() !== 'untitled';
+}
+
+/** @deprecated Use isPublishableContentTitle */
+export const isPublishableBlogTitle = isPublishableContentTitle;
+
 export const blogPostPayloadSchema = z.object({
   slug: z.string().min(1).optional(),
   title: z.string().min(1),
@@ -65,6 +73,14 @@ export const blogPostPayloadSchema = z.object({
   featured: z.coerce.boolean().default(false),
   coverImage: z.string().optional().nullable(),
   author: z.string().default('Artist'),
+}).superRefine((payload, ctx) => {
+  if (!payload.isDraft && !isPublishableContentTitle(payload.title)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['title'],
+      message: 'Published posts need a descriptive title (at least 3 characters, not "Untitled").',
+    });
+  }
 });
 
 export const emailCampaignPayloadSchema = z.object({
@@ -110,6 +126,14 @@ export const adCampaignPayloadSchema = z.object({
   notes: z.string().optional().nullable(),
 });
 
+export const promoCodePayloadSchema = z.object({
+  code: z.string().min(2).max(64),
+  discountType: z.enum(['percentage', 'fixed']).default('percentage'),
+  discountValue: z.coerce.number().positive(),
+  usageLimit: z.coerce.number().int().positive().optional().nullable(),
+  expiresAt: z.coerce.date().optional().nullable(),
+});
+
 export const artworkPayloadSchema = z.object({
   slug: z.string().min(1).optional(),
   title: z.string().min(1),
@@ -127,6 +151,14 @@ export const artworkPayloadSchema = z.object({
     thumbnail: z.string().default(ARTWORK_IMAGE_FALLBACK),
   }),
   content: z.string().default(''),
+}).superRefine((payload, ctx) => {
+  if (payload.available && !isPublishableContentTitle(payload.title)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['title'],
+      message: 'Available portfolio works need a descriptive title (at least 3 characters, not "Untitled").',
+    });
+  }
 });
 
 export function sanitizeBlogPostPayload(payload: z.infer<typeof blogPostPayloadSchema>) {

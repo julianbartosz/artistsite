@@ -195,7 +195,7 @@ export default function CustomCommissionRequest({
                   key={option.value}
                   className={`p-3 border rounded-lg cursor-pointer transition-colors ${
                     formData.type === option.value
-                      ? 'border-indigo-500 bg-indigo-50'
+                      ? 'border-primary bg-primary/10'
                       : 'border-gray-300 hover:border-gray-400'
                   }`}
                 >
@@ -226,7 +226,7 @@ export default function CustomCommissionRequest({
             <select
               value={formData.medium}
               onChange={(e) => handleInputChange('medium', e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
             >
               <option value="">Select medium...</option>
               <option value="Oil on canvas">Oil on Canvas</option>
@@ -246,7 +246,7 @@ export default function CustomCommissionRequest({
             <select
               value={formData.dimensions}
               onChange={(e) => handleInputChange('dimensions', e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
             >
               <option value="">Select size...</option>
               <option value='8&quot; x 10&quot;'>8&quot; x 10&quot; (Small)</option>
@@ -269,7 +269,7 @@ export default function CustomCommissionRequest({
             value={formData.description}
             onChange={(e) => handleInputChange('description', e.target.value)}
             placeholder="Describe your vision, style preferences, color palette, subject matter, or any specific requirements..."
-            className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
+            className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
               errors.description ? 'border-red-300' : 'border-gray-300'
             }`}
             rows={5}
@@ -294,7 +294,7 @@ export default function CustomCommissionRequest({
                   step="50"
                   value={formData.budget.min}
                   onChange={(e) => handleBudgetChange('min', parseInt(e.target.value) || 0)}
-                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
                 />
               </div>
             </div>
@@ -308,7 +308,7 @@ export default function CustomCommissionRequest({
                   step="50"
                   value={formData.budget.max}
                   onChange={(e) => handleBudgetChange('max', parseInt(e.target.value) || 0)}
-                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
                 />
               </div>
             </div>
@@ -324,7 +324,7 @@ export default function CustomCommissionRequest({
           <select
             value={formData.timeline}
             onChange={(e) => handleInputChange('timeline', e.target.value)}
-            className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
+            className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
               errors.timeline ? 'border-red-300' : 'border-gray-300'
             }`}
             required
@@ -353,7 +353,7 @@ export default function CustomCommissionRequest({
                 type="text"
                 value={formData.customerInfo.name}
                 onChange={(e) => handleCustomerInfoChange('name', e.target.value)}
-                className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
+                className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
                   errors.name ? 'border-red-300' : 'border-gray-300'
                 }`}
                 required
@@ -369,7 +369,7 @@ export default function CustomCommissionRequest({
                 type="email"
                 value={formData.customerInfo.email}
                 onChange={(e) => handleCustomerInfoChange('email', e.target.value)}
-                className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
+                className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
                   errors.email ? 'border-red-300' : 'border-gray-300'
                 }`}
                 required
@@ -386,7 +386,7 @@ export default function CustomCommissionRequest({
               type="tel"
               value={formData.customerInfo.phone || ''}
               onChange={(e) => handleCustomerInfoChange('phone', e.target.value)}
-              className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
+              className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
                 errors.phone ? 'border-red-300' : 'border-gray-300'
               }`}
               placeholder="Optional"
@@ -406,7 +406,7 @@ export default function CustomCommissionRequest({
                   value="email"
                   checked={formData.customerInfo.preferredContact === 'email'}
                   onChange={(e) => handleCustomerInfoChange('preferredContact', e.target.value as 'email' | 'phone')}
-                  className="text-indigo-600 focus:ring-indigo-500"
+                  className="text-primary focus:ring-primary"
                 />
                 <span className="ml-2 text-sm text-gray-700">Email</span>
               </label>
@@ -417,7 +417,7 @@ export default function CustomCommissionRequest({
                   value="phone"
                   checked={formData.customerInfo.preferredContact === 'phone'}
                   onChange={(e) => handleCustomerInfoChange('preferredContact', e.target.value as 'email' | 'phone')}
-                  className="text-indigo-600 focus:ring-indigo-500"
+                  className="text-primary focus:ring-primary"
                 />
                 <span className="ml-2 text-sm text-gray-700">Phone</span>
               </label>
@@ -434,7 +434,7 @@ export default function CustomCommissionRequest({
             value={formData.specialRequests || ''}
             onChange={(e) => handleInputChange('specialRequests', e.target.value)}
             placeholder="Any additional information, special requirements, or questions..."
-            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
             rows={3}
           />
         </div>
@@ -452,7 +452,7 @@ export default function CustomCommissionRequest({
           <button
             type="submit"
             disabled={isLoading}
-            className="flex-1 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 px-6 py-3 btn-primary rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading ? 'Submitting...' : 'Submit Commission Request'}
           </button>

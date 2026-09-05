@@ -3,12 +3,14 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
-import { Product, productImageSrc } from '@/lib/commerce';
+import { Product, formatPrice, productImageSrc } from '@/lib/commerce';
 
 interface RecentlyViewedProps {
   currentProductId?: string;
   maxItems?: number;
   className?: string;
+  showEmptyState?: boolean;
+  showHeading?: boolean;
 }
 
 interface ViewedProduct {
@@ -19,7 +21,9 @@ interface ViewedProduct {
 export function RecentlyViewed({ 
   currentProductId, 
   maxItems = 6, 
-  className = "" 
+  className = "",
+  showEmptyState = false,
+  showHeading = true,
 }: RecentlyViewedProps) {
   const { data: session } = useSession();
   const [recentlyViewed, setRecentlyViewed] = useState<Product[]>([]);
@@ -31,8 +35,7 @@ export function RecentlyViewed({
         setIsLoading(true);
         
         if (session?.user?.id) {
-          // For authenticated users, fetch from database
-          const response = await fetch(`/api/recently-viewed?userId=${session.user.id}&limit=${maxItems}`);
+          const response = await fetch(`/api/recently-viewed?limit=${maxItems}`);
           const data = await response.json();
           
           if (data.success) {
@@ -94,31 +97,26 @@ export function RecentlyViewed({
   }, [currentProductId, session?.user?.id]);
 
   if (isLoading) {
-    return (
-      <div className={`${className}`}>
-        <div className="animate-pulse">
-          <div className="h-6 bg-gray-200 rounded w-1/4 mb-4"></div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            {[1, 2, 3, 4, 5, 6].map(i => (
-              <div key={i} className="space-y-2">
-                <div className="h-32 bg-gray-200 rounded"></div>
-                <div className="h-4 bg-gray-200 rounded"></div>
-                <div className="h-3 bg-gray-200 rounded w-2/3"></div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
+    return showEmptyState ? (
+      <p className="text-sm text-gray-500">Loading recently viewed items…</p>
+    ) : null;
   }
 
   if (recentlyViewed.length === 0) {
-    return null;
+    return showEmptyState ? (
+      <div className="text-center py-10">
+        <h3 className="text-sm font-medium text-gray-900 mb-2">Nothing here yet</h3>
+        <p className="text-sm text-gray-500 mb-4">Browse the shop and your recently viewed works will appear here.</p>
+        <Link href="/shop" className="btn-primary px-4 py-2 rounded-md inline-block">Browse shop</Link>
+      </div>
+    ) : null;
   }
 
   return (
     <section className={`${className}`}>
-      <h2 className="text-xl font-semibold text-gray-900 mb-6">Recently Viewed</h2>
+      {showHeading && (
+        <h2 className="text-xl font-semibold text-gray-900 mb-6">Recently Viewed</h2>
+      )}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {recentlyViewed.map((product) => (
           <Link key={product.id} href={`/shop/${product.id}`} className="group">
@@ -138,7 +136,7 @@ export function RecentlyViewed({
                 </h3>
                 <p className="text-xs text-gray-500 mb-1">{product.medium}</p>
                 <p className="text-sm font-semibold text-gray-900">
-                  ${product.price.toLocaleString()}
+                  {formatPrice(product.price, product.currency)}
                 </p>
               </div>
             </div>

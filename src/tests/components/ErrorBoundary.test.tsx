@@ -1,6 +1,10 @@
 import { render, screen } from '@testing-library/react';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
+jest.mock('next/navigation', () => ({
+  usePathname: jest.fn(() => '/'),
+}));
+
 // Mock component that throws an error
 const ThrowError = ({ shouldThrow }: { shouldThrow: boolean }) => {
   if (shouldThrow) {
@@ -10,7 +14,6 @@ const ThrowError = ({ shouldThrow }: { shouldThrow: boolean }) => {
 };
 
 describe('ErrorBoundary Component', () => {
-  // Suppress console.error for these tests
   const originalError = console.error;
   beforeAll(() => {
     console.error = jest.fn();
@@ -49,12 +52,12 @@ describe('ErrorBoundary Component', () => {
     });
     
     render(
-      <ErrorBoundary>
+      <ErrorBoundary showDetails>
         <ThrowError shouldThrow={true} />
       </ErrorBoundary>
     );
     
-    expect(screen.getByText(/Test error/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Test error/).length).toBeGreaterThan(0);
     
     // Restore original NODE_ENV
     Object.defineProperty(process.env, 'NODE_ENV', {
