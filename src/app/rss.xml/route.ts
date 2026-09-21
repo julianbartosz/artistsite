@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAllPosts } from '@/lib/markdown';
+import { UPDATES_PATH, updatesPostPath } from '@/lib/site-content-shared';
 
 const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://artistsite.com';
 const siteName = 'Artist Site';
@@ -13,7 +14,7 @@ export async function GET() {
     .filter(post => !post.isDraft)
     .slice(0, 20) // Limit to 20 most recent posts
     .map(post => {
-      const postUrl = `${baseUrl}/blog/${post.slug}`;
+      const postUrl = `${baseUrl}${updatesPostPath(post.slug)}`;
       const pubDate = new Date(post.publishedAt).toUTCString();
       
       return `
@@ -34,9 +35,9 @@ export async function GET() {
      xmlns:content="http://purl.org/rss/1.0/modules/content/"
      xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title><![CDATA[${siteName} Blog]]></title>
+    <title><![CDATA[${siteName} Updates]]></title>
     <description><![CDATA[${siteDescription}]]></description>
-    <link>${baseUrl}/blog</link>
+    <link>${baseUrl}${UPDATES_PATH}</link>
     <language>en-us</language>
     <lastBuildDate>${lastBuildDate}</lastBuildDate>
     <atom:link href="${baseUrl}/rss.xml" rel="self" type="application/rss+xml" />

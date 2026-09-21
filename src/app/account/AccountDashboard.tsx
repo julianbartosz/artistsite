@@ -1,15 +1,20 @@
 'use client';
 
 import { useSession, signOut } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { formatPrice } from '@/lib/commerce';
 import { mergeGuestWishlistIntoAccount } from '@/components/WishlistButton';
 import RecentlyViewed from '@/components/RecentlyViewed';
+import StudioInboxPanel from '@/components/StudioInboxPanel';
+import SavedUpdatesPanel from '@/components/SavedUpdatesPanel';
+import OrderMessageComposer from '@/components/OrderMessageComposer';
+import OrderStatusStepper from '@/components/admin/OrderStatusStepper';
+import CollectorFeedLink from '@/components/CollectorFeedLink';
 
-type AccountTab = 'overview' | 'orders' | 'wishlist' | 'recent';
+type AccountTab = 'overview' | 'orders' | 'wishlist' | 'recent' | 'messages' | 'saved';
 
 type Profile = {
   email: string;
@@ -47,16 +52,32 @@ type WishlistItem = {
 };
 
 const TAB_LABELS: Record<AccountTab, string> = {
-  overview: 'Overview',
+  overview: 'Collection',
   orders: 'Orders',
   wishlist: 'Wishlist',
-  recent: 'Recently Viewed',
+  saved: 'Saved updates',
+  messages: 'Messages',
+  recent: 'Recently viewed',
 };
+
+const TAB_ORDER: AccountTab[] = ['overview', 'orders', 'wishlist', 'saved', 'messages', 'recent'];
 
 export default function AccountDashboard() {
   const { data: session, status, update } = useSession();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<AccountTab>('overview');
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const activeTab: AccountTab = tabParam === 'orders' || tabParam === 'wishlist' || tabParam === 'recent' || tabParam === 'messages' || tabParam === 'saved'
+    ? tabParam
+    : 'overview';
+
+  const selectTab = (tab: AccountTab) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (tab === 'overview') params.delete('tab');
+    else params.set('tab', tab);
+    const query = params.toString();
+    router.replace(query ? `/account?${query}` : '/account', { scroll: false });
+  };
   const [orders, setOrders] = useState<Order[]>([]);
   const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -64,12 +85,18 @@ export default function AccountDashboard() {
   const [profileForm, setProfileForm] = useState({ firstName: '', lastName: '', phone: '' });
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const [profileSaving, setProfileSaving] = useState(false);
+  const [savedCount, setSavedCount] = useState(0);
 
   useEffect(() => {
     if (status === 'loading') return;
 
     if (!session) {
       router.push('/auth/signin?callbackUrl=/account');
+      return;
+    }
+
+    if (session.user?.isAdmin) {
+      router.replace('/admin');
       return;
     }
 
@@ -80,10 +107,11 @@ export default function AccountDashboard() {
       try {
         await mergeGuestWishlistIntoAccount();
 
-        const [profileRes, ordersRes, wishlistRes] = await Promise.all([
+        const [profileRes, ordersRes, wishlistRes, savedRes] = await Promise.all([
           fetch('/api/account/profile', { cache: 'no-store' }),
           fetch('/api/orders', { cache: 'no-store' }),
           fetch('/api/wishlist', { cache: 'no-store' }),
+          fetch('/api/account/saved-updates', { cache: 'no-store' }),
         ]);
 
         if (cancelled) return;
@@ -108,6 +136,11 @@ export default function AccountDashboard() {
         if (wishlistRes.ok) {
           const wishlistData = await wishlistRes.json();
           setWishlist(wishlistData.items || []);
+        }
+
+        if (savedRes.ok) {
+          const savedData = await savedRes.json();
+          setSavedCount(Array.isArray(savedData.saved) ? savedData.saved.length : 0);
         }
       } catch (error) {
         console.error('Failed to load account data:', error);
@@ -181,8 +214,10 @@ export default function AccountDashboard() {
         <div className="bg-white shadow rounded-lg overflow-hidden">
           <div className="px-6 py-5 border-b border-gray-200 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">My Account</h1>
-              <p className="text-gray-600">Welcome back, {profile?.name || session.user?.name || session.user?.email}</p>
+              <h1 className="text-2xl font-bold text-gray-900">My collection</h1>
+              <p className="text-gray-600">
+                Works you own, follow, or are considering — welcome back, {profile?.name || session.user?.name || session.user?.email}
+              </p>
             </div>
             <button
               type="button"
@@ -194,12 +229,12 @@ export default function AccountDashboard() {
           </div>
 
           <div className="border-b border-gray-200 px-4 sm:px-6">
-            <nav className="flex gap-4 overflow-x-auto" aria-label="Account sections">
-              {(Object.keys(TAB_LABELS) as AccountTab[]).map((tab) => (
+            <nav className="flex gap-4 overflow-x-auto" aria-label="Collection sections">
+              {TAB_ORDER.map((tab) => (
                 <button
                   key={tab}
                   type="button"
-                  onClick={() => setActiveTab(tab)}
+                  onClick={() => selectTab(tab)}
                   className={`py-4 text-sm font-medium border-b-2 whitespace-nowrap ${
                     activeTab === tab
                       ? 'border-primary text-primary'
@@ -265,27 +300,38 @@ export default function AccountDashboard() {
                 </div>
 
                 <div className="lg:col-span-2 space-y-6">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <button type="button" onClick={() => setActiveTab('orders')} className="rounded-lg border border-gray-200 p-4 text-left hover:border-primary transition-colors">
-                      <p className="text-sm text-gray-500">Orders</p>
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
+                    <p className="text-sm text-gray-800">
+                      Your collection hub ties together purchases, saved works, studio messages, and private updates in one place.
+                    </p>
+                    <CollectorFeedLink />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                    <button type="button" onClick={() => selectTab('orders')} className="rounded-lg border border-gray-200 p-4 text-left hover:border-primary transition-colors">
+                      <p className="text-sm text-gray-500">Owned</p>
                       <p className="text-2xl font-semibold text-gray-900">{orders.length}</p>
                     </button>
-                    <button type="button" onClick={() => setActiveTab('wishlist')} className="rounded-lg border border-gray-200 p-4 text-left hover:border-primary transition-colors">
-                      <p className="text-sm text-gray-500">Saved works</p>
+                    <button type="button" onClick={() => selectTab('wishlist')} className="rounded-lg border border-gray-200 p-4 text-left hover:border-primary transition-colors">
+                      <p className="text-sm text-gray-500">Considering</p>
                       <p className="text-2xl font-semibold text-gray-900">{wishlist.length}</p>
                     </button>
-                    <div className="rounded-lg border border-gray-200 p-4">
-                      <p className="text-sm text-gray-500">Account</p>
-                      <p className="text-sm font-medium text-gray-900">{session.user?.isAdmin ? 'Artist / Admin' : 'Collector'}</p>
-                    </div>
+                    <button type="button" onClick={() => selectTab('saved')} className="rounded-lg border border-gray-200 p-4 text-left hover:border-primary transition-colors">
+                      <p className="text-sm text-gray-500">Following</p>
+                      <p className="text-2xl font-semibold text-gray-900">{savedCount}</p>
+                    </button>
+                    <button type="button" onClick={() => selectTab('messages')} className="rounded-lg border border-gray-200 p-4 text-left hover:border-primary transition-colors">
+                      <p className="text-sm text-gray-500">Studio chat</p>
+                      <p className="text-sm font-medium text-gray-900 mt-2">Open inbox →</p>
+                    </button>
                   </div>
 
                   <div className="rounded-lg border border-gray-200 p-6">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick actions</h3>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Continue exploring</h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                       <Link href="/shop" className="btn-primary-outline px-4 py-3 rounded-md text-center text-sm">Browse shop</Link>
                       <Link href="/portfolio" className="btn-primary-outline px-4 py-3 rounded-md text-center text-sm">View portfolio</Link>
-                      <Link href="/contact" className="btn-primary-outline px-4 py-3 rounded-md text-center text-sm">Contact studio</Link>
+                      <Link href="/updates" className="btn-primary-outline px-4 py-3 rounded-md text-center text-sm">Studio updates</Link>
                     </div>
                   </div>
                 </div>
@@ -327,6 +373,16 @@ export default function AccountDashboard() {
                             </div>
                           ))}
                         </div>
+                        <div className="border-t border-gray-200 pt-4 mt-3">
+                          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">Fulfillment progress</p>
+                          <OrderStatusStepper status={order.status as 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded'} />
+                        </div>
+                        <OrderMessageComposer
+                          orderId={order.id}
+                          orderNumber={order.orderNumber || order.id}
+                          compact
+                          buttonLabel="Message artist about this order"
+                        />
                       </div>
                     ))}
                   </div>
@@ -372,10 +428,24 @@ export default function AccountDashboard() {
               </div>
             )}
 
+            {activeTab === 'saved' && (
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Saved updates</h2>
+                <SavedUpdatesPanel />
+              </div>
+            )}
+
             {activeTab === 'recent' && (
               <div>
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Recently viewed</h2>
                 <RecentlyViewed maxItems={8} showEmptyState showHeading={false} />
+              </div>
+            )}
+
+            {activeTab === 'messages' && (
+              <div className="space-y-4">
+                <CollectorFeedLink />
+                <StudioInboxPanel mode="account" apiBase="/api/account/messages" />
               </div>
             )}
           </div>

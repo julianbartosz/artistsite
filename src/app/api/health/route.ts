@@ -70,11 +70,15 @@ export async function GET(req: NextRequest) {
     const memUsage = process.memoryUsage();
 
     let databaseStatus = 'unreachable';
+    let databaseHint: string | undefined;
     try {
       await db.$queryRaw`SELECT 1`;
       databaseStatus = 'healthy';
     } catch {
       databaseStatus = process.env.DATABASE_URL ? 'unreachable' : 'not_configured';
+      databaseHint = databaseStatus === 'not_configured'
+        ? 'DATABASE_URL is missing. Add it in your host environment or .env.local.'
+        : 'The site cannot reach Postgres. Verify DATABASE_URL host, port, and that the database server is running.';
     }
 
     const metrics: SystemMetrics = {
@@ -105,12 +109,14 @@ export async function GET(req: NextRequest) {
 
     // Determine overall health status
     const isHealthy = 
+      databaseStatus === 'healthy' &&
       metrics.memory.percentage < 90 &&
       metrics.performance.responseTime < 2000 &&
       !externalServices.some(service => service.includes('unreachable'));
 
     return NextResponse.json({
       status: isHealthy ? 'healthy' : 'degraded',
+      databaseHint,
       ...metrics,
     }, { 
       status: isHealthy ? 200 : 503,

@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { Footer } from '@/components/Footer';
-import { DEFAULT_NAVIGATION, DEFAULT_SITE_IDENTITY } from '@/lib/site-content-shared';
+import { DEFAULT_NAVIGATION, DEFAULT_SITE_IDENTITY, normalizeNavigation } from '@/lib/site-content-shared';
+import { createCollectorFeedToken, verifyCollectorFeedToken } from '@/lib/collector-feed-token';
 
 describe('Footer Component', () => {
   it('renders footer content correctly', () => {
@@ -39,6 +40,22 @@ describe('Footer Component', () => {
     );
 
     expect(screen.getByRole('link', { name: 'Store' })).toHaveAttribute('href', '/shop');
-    expect(screen.queryByRole('link', { name: 'Blog' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Updates' })).not.toBeInTheDocument();
+  });
+
+  it('migrates legacy Blog nav label to Updates', () => {
+    const navigation = normalizeNavigation(
+      DEFAULT_NAVIGATION.map((item) => item.key === 'blog' ? { ...item, label: 'Blog' } : item),
+    );
+    const blogItem = navigation.find((item) => item.key === 'blog');
+    expect(blogItem?.label).toBe('Updates');
+    expect(blogItem?.href).toBe('/updates');
+  });
+
+  it('creates and verifies collector feed tokens', async () => {
+    const token = await createCollectorFeedToken('user-123');
+    const userId = await verifyCollectorFeedToken(token);
+    expect(userId).toBe('user-123');
+    expect(await verifyCollectorFeedToken('invalid.token')).toBeNull();
   });
 });

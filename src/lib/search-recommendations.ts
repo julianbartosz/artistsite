@@ -7,6 +7,7 @@ import {
   RecommendationResult
 } from './types';
 import { getAllProducts, getFeaturedProducts, getAvailableProducts } from './commerce-server';
+import { InventoryService } from '@/lib/inventory';
 import { prisma } from '@/lib/db';
 
 export { stableSearchParamsKey } from './search-params';
@@ -37,6 +38,7 @@ export class SearchService {
 
       // Apply filters
       filteredProducts = this.applyFilters(filteredProducts, filters);
+      filteredProducts = await this.applyAvailabilityFilter(filteredProducts, filters);
 
       // Apply sorting
       const sortedProducts = await this.applySorting(filteredProducts, sortBy);
@@ -183,6 +185,18 @@ export class SearchService {
     }
 
     return filtered;
+  }
+
+  private static async applyAvailabilityFilter(products: Product[], filters: SearchFilters): Promise<Product[]> {
+    if (filters.availability !== 'in_stock') {
+      return products;
+    }
+
+    const inventoryMap = await InventoryService.getBulkInventoryStatus(products.map((product) => product.id));
+    return products.filter((product) => InventoryService.isPurchasableFromStatus(
+      product.availability,
+      inventoryMap.get(product.id),
+    ));
   }
 
   /**

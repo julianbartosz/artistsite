@@ -10,8 +10,12 @@ import { StructuredData, generateOrganizationSchema } from '@/components/Structu
 import { generateFeedLinks } from '@/lib/seo';
 import { PerformanceMonitor, SEOMonitor } from '@/components/DynamicComponents';
 import { AnalyticsProvider } from '@/components/AnalyticsProvider';
+import SiteShell from '@/components/SiteShell';
+import AdminPwaRegister from '@/components/admin/AdminPwaRegister';
+import CmsPreviewBanner from '@/components/admin/CmsPreviewBanner';
 import { getPublicSiteShell } from '@/lib/public-site-shell';
 import { getSiteContent, themeCssVariables } from '@/lib/site-content';
+import { isCmsPreviewActive } from '@/lib/cms-preview';
 import "./globals.css";
 
 export const dynamic = 'force-dynamic';
@@ -84,10 +88,12 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   let isPreview = false;
+  let cmsPreviewActive = false;
   
   try {
     const draft = await draftMode();
     isPreview = draft.isEnabled;
+    cmsPreviewActive = await isCmsPreviewActive();
   } catch (error) {
     // Enhanced error handling with proper typing
     console.error('Draft mode check failed:', error);
@@ -139,39 +145,36 @@ export default async function RootLayout({
         {/* Favicon and App Icon */}
         <link rel="icon" href="/icon.svg" type="image/svg+xml" />
         <link rel="manifest" href="/manifest.json" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{if(!('serviceWorker'in navigator))return;var key='sw-cleanup-v4';navigator.serviceWorker.getRegistrations().then(function(regs){var hadRegs=regs.length>0;return Promise.all(regs.map(function(r){return r.unregister();})).then(function(){if('caches'in window){return caches.keys().then(function(keys){return Promise.all(keys.map(function(k){return caches.delete(k);}));});}}).then(function(){if(hadRegs&&!sessionStorage.getItem(key)){sessionStorage.setItem(key,'1');location.reload();}});});}catch(e){}})();`,
+          }}
+        />
       </head>
       <body className="antialiased">
         <AuthProvider>
           <AnalyticsProvider>
             <CartProvider>
-              <ErrorBoundary 
-                showDetails={process.env.NODE_ENV === 'development'}
-                fallback={
-                  <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-                    <div className="text-center">
-                      <h1 className="text-2xl font-bold text-gray-800 mb-4">
-                        Something went wrong
-                      </h1>
-                      <p className="text-gray-600">
-                        Please refresh the page or try again later.
-                      </p>
-                    </div>
-                  </div>
-                }
-              >
-                {isPreview && <PreviewBanner />}
-                <div className={isPreview ? "pt-12" : ""}>
-                  <Header siteIdentity={siteShell.identity} />
-                  <main>
+              <ErrorBoundary showDetails={process.env.NODE_ENV === 'development'}>
+                <>
+                  {isPreview && <PreviewBanner />}
+                  {cmsPreviewActive && !isPreview && <CmsPreviewBanner />}
+                  <SiteShell
+                    previewOffsetClass={(isPreview || cmsPreviewActive) ? 'pt-12' : ''}
+                    adminTools={<AdminPwaRegister />}
+                    header={<Header siteIdentity={siteShell.identity} />}
+                    footer={(
+                      <Footer
+                        siteIdentity={siteShell.identity}
+                        footerContent={siteShell.identity.footer}
+                        contactEmail={siteShell.contactEmail}
+                        socialUrls={siteShell.socialUrls}
+                      />
+                    )}
+                  >
                     {children}
-                  </main>
-                  <Footer
-                    siteIdentity={siteShell.identity}
-                    footerContent={siteShell.identity.footer}
-                    contactEmail={siteShell.contactEmail}
-                    socialUrls={siteShell.socialUrls}
-                  />
-                </div>
+                  </SiteShell>
+                </>
                 
                 {/* Performance and SEO Monitoring (development only) - Temporarily disabled for build */}
                 {/* <PerformanceMonitor />

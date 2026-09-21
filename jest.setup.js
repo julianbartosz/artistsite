@@ -58,6 +58,18 @@ jest.mock('next/cache', () => ({
 
 jest.mock('@/components/AnalyticsProvider', () => ({
   useNewsletterTracking: () => ({ trackFormView: jest.fn(), trackSignup: jest.fn() }),
+  useEcommerceTracking: () => ({
+    trackAddToCart: jest.fn(),
+    trackRemoveFromCart: jest.fn(),
+    trackViewItem: jest.fn(),
+    trackBeginCheckout: jest.fn(),
+    trackPurchase: jest.fn(),
+  }),
+}))
+
+jest.mock('@/components/admin/CmsEditAnchor', () => ({
+  __esModule: true,
+  default: () => null,
 }))
 
 // Mock fetch globally

@@ -1,3 +1,5 @@
+import { pickVariantUrl, type ImageVariantSize } from '@/lib/image-variant-url';
+
 export interface ProductVariant {
   id: string;
   name: string;
@@ -129,8 +131,16 @@ export function normalizeProduct(product: ProductInput): Product {
   } as Product;
 }
 
-export function productImageSrc(product: Product, preferred?: string): string {
-  return preferred?.trim() || product.images.thumbnail?.trim() || product.images.gallery.find(image => image.trim()) || PRODUCT_IMAGE_FALLBACK;
+export function productImageSrc(
+  product: Product,
+  preferred?: string,
+  size: ImageVariantSize = 'thumb',
+): string {
+  const base = preferred?.trim()
+    || product.images.thumbnail?.trim()
+    || product.images.gallery.find((image) => image.trim())
+    || PRODUCT_IMAGE_FALLBACK;
+  return pickVariantUrl(base, size);
 }
 
 export interface CartItemVariant {

@@ -1,25 +1,52 @@
 'use client';
 
-import React, { ChangeEvent, FormEvent, useEffect, useState } from 'react';
+import React, { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import RichTextEditor from '@/components/RichTextEditor';
+import { ThemeColorEditor } from '@/components/admin/ColorField';
+import MediaImageField from '@/components/admin/MediaImageField';
+import CommissionIntakeWizard from '@/components/admin/CommissionIntakeWizard';
+import { useLiveSiteTheme } from '@/components/admin/useLiveSiteTheme';
+import { cmsSectionElementId } from '@/lib/cms-edit-map';
 import type {
   ContactInquiryType,
   NavItem,
   SiteContentByPage,
   SiteContentPage,
+  BioSectionKey,
 } from '@/lib/site-content-shared';
 import {
   SITE_CONTENT_DEFAULTS,
   SITE_CONTENT_PAGES,
   SITE_CONTENT_PREVIEW_HREF,
+  headerDisplayName,
+  visibleNavItems,
   type HomeSectionKey,
 } from '@/lib/site-content-shared';
 
 const HOME_SECTION_LABELS: Record<HomeSectionKey, string> = {
-  featured: 'Featured works',
+  featured: 'Artwork spotlight',
   about: 'About preview',
-  blog: 'Blog preview',
+  blog: 'Updates preview',
   newsletter: 'Newsletter',
+};
+
+const BIO_SECTION_LABELS: Record<BioSectionKey, string> = {
+  statement: 'Artist statement',
+  background: 'Background',
+  achievements: 'Achievements',
+  studio: 'Studio practice',
+  collections: 'Collections and press',
+  cta: 'Closing call to action',
+};
+
+const NAV_PAGE_LABELS: Record<string, string> = {
+  home: 'Home page',
+  portfolio: 'Portfolio',
+  shop: 'Shop',
+  blog: 'Updates',
+  bio: 'Bio',
+  contact: 'Contact',
 };
 
 type ArtworkOption = { slug: string; title: string; featured: boolean };
@@ -45,13 +72,13 @@ function hydrateSiteContent(data: Record<string, unknown>): SiteContentByPage {
 }
 
 const PAGE_TABS: Array<{ key: SiteContentPage; label: string; description: string }> = [
-  { key: 'identity', label: 'Branding', description: 'Site name, navigation labels, and which pages appear in the header and footer.' },
-  { key: 'home', label: 'Home', description: 'Hero layout, section visibility, featured works, about, blog, and newsletter.' },
+  { key: 'identity', label: 'Branding', description: 'Site appearance, colors, layout structure, navigation, and footer.' },
+  { key: 'home', label: 'Home', description: 'Top banner, homepage blocks, artwork spotlight, about, blog, and newsletter.' },
   { key: 'bio', label: 'Bio', description: 'Biography sections, rich text, portraits, and which blocks appear on the public page.' },
   { key: 'contact', label: 'Contact', description: 'Form labels, inquiry types, sidebar copy, and response details.' },
   { key: 'portfolio', label: 'Portfolio', description: 'Portfolio page title and introductory copy.' },
   { key: 'shop', label: 'Shop', description: 'Shop copy, search placeholder, and purchase-information blocks.' },
-  { key: 'blog', label: 'Blog', description: 'Blog page title, subscribe button, and feed links.' },
+  { key: 'blog', label: 'Updates', description: 'Public feed, studio/journal filters, collector-only section, and subscribe links.' },
 ];
 
 function reorder<T>(items: T[], index: number, direction: -1 | 1): T[] {
@@ -122,129 +149,125 @@ function HtmlField({ label, value, onChange, help }: { label: string; value: str
   );
 }
 
-function ImageField({ label, value, onChange, help }: { label: string; value: string; onChange: (value: string) => void; help?: string }) {
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [libraryOpen, setLibraryOpen] = useState(false);
-  const [libraryLoading, setLibraryLoading] = useState(false);
-  const [libraryItems, setLibraryItems] = useState<Array<{ url: string; filename: string }>>([]);
-
-  async function upload(file: File) {
-    setUploading(true);
-    setError(null);
-    try {
-      const formData = new FormData();
-      formData.append('image', file);
-      const response = await fetch('/api/upload/image', { method: 'POST', body: formData });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Image upload failed');
-      onChange(data.url);
-      if (libraryOpen) {
-        setLibraryItems((current) => [{ url: data.url, filename: data.filename || data.url }, ...current]);
-      }
-    } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : 'Image upload failed');
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  async function openLibrary() {
-    setLibraryOpen(true);
-    setLibraryLoading(true);
-    setError(null);
-    try {
-      const response = await fetch('/api/upload/image?library=1', { cache: 'no-store' });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to load media library');
-      setLibraryItems(Array.isArray(data.items) ? data.items : []);
-    } catch (libraryError) {
-      setError(libraryError instanceof Error ? libraryError.message : 'Failed to load media library');
-      setLibraryItems([]);
-    } finally {
-      setLibraryLoading(false);
-    }
-  }
+function HeroImagePlacementPicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const options = [
+    { value: 'inline', label: 'Beside the headline', preview: (
+      <div className="flex h-12 w-full gap-1 rounded border border-gray-300 bg-gray-50 p-1">
+        <div className="flex flex-1 flex-col justify-center gap-0.5 px-1">
+          <div className="h-1 w-3/4 rounded bg-gray-400" />
+          <div className="h-1 w-1/2 rounded bg-gray-300" />
+        </div>
+        <div className="w-5 rounded bg-gray-400" />
+      </div>
+    ) },
+    { value: 'badge', label: 'Small circle below buttons', preview: (
+      <div className="flex h-12 w-full flex-col items-center justify-center gap-1 rounded border border-gray-300 bg-gray-50 p-1">
+        <div className="h-1 w-2/3 rounded bg-gray-400" />
+        <div className="h-3 w-3 rounded-full bg-gray-400" />
+      </div>
+    ) },
+    { value: 'background', label: 'Full background image', preview: (
+      <div className="relative h-12 w-full overflow-hidden rounded border border-gray-300 bg-gray-400 p-1">
+        <div className="absolute inset-0 bg-gray-500/60" />
+        <div className="relative flex h-full flex-col justify-center gap-0.5 px-1">
+          <div className="h-1 w-2/3 rounded bg-white/90" />
+          <div className="h-1 w-1/2 rounded bg-white/70" />
+        </div>
+      </div>
+    ) },
+  ] as const;
 
   return (
-    <div className="block text-sm font-medium text-gray-700">
-      <span>{label}</span>
-      <input
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900"
-        placeholder="/images/example.jpg"
-      />
-      <div className="mt-2 flex flex-wrap items-center gap-3">
-        <label className="inline-flex cursor-pointer items-center rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">
-          {uploading ? 'Uploading...' : 'Upload image'}
-          <input
-            type="file"
-            accept="image/*"
-            disabled={uploading}
-            onChange={(event: ChangeEvent<HTMLInputElement>) => {
-              const file = event.target.files?.[0];
-              if (file) void upload(file);
-              event.target.value = '';
-            }}
-            className="sr-only"
-          />
-        </label>
-        <button
-          type="button"
-          onClick={() => void openLibrary()}
-          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
-        >
-          Browse library
-        </button>
+    <fieldset>
+      <legend className="text-sm font-medium text-gray-700">Where your photo appears</legend>
+      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        {options.map((option) => (
+          <label
+            key={option.value}
+            className={`cursor-pointer rounded-md border p-2 ${value === option.value ? 'border-primary ring-2 ring-primary' : 'border-gray-200 hover:border-gray-400'}`}
+          >
+            <input
+              type="radio"
+              name="hero-image-placement"
+              value={option.value}
+              checked={value === option.value}
+              onChange={() => onChange(option.value)}
+              className="sr-only"
+            />
+            {option.preview}
+            <span className="mt-1 block text-xs text-gray-700">{option.label}</span>
+          </label>
+        ))}
       </div>
-      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
-      {help && <p className="mt-1 text-xs text-gray-500">{help}</p>}
-      {value && (
-        <img src={value} alt="" className="mt-2 h-24 w-24 rounded object-cover border border-gray-200" />
-      )}
-      {libraryOpen && (
-        <div className="mt-3 rounded-md border border-gray-200 p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-sm font-semibold text-gray-900">Media library</p>
-            <button type="button" onClick={() => setLibraryOpen(false)} className="text-xs text-gray-600 hover:text-gray-900">
-              Close
-            </button>
-          </div>
-          {libraryLoading ? (
-            <p className="text-xs text-gray-500">Loading images...</p>
-          ) : libraryItems.length === 0 ? (
-            <p className="text-xs text-gray-500">No uploaded images yet. Upload one to get started.</p>
-          ) : (
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
-              {libraryItems.map((item) => (
-                <button
-                  key={item.url}
-                  type="button"
-                  onClick={() => {
-                    onChange(item.url);
-                    setLibraryOpen(false);
-                  }}
-                  className={`relative aspect-square overflow-hidden rounded border ${value === item.url ? 'border-primary ring-2 ring-primary' : 'border-gray-200 hover:border-gray-400'}`}
-                  title={item.filename}
-                >
-                  <img src={item.url} alt="" className="h-full w-full object-cover" />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+    </fieldset>
   );
 }
 
-function EditorSection({ title, children, defaultOpen = false }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
+function EditorSection({ title, children, defaultOpen = false, id }: { title: string; children: React.ReactNode; defaultOpen?: boolean; id?: string }) {
   return (
-    <details open={defaultOpen} className="rounded-md border border-gray-200 p-4">
+    <details id={id} open={defaultOpen} className="rounded-md border border-gray-200 p-4">
       <summary className="cursor-pointer font-semibold text-gray-900">{title}</summary>
       <div className="mt-4 space-y-4">{children}</div>
     </details>
+  );
+}
+
+function LegalPagesEditor() {
+  const [privacyHtml, setPrivacyHtml] = useState('');
+  const [termsHtml, setTermsHtml] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/admin/settings')
+      .then((response) => response.json())
+      .then((data) => {
+        const records = Object.fromEntries((data.settings || []).map((item: { key: string; value?: string }) => [item.key, item.value || '']));
+        setPrivacyHtml(records.LEGAL_PRIVACY_HTML || '');
+        setTermsHtml(records.LEGAL_TERMS_HTML || '');
+      })
+      .catch(() => setMessage('Could not load legal pages.'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function saveLegalPages() {
+    setSaving(true);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          settings: {
+            LEGAL_PRIVACY_HTML: privacyHtml,
+            LEGAL_TERMS_HTML: termsHtml,
+          },
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to save legal pages');
+      setMessage('Legal pages saved.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Failed to save legal pages');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return <p className="text-sm text-gray-500">Loading legal pages…</p>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <HtmlField label="Privacy policy" value={privacyHtml} onChange={setPrivacyHtml} help="Shown at /privacy." />
+      <HtmlField label="Terms of service" value={termsHtml} onChange={setTermsHtml} help="Shown at /terms." />
+      {message && <p className="text-sm text-gray-700">{message}</p>}
+      <button type="button" onClick={() => void saveLegalPages()} disabled={saving} className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50">
+        {saving ? 'Saving legal pages…' : 'Save legal pages'}
+      </button>
+    </div>
   );
 }
 
@@ -262,7 +285,7 @@ function OrderedListEditor<T extends { key: string; label: string; visible: bool
       {items.map((item, index) => (
         <div key={item.key} className="rounded-md border border-gray-200 p-3 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-gray-900">{item.key}</p>
+            <p className="text-sm font-semibold text-gray-900">{NAV_PAGE_LABELS[item.key] || item.key}</p>
             <div className="flex gap-2">
               <button type="button" className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-40" disabled={index === 0} onClick={() => onChange(reorder(items, index, -1))}>
                 Up
@@ -290,6 +313,7 @@ function OrderedListEditor<T extends { key: string; label: string; visible: bool
 }
 
 export default function AdminSiteContent() {
+  const searchParams = useSearchParams();
   const [activePage, setActivePage] = useState<SiteContentPage>('identity');
   const [content, setContent] = useState<SiteContentByPage | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -298,6 +322,75 @@ export default function AdminSiteContent() {
   const [message, setMessage] = useState<string | null>(null);
   const [previewToken, setPreviewToken] = useState(0);
   const [artworkOptions, setArtworkOptions] = useState<ArtworkOption[]>([]);
+  const savedBaselineRef = useRef<string>('');
+  const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isDirty = content ? JSON.stringify(content) !== savedBaselineRef.current : false;
+
+  useLiveSiteTheme(content?.identity.theme);
+
+  const appearanceDirty = content && savedBaselineRef.current ? (() => {
+    try {
+      const baseline = JSON.parse(savedBaselineRef.current) as SiteContentByPage;
+      const currentAppearance = {
+        theme: content.identity.theme,
+        homeLayout: content.home.layoutTemplate,
+        shopLayout: content.shop.layout,
+        portfolioLayout: content.portfolio.layout,
+      };
+      const savedAppearance = {
+        theme: baseline.identity.theme,
+        homeLayout: baseline.home.layoutTemplate,
+        shopLayout: baseline.shop.layout,
+        portfolioLayout: baseline.portfolio.layout,
+      };
+      return JSON.stringify(currentAppearance) !== JSON.stringify(savedAppearance);
+    } catch {
+      return false;
+    }
+  })() : false;
+
+  function revertAppearance() {
+    if (!content || !savedBaselineRef.current) return;
+    try {
+      const baseline = JSON.parse(savedBaselineRef.current) as SiteContentByPage;
+      setContent({
+        ...content,
+        identity: {
+          ...content.identity,
+          theme: baseline.identity.theme,
+        },
+        home: {
+          ...content.home,
+          layoutTemplate: baseline.home.layoutTemplate,
+        },
+        shop: {
+          ...content.shop,
+          layout: { ...baseline.shop.layout },
+        },
+        portfolio: {
+          ...content.portfolio,
+          layout: { ...baseline.portfolio.layout },
+        },
+      });
+    } catch {
+      // Ignore malformed baseline snapshots.
+    }
+  }
+
+  const pushPreview = useCallback(async (snapshot: SiteContentByPage) => {
+    try {
+      await fetch('/api/admin/site-content/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(snapshot),
+      });
+      setPreviewToken((current) => current + 1);
+    } catch {
+      // Preview failures should not block editing.
+    }
+  }, []);
 
   async function loadContent() {
     setLoading(true);
@@ -306,7 +399,10 @@ export default function AdminSiteContent() {
       const response = await fetch('/api/admin/site-content', { cache: 'no-store' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to load site content');
-      setContent(hydrateSiteContent(data));
+      const hydrated = hydrateSiteContent(data);
+      setContent(hydrated);
+      savedBaselineRef.current = JSON.stringify(hydrated);
+      void pushPreview(hydrated);
     } catch (error) {
       setContent(null);
       setLoadError(error instanceof Error ? error.message : 'Failed to load site content');
@@ -314,6 +410,29 @@ export default function AdminSiteContent() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    const page = searchParams.get('page');
+    if (page && SITE_CONTENT_PAGES.includes(page as SiteContentPage)) {
+      setActivePage(page as SiteContentPage);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const section = searchParams.get('section');
+    if (!section || loading || !content) return undefined;
+
+    const elementId = cmsSectionElementId(activePage, section);
+    const timer = window.setTimeout(() => {
+      const element = document.getElementById(elementId);
+      if (element instanceof HTMLDetailsElement) {
+        element.open = true;
+      }
+      element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 150);
+
+    return () => window.clearTimeout(timer);
+  }, [searchParams, activePage, loading, content]);
 
   useEffect(() => {
     void loadContent();
@@ -332,6 +451,35 @@ export default function AdminSiteContent() {
       })
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!content) return undefined;
+    if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
+    previewTimerRef.current = setTimeout(() => {
+      void pushPreview(content);
+    }, 300);
+    return () => {
+      if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
+    };
+  }, [content, pushPreview]);
+
+  useEffect(() => {
+    if (!isDirty) return undefined;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
+
+  function requestTabChange(nextPage: SiteContentPage) {
+    if (nextPage === activePage) return;
+    if (isDirty && !window.confirm('You have unsaved changes on Site Pages. Switch tabs anyway? Your edits stay in this session until you save or leave admin.')) {
+      return;
+    }
+    setActivePage(nextPage);
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -352,11 +500,15 @@ export default function AdminSiteContent() {
           if (!current) return current;
           const next = { ...current };
           assignPage(next, activePage, data.content as SiteContentByPage[typeof activePage]);
+          savedBaselineRef.current = JSON.stringify(next);
           return next;
         });
+      } else if (content) {
+        savedBaselineRef.current = JSON.stringify(content);
       }
-      setMessage('Site content saved. Preview updated below.');
-      setPreviewToken((current) => current + 1);
+      setMessage('Site content saved.');
+      await fetch('/api/admin/site-content/preview', { method: 'DELETE', credentials: 'include' });
+      if (content) void pushPreview(content);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Failed to save site content');
     } finally {
@@ -400,7 +552,7 @@ export default function AdminSiteContent() {
           <button
             key={tab.key}
             type="button"
-            onClick={() => setActivePage(tab.key)}
+            onClick={() => requestTabChange(tab.key)}
             className={`rounded-md px-4 py-2 text-sm font-medium ${activePage === tab.key ? 'bg-gray-900 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
           >
             {tab.label}
@@ -441,46 +593,142 @@ export default function AdminSiteContent() {
                 <TextField label="Footer note" value={content.identity.footerTagline} onChange={(value) => setContent({ ...content, identity: { ...content.identity, footerTagline: value } })} />
               </div>
             </div>
-            <EditorSection title="Theme" defaultOpen>
-              <p className="text-sm text-gray-600">Colors and typography apply site-wide through CSS variables.</p>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <TextField
-                  label="Primary color"
-                  value={content.identity.theme.primaryColor}
-                  onChange={(value) => setContent({
-                    ...content,
-                    identity: { ...content.identity, theme: { ...content.identity.theme, primaryColor: value } },
-                  })}
-                  help="Hex color for buttons, header accents, and footer background."
-                />
-                <TextField
-                  label="Accent color"
-                  value={content.identity.theme.accentColor}
-                  onChange={(value) => setContent({
-                    ...content,
-                    identity: { ...content.identity, theme: { ...content.identity.theme, accentColor: value } },
-                  })}
-                  help="Secondary brand color for links and highlights."
-                />
+            <EditorSection title="Site appearance" defaultOpen id={cmsSectionElementId('identity', 'branding')}>
+              <ThemeColorEditor
+                primaryColor={content.identity.theme.primaryColor}
+                accentColor={content.identity.theme.accentColor}
+                onPrimaryChange={(value) => setContent({
+                  ...content,
+                  identity: { ...content.identity, theme: { ...content.identity.theme, primaryColor: value } },
+                })}
+                onAccentChange={(value) => setContent({
+                  ...content,
+                  identity: { ...content.identity, theme: { ...content.identity.theme, accentColor: value } },
+                })}
+                onApplyPalette={(primary, accent) => setContent({
+                  ...content,
+                  identity: {
+                    ...content.identity,
+                    theme: { ...content.identity.theme, primaryColor: primary, accentColor: accent },
+                  },
+                })}
+                fontPreset={content.identity.theme.fontPreset}
+                onFontPresetChange={(value) => setContent({
+                  ...content,
+                  identity: {
+                    ...content.identity,
+                    theme: { ...content.identity.theme, fontPreset: value },
+                  },
+                })}
+                cardStyle={content.identity.theme.cardStyle ?? 'studio'}
+                onCardStyleChange={(value) => setContent({
+                  ...content,
+                  identity: {
+                    ...content.identity,
+                    theme: { ...content.identity.theme, cardStyle: value },
+                  },
+                })}
+                spacingDensity={content.identity.theme.spacingDensity ?? 'comfortable'}
+                onSpacingDensityChange={(value) => setContent({
+                  ...content,
+                  identity: {
+                    ...content.identity,
+                    theme: { ...content.identity.theme, spacingDensity: value },
+                  },
+                })}
+                siteDisplayName={headerDisplayName(content.identity)}
+                navPreviewLabels={visibleNavItems(content.identity).map((item) => item.label)}
+                paletteSourceImage={content.home.hero.portraitImage || content.bio.hero.portraitImage}
+                canRevert={appearanceDirty}
+                onRevert={revertAppearance}
+              />
+              <div className="mt-6 space-y-4 border-t border-gray-200 pt-6">
+                <p className="text-sm font-medium text-gray-900">Page structure</p>
                 <SelectField
-                  label="Font preset"
-                  value={content.identity.theme.fontPreset}
+                  label="Homepage layout"
+                  value={content.home.layoutTemplate}
                   onChange={(value) => setContent({
                     ...content,
-                    identity: {
-                      ...content.identity,
-                      theme: { ...content.identity.theme, fontPreset: value as typeof content.identity.theme.fontPreset },
-                    },
+                    home: { ...content.home, layoutTemplate: value as typeof content.home.layoutTemplate },
                   })}
                   options={[
-                    { value: 'system', label: 'System sans-serif' },
-                    { value: 'serif', label: 'Classic serif' },
-                    { value: 'modern', label: 'Modern sans-serif' },
+                    { value: 'classic', label: 'Classic — banner first, then blocks below' },
+                    { value: 'gallery-first', label: 'Gallery first — artwork spotlight above the banner' },
+                    { value: 'story-first', label: 'Story first — about preview above the banner' },
                   ]}
+                  help="Changes which block visitors see first without hiding your banner."
                 />
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <SelectField
+                    label="Shop grid columns"
+                    value={content.shop.layout.gridColumns}
+                    onChange={(value) => setContent({
+                      ...content,
+                      shop: {
+                        ...content.shop,
+                        layout: { ...content.shop.layout, gridColumns: value as typeof content.shop.layout.gridColumns },
+                      },
+                    })}
+                    options={[
+                      { value: '2', label: '2 columns' },
+                      { value: '3', label: '3 columns' },
+                      { value: '4', label: '4 columns' },
+                    ]}
+                  />
+                  <CheckboxField
+                    label="Show shop filters"
+                    checked={content.shop.layout.showFilters}
+                    onChange={(value) => setContent({
+                      ...content,
+                      shop: {
+                        ...content.shop,
+                        layout: { ...content.shop.layout, showFilters: value },
+                      },
+                    })}
+                  />
+                  <SelectField
+                    label="Portfolio grid columns"
+                    value={content.portfolio.layout.gridColumns}
+                    onChange={(value) => setContent({
+                      ...content,
+                      portfolio: {
+                        ...content.portfolio,
+                        layout: { ...content.portfolio.layout, gridColumns: value as typeof content.portfolio.layout.gridColumns },
+                      },
+                    })}
+                    options={[
+                      { value: '2', label: '2 columns' },
+                      { value: '3', label: '3 columns' },
+                      { value: '4', label: '4 columns' },
+                    ]}
+                  />
+                  <CheckboxField
+                    label="Portfolio masonry layout"
+                    checked={content.portfolio.layout.masonry}
+                    onChange={(value) => setContent({
+                      ...content,
+                      portfolio: {
+                        ...content.portfolio,
+                        layout: { ...content.portfolio.layout, masonry: value },
+                      },
+                    })}
+                    help="Taller portrait crops instead of uniform squares."
+                  />
+                  <CheckboxField
+                    label="Show portfolio category filters"
+                    checked={content.portfolio.layout.showFilters}
+                    onChange={(value) => setContent({
+                      ...content,
+                      portfolio: {
+                        ...content.portfolio,
+                        layout: { ...content.portfolio.layout, showFilters: value },
+                      },
+                    })}
+                  />
+                </div>
               </div>
             </EditorSection>
-            <EditorSection title="Footer columns">
+            <EditorSection title="Footer columns" id={cmsSectionElementId('identity', 'footer')}>
               <TextField label="Quick links heading" value={content.identity.footer.quickLinksHeading} onChange={(value) => setContent({ ...content, identity: { ...content.identity, footer: { ...content.identity.footer, quickLinksHeading: value } } })} />
               <TextField label="Legal heading" value={content.identity.footer.legalHeading} onChange={(value) => setContent({ ...content, identity: { ...content.identity, footer: { ...content.identity.footer, legalHeading: value } } })} />
               <CheckboxField label="Show legal links" checked={content.identity.footer.showLegal} onChange={(value) => setContent({ ...content, identity: { ...content.identity, footer: { ...content.identity.footer, showLegal: value } } })} />
@@ -488,7 +736,7 @@ export default function AdminSiteContent() {
               <TextField label="Extra column heading" value={content.identity.footer.extraColumn.heading} onChange={(value) => setContent({ ...content, identity: { ...content.identity, footer: { ...content.identity.footer, extraColumn: { ...content.identity.footer.extraColumn, heading: value } } } })} help="For example: Studio hours, Visit us, or Press kit." />
               <HtmlField label="Extra column body" value={content.identity.footer.extraColumn.bodyHtml} onChange={(value) => setContent({ ...content, identity: { ...content.identity, footer: { ...content.identity.footer, extraColumn: { ...content.identity.footer.extraColumn, bodyHtml: value } } } })} />
             </EditorSection>
-            <EditorSection title="Navigation" defaultOpen>
+            <EditorSection title="Navigation" defaultOpen id={cmsSectionElementId('identity', 'navigation')}>
               <p className="text-sm text-gray-600">Reorder pages, rename links, and hide them from the header or footer. Destinations stay locked to existing site routes.</p>
               <OrderedListEditor
                 items={content.identity.navigation}
@@ -508,13 +756,18 @@ export default function AdminSiteContent() {
                 )}
               />
             </EditorSection>
+            <EditorSection title="Legal pages" id={cmsSectionElementId('identity', 'legal')}>
+              <p className="text-sm text-gray-600">Privacy and terms pages linked from your footer.</p>
+              <LegalPagesEditor />
+            </EditorSection>
           </div>
         )}
 
         {activePage === 'home' && (
           <div className="space-y-4">
-            <EditorSection title="Section order" defaultOpen>
-              <p className="text-sm text-gray-600">Control which blocks appear on the homepage and in what order. The hero always stays at the top. Hide individual sections in their own panels below.</p>
+            <p className="text-sm text-gray-600">Homepage layout and colors are in Branding → Site appearance. Edit copy and sections here.</p>
+            <EditorSection title="Homepage blocks" defaultOpen>
+              <p className="text-sm text-gray-600">Choose which blocks appear on your homepage and in what order. The top banner always stays first. Hide individual blocks in their panels below.</p>
               <div className="space-y-3">
                 {content.home.sectionOrder.map((sectionKey, index) => (
                   <div key={sectionKey} className="flex items-center justify-between rounded-md border border-gray-200 p-3">
@@ -547,27 +800,23 @@ export default function AdminSiteContent() {
                 ))}
               </div>
             </EditorSection>
-            <EditorSection title="Hero layout" defaultOpen>
+            <EditorSection title="Top of homepage" defaultOpen id={cmsSectionElementId('home', 'hero')}>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <SelectField
-                  label="Hero height"
+                  label="Banner size"
                   value={content.home.hero.height}
                   onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, height: value as typeof content.home.hero.height } } })}
                   options={[
                     { value: 'compact', label: 'Compact — artwork appears sooner' },
-                    { value: 'full', label: 'Full screen' },
+                    { value: 'full', label: 'Tall — full screen banner' },
                   ]}
                 />
-                <SelectField
-                  label="Portrait placement"
-                  value={content.home.hero.imagePlacement}
-                  onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, imagePlacement: value as typeof content.home.hero.imagePlacement } } })}
-                  options={[
-                    { value: 'inline', label: 'Beside the headline' },
-                    { value: 'badge', label: 'Small circle below the buttons' },
-                    { value: 'background', label: 'Full-bleed background image' },
-                  ]}
-                />
+                <div className="md:col-span-2">
+                  <HeroImagePlacementPicker
+                    value={content.home.hero.imagePlacement}
+                    onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, imagePlacement: value as typeof content.home.hero.imagePlacement } } })}
+                  />
+                </div>
                 <SelectField
                   label="Primary button"
                   value={content.home.hero.primaryCta}
@@ -580,14 +829,14 @@ export default function AdminSiteContent() {
                   help="The filled button. Other buttons become outlines."
                 />
                 <CheckboxField
-                  label="Show secondary hero buttons"
+                  label="Show extra buttons below the main button"
                   checked={content.home.hero.showSecondaryCtas}
                   onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, showSecondaryCtas: value } } })}
-                  help="Turn off to show only the primary button."
+                  help="Turn off to show only the main button."
                 />
               </div>
             </EditorSection>
-            <EditorSection title="Hero copy" defaultOpen>
+            <EditorSection title="Headline & welcome message" defaultOpen>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <TextField label="Title line 1" value={content.home.hero.titleLine1} onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, titleLine1: value } } })} />
                 <TextField label="Title line 2" value={content.home.hero.titleLine2} onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, titleLine2: value } } })} />
@@ -596,12 +845,28 @@ export default function AdminSiteContent() {
                 <TextField label="Portfolio button" value={content.home.hero.ctaPortfolio} onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, ctaPortfolio: value } } })} />
                 <TextField label="Contact button" value={content.home.hero.ctaContact} onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, ctaContact: value } } })} />
                 <div className="md:col-span-2">
-                  <ImageField label="Portrait image" value={content.home.hero.portraitImage} onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, portraitImage: value } } })} help="Upload an image or paste a path. Leave blank to hide." />
+                  <MediaImageField label="Your photo" value={content.home.hero.portraitImage} onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, portraitImage: value } } })} help="Upload an image or pick from your library. Leave blank to hide." />
                 </div>
               </div>
             </EditorSection>
-            <EditorSection title="Featured works">
+            <EditorSection title="Artwork spotlight" id={cmsSectionElementId('home', 'featured')}>
               <CheckboxField label="Show this section" checked={content.home.featured.showSection} onChange={(value) => setContent({ ...content, home: { ...content.home, featured: { ...content.home.featured, showSection: value } } })} />
+              <SelectField
+                label="Grid columns"
+                value={content.home.featured.columns}
+                onChange={(value) => setContent({
+                  ...content,
+                  home: {
+                    ...content.home,
+                    featured: { ...content.home.featured, columns: value as typeof content.home.featured.columns },
+                  },
+                })}
+                options={[
+                  { value: '2', label: '2 columns' },
+                  { value: '3', label: '3 columns' },
+                  { value: '4', label: '4 columns' },
+                ]}
+              />
               <SelectField
                 label="Which works to show"
                 value={content.home.featured.selectionMode}
@@ -630,6 +895,12 @@ export default function AdminSiteContent() {
                   });
                 }}
                 help="Between 1 and 12."
+              />
+              <TextField
+                label="Empty section message"
+                value={content.home.featured.emptyMessage}
+                onChange={(value) => setContent({ ...content, home: { ...content.home, featured: { ...content.home.featured, emptyMessage: value } } })}
+                help="Shown when no works match your selection."
               />
               {content.home.featured.selectionMode === 'manual' && (
                 <div className="space-y-2">
@@ -670,21 +941,22 @@ export default function AdminSiteContent() {
                 onChange={(value) => setContent({ ...content, home: { ...content.home, featured: { ...content.home.featured, showDescriptions: value } } })}
               />
             </EditorSection>
-            <EditorSection title="About preview">
+            <EditorSection title="About preview" id={cmsSectionElementId('home', 'about')}>
               <CheckboxField label="Show this section" checked={content.home.about.showSection} onChange={(value) => setContent({ ...content, home: { ...content.home, about: { ...content.home.about, showSection: value } } })} />
               <TextField label="Section title" value={content.home.about.title} onChange={(value) => setContent({ ...content, home: { ...content.home, about: { ...content.home.about, title: value } } })} />
               <TextAreaField label="First paragraph" value={content.home.about.paragraph1} onChange={(value) => setContent({ ...content, home: { ...content.home, about: { ...content.home.about, paragraph1: value } } })} />
               <TextAreaField label="Second paragraph" value={content.home.about.paragraph2} onChange={(value) => setContent({ ...content, home: { ...content.home, about: { ...content.home.about, paragraph2: value } } })} />
               <TextField label="Call-to-action button" value={content.home.about.cta} onChange={(value) => setContent({ ...content, home: { ...content.home, about: { ...content.home.about, cta: value } } })} />
-              <ImageField label="Studio image" value={content.home.about.studioImage} onChange={(value) => setContent({ ...content, home: { ...content.home, about: { ...content.home.about, studioImage: value } } })} help="Leave blank to hide the image." />
+              <MediaImageField label="Studio image" value={content.home.about.studioImage} onChange={(value) => setContent({ ...content, home: { ...content.home, about: { ...content.home.about, studioImage: value } } })} help="Leave blank to hide the image." />
             </EditorSection>
-            <EditorSection title="Blog preview">
+            <EditorSection title="Updates preview" id={cmsSectionElementId('home', 'blog')}>
               <CheckboxField label="Show this section" checked={content.home.blog.showSection} onChange={(value) => setContent({ ...content, home: { ...content.home, blog: { ...content.home.blog, showSection: value } } })} />
               <TextField label="Section title" value={content.home.blog.title} onChange={(value) => setContent({ ...content, home: { ...content.home, blog: { ...content.home.blog, title: value } } })} />
               <TextAreaField label="Section description" value={content.home.blog.description} onChange={(value) => setContent({ ...content, home: { ...content.home, blog: { ...content.home.blog, description: value } } })} />
+              <TextField label="Empty section message" value={content.home.blog.emptyMessage} onChange={(value) => setContent({ ...content, home: { ...content.home, blog: { ...content.home.blog, emptyMessage: value } } })} help="Shown when there are no public updates yet." />
               <TextField label="View-all link text" value={content.home.blog.cta} onChange={(value) => setContent({ ...content, home: { ...content.home, blog: { ...content.home.blog, cta: value } } })} />
             </EditorSection>
-            <EditorSection title="Newsletter">
+            <EditorSection title="Newsletter" id={cmsSectionElementId('home', 'newsletter')}>
               <CheckboxField label="Show this section" checked={content.home.newsletter.showSection} onChange={(value) => setContent({ ...content, home: { ...content.home, newsletter: { ...content.home.newsletter, showSection: value } } })} />
               <TextField label="Section title" value={content.home.newsletter.title} onChange={(value) => setContent({ ...content, home: { ...content.home, newsletter: { ...content.home.newsletter, title: value } } })} />
               <TextAreaField label="Section description" value={content.home.newsletter.description} onChange={(value) => setContent({ ...content, home: { ...content.home, newsletter: { ...content.home.newsletter, description: value } } })} />
@@ -697,6 +969,40 @@ export default function AdminSiteContent() {
 
         {activePage === 'bio' && (
           <div className="space-y-4">
+            <EditorSection title="Section order" defaultOpen>
+              <p className="text-sm text-gray-600">Reorder biography blocks on the public page. Background and achievements stay side-by-side when they are next to each other.</p>
+              <div className="space-y-3">
+                {content.bio.sectionOrder.map((sectionKey, index) => (
+                  <div key={sectionKey} className="flex items-center justify-between rounded-md border border-gray-200 p-3">
+                    <span className="text-sm font-medium text-gray-900">{BIO_SECTION_LABELS[sectionKey]}</span>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-40"
+                        disabled={index === 0}
+                        onClick={() => setContent({
+                          ...content,
+                          bio: { ...content.bio, sectionOrder: reorder(content.bio.sectionOrder, index, -1) },
+                        })}
+                      >
+                        Up
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-40"
+                        disabled={index === content.bio.sectionOrder.length - 1}
+                        onClick={() => setContent({
+                          ...content,
+                          bio: { ...content.bio, sectionOrder: reorder(content.bio.sectionOrder, index, 1) },
+                        })}
+                      >
+                        Down
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </EditorSection>
             <EditorSection title="Visible sections" defaultOpen>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <CheckboxField label="Artist statement" checked={content.bio.showStatement} onChange={(value) => setContent({ ...content, bio: { ...content.bio, showStatement: value } })} />
@@ -707,29 +1013,33 @@ export default function AdminSiteContent() {
                 <CheckboxField label="Closing call to action" checked={content.bio.showCta} onChange={(value) => setContent({ ...content, bio: { ...content.bio, showCta: value } })} />
               </div>
             </EditorSection>
-            <EditorSection title="Hero" defaultOpen>
-              <TextField label="Hero title" value={content.bio.hero.title} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, title: value } } })} />
-              <TextAreaField label="Hero subtitle" value={content.bio.hero.subtitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, subtitle: value } } })} />
-              <ImageField label="Portrait image" value={content.bio.hero.portraitImage} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, portraitImage: value } } })} help="Leave blank to hide." />
-              <TextField label="Hero portfolio button" value={content.bio.hero.ctaPortfolio} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, ctaPortfolio: value } } })} help="Leave blank to hide this button." />
-              <TextField label="Hero contact button" value={content.bio.hero.ctaContact} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, ctaContact: value } } })} help="Leave blank to hide this button." />
+            <EditorSection title="Welcome area" defaultOpen id={cmsSectionElementId('bio', 'hero')}>
+              <TextField label="Page title" value={content.bio.hero.title} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, title: value } } })} />
+              <TextAreaField label="Intro text" value={content.bio.hero.subtitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, subtitle: value } } })} />
+              <MediaImageField label="Your photo" value={content.bio.hero.portraitImage} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, portraitImage: value } } })} help="Leave blank to hide." />
+              <TextField label="Portfolio button" value={content.bio.hero.ctaPortfolio} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, ctaPortfolio: value } } })} help="Leave blank to hide this button." />
+              <TextField label="Contact button" value={content.bio.hero.ctaContact} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, ctaContact: value } } })} help="Leave blank to hide this button." />
             </EditorSection>
-            <EditorSection title="Statement and studio">
+            <EditorSection title="Artist statement" id={cmsSectionElementId('bio', 'statement')}>
               <TextField label="Artist statement heading" value={content.bio.statementTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, statementTitle: value } })} />
               <HtmlField label="Artist statement" value={content.bio.artistStatementHtml} onChange={(value) => setContent({ ...content, bio: { ...content.bio, artistStatementHtml: value } })} />
+            </EditorSection>
+            <EditorSection title="Studio practice" id={cmsSectionElementId('bio', 'studio')}>
               <TextField label="Studio section heading" value={content.bio.studioTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, studioTitle: value } })} />
-              <ImageField label="Studio image" value={content.bio.studioImage} onChange={(value) => setContent({ ...content, bio: { ...content.bio, studioImage: value } })} />
+              <MediaImageField label="Studio image" value={content.bio.studioImage} onChange={(value) => setContent({ ...content, bio: { ...content.bio, studioImage: value } })} />
               <HtmlField label="Studio practice section" value={content.bio.studioPracticeHtml} onChange={(value) => setContent({ ...content, bio: { ...content.bio, studioPracticeHtml: value } })} />
             </EditorSection>
-            <EditorSection title="Background and achievements">
+            <EditorSection title="Background and achievements" id={cmsSectionElementId('bio', 'background')}>
               <TextField label="Background heading" value={content.bio.backgroundTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, backgroundTitle: value } })} />
               <HtmlField label="Background section" value={content.bio.backgroundHtml} help="Education and professional experience." onChange={(value) => setContent({ ...content, bio: { ...content.bio, backgroundHtml: value } })} />
               <TextField label="Achievements heading" value={content.bio.achievementsTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, achievementsTitle: value } })} />
               <HtmlField label="Achievements section" value={content.bio.achievementsHtml} onChange={(value) => setContent({ ...content, bio: { ...content.bio, achievementsHtml: value } })} />
             </EditorSection>
-            <EditorSection title="Collections and closing">
+            <EditorSection title="Collections and press" id={cmsSectionElementId('bio', 'collections')}>
               <TextField label="Collections heading" value={content.bio.collectionsTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, collectionsTitle: value } })} />
               <HtmlField label="Collections and press section" value={content.bio.collectionsHtml} onChange={(value) => setContent({ ...content, bio: { ...content.bio, collectionsHtml: value } })} />
+            </EditorSection>
+            <EditorSection title="Closing call to action" id={cmsSectionElementId('bio', 'cta')}>
               <TextField label="Closing section title" value={content.bio.cta.title} onChange={(value) => setContent({ ...content, bio: { ...content.bio, cta: { ...content.bio.cta, title: value } } })} />
               <TextAreaField label="Closing section subtitle" value={content.bio.cta.subtitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, cta: { ...content.bio.cta, subtitle: value } } })} />
               <TextField label="Closing portfolio button" value={content.bio.cta.portfolioLabel} onChange={(value) => setContent({ ...content, bio: { ...content.bio, cta: { ...content.bio.cta, portfolioLabel: value } } })} help="Leave blank to hide." />
@@ -741,7 +1051,7 @@ export default function AdminSiteContent() {
 
         {activePage === 'contact' && (
           <div className="space-y-4">
-            <EditorSection title="Page and form" defaultOpen>
+            <EditorSection title="Contact page intro" defaultOpen id={cmsSectionElementId('contact', 'header')}>
               <TextField label="Page title" value={content.contact.header.title} onChange={(value) => setContent({ ...content, contact: { ...content.contact, header: { ...content.contact.header, title: value } } })} />
               <TextAreaField label="Page subtitle" value={content.contact.header.subtitle} onChange={(value) => setContent({ ...content, contact: { ...content.contact, header: { ...content.contact.header, subtitle: value } } })} />
               <TextField label="Form heading" value={content.contact.form.title} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, title: value } } })} />
@@ -757,8 +1067,12 @@ export default function AdminSiteContent() {
               <TextField label="Subject placeholder" value={content.contact.form.subjectPlaceholder} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, subjectPlaceholder: value } } })} />
               <TextAreaField label="Message placeholder" value={content.contact.form.messagePlaceholder} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, messagePlaceholder: value } } })} />
             </EditorSection>
-            <EditorSection title="Inquiry types">
-              <p className="text-sm text-gray-600">Hide types you do not use, rename them, and set the order visitors see. Hidden types stay valid if a previous form submission used them.</p>
+            <EditorSection title="Inquiry types" id={cmsSectionElementId('contact', 'inquiry')}>
+              <CommissionIntakeWizard
+                contact={content.contact}
+                onApply={(nextContact) => setContent({ ...content, contact: nextContact })}
+              />
+              <p className="text-sm text-gray-600">Fine-tune labels and order below. Hidden types stay valid if a previous form submission used them.</p>
               <OrderedListEditor
                 items={content.contact.form.inquiryTypes}
                 onChange={(inquiryTypes: ContactInquiryType[]) => setContent({
@@ -767,9 +1081,9 @@ export default function AdminSiteContent() {
                 })}
               />
             </EditorSection>
-            <EditorSection title="Sidebar">
-              <TextField label="Sidebar heading" value={content.contact.sidebar.connectTitle} onChange={(value) => setContent({ ...content, contact: { ...content.contact, sidebar: { ...content.contact.sidebar, connectTitle: value } } })} />
-              <TextAreaField label="Sidebar intro" value={content.contact.sidebar.connectText} onChange={(value) => setContent({ ...content, contact: { ...content.contact, sidebar: { ...content.contact.sidebar, connectText: value } } })} />
+            <EditorSection title="Side panel" id={cmsSectionElementId('contact', 'sidebar')}>
+              <TextField label="Side panel heading" value={content.contact.sidebar.connectTitle} onChange={(value) => setContent({ ...content, contact: { ...content.contact, sidebar: { ...content.contact.sidebar, connectTitle: value } } })} />
+              <TextAreaField label="Side panel intro" value={content.contact.sidebar.connectText} onChange={(value) => setContent({ ...content, contact: { ...content.contact, sidebar: { ...content.contact.sidebar, connectText: value } } })} />
               <TextField label="Contact info heading" value={content.contact.sidebar.contactInfoTitle} onChange={(value) => setContent({ ...content, contact: { ...content.contact, sidebar: { ...content.contact.sidebar, contactInfoTitle: value } } })} />
               <TextField label="Location" value={content.contact.sidebar.location} onChange={(value) => setContent({ ...content, contact: { ...content.contact, sidebar: { ...content.contact.sidebar, location: value } } })} />
               <TextField label="Instagram handle" value={content.contact.sidebar.instagramHandle} onChange={(value) => setContent({ ...content, contact: { ...content.contact, sidebar: { ...content.contact.sidebar, instagramHandle: value } } })} />
@@ -777,7 +1091,7 @@ export default function AdminSiteContent() {
               <HtmlField label="Response time block" value={content.contact.sidebar.responseTimeHtml} help="Collapses on phones." onChange={(value) => setContent({ ...content, contact: { ...content.contact, sidebar: { ...content.contact.sidebar, responseTimeHtml: value } } })} />
               <TextField label="Commission heading" value={content.contact.sidebar.commissionTitle} onChange={(value) => setContent({ ...content, contact: { ...content.contact, sidebar: { ...content.contact.sidebar, commissionTitle: value } } })} />
               <HtmlField label="Commission info block" value={content.contact.sidebar.commissionHtml} onChange={(value) => setContent({ ...content, contact: { ...content.contact, sidebar: { ...content.contact.sidebar, commissionHtml: value } } })} />
-              <ImageField label="Portrait image" value={content.contact.portraitImage} onChange={(value) => setContent({ ...content, contact: { ...content.contact, portraitImage: value } })} />
+              <MediaImageField label="Portrait image" value={content.contact.portraitImage} onChange={(value) => setContent({ ...content, contact: { ...content.contact, portraitImage: value } })} />
             </EditorSection>
           </div>
         )}
@@ -795,31 +1109,22 @@ export default function AdminSiteContent() {
             />
             <TextField label="Page title" value={content.portfolio.title} onChange={(value) => setContent({ ...content, portfolio: { ...content.portfolio, title: value } })} />
             <TextAreaField label="Page subtitle" value={content.portfolio.subtitle} onChange={(value) => setContent({ ...content, portfolio: { ...content.portfolio, subtitle: value } })} />
-            <EditorSection title="Gallery layout" defaultOpen>
-              <SelectField
-                label="Grid columns"
-                value={content.portfolio.layout.gridColumns}
-                onChange={(value) => setContent({
-                  ...content,
-                  portfolio: {
-                    ...content.portfolio,
-                    layout: { ...content.portfolio.layout, gridColumns: value as typeof content.portfolio.layout.gridColumns },
-                  },
-                })}
-                options={[
-                  { value: '2', label: '2 columns' },
-                  { value: '3', label: '3 columns' },
-                  { value: '4', label: '4 columns' },
-                ]}
-              />
-              <CheckboxField label="Show category filters" checked={content.portfolio.layout.showFilters} onChange={(value) => setContent({ ...content, portfolio: { ...content.portfolio, layout: { ...content.portfolio.layout, showFilters: value } } })} />
-              <CheckboxField label="Masonry layout" checked={content.portfolio.layout.masonry} onChange={(value) => setContent({ ...content, portfolio: { ...content.portfolio, layout: { ...content.portfolio.layout, masonry: value } } })} help="Taller portrait crops instead of uniform squares." />
-            </EditorSection>
+            <SelectField
+              label="Artwork page layout"
+              value={content.portfolio.artworkDetailLayout}
+              onChange={(value) => setContent({ ...content, portfolio: { ...content.portfolio, artworkDetailLayout: value as typeof content.portfolio.artworkDetailLayout } })}
+              options={[
+                { value: 'standard', label: 'Standard — gallery and details side by side' },
+                { value: 'gallery-focus', label: 'Gallery focus — full-width image above details' },
+              ]}
+            />
+            <p className="text-sm text-gray-600">Grid layout and filters are in Branding → Site appearance.</p>
           </div>
         )}
 
         {activePage === 'shop' && (
           <div className="space-y-4">
+            <p className="text-sm text-gray-600">Shop grid layout is in Branding → Site appearance.</p>
             <SelectField
               label="Listing header size"
               value={content.shop.hero.height}
@@ -834,8 +1139,27 @@ export default function AdminSiteContent() {
             <TextField label="Search placeholder" value={content.shop.searchPlaceholder} onChange={(value) => setContent({ ...content, shop: { ...content.shop, searchPlaceholder: value } })} />
             <CheckboxField label="Show recently viewed" checked={content.shop.showRecentlyViewed} onChange={(value) => setContent({ ...content, shop: { ...content.shop, showRecentlyViewed: value } })} />
             <CheckboxField label="Show recommendations" checked={content.shop.showRecommendations} onChange={(value) => setContent({ ...content, shop: { ...content.shop, showRecommendations: value } })} help="Shown to all visitors; guests see featured works." />
-            <TextAreaField label="Checkout trust copy" value={content.shop.checkoutTrustCopy} onChange={(value) => setContent({ ...content, shop: { ...content.shop, checkoutTrustCopy: value } })} help="Displayed below the pay button on checkout." />
-            <EditorSection title="Purchase information">
+            <EditorSection title="Checkout & confirmation" id={cmsSectionElementId('shop', 'checkout')}>
+              <TextField label="Checkout page title" value={content.shop.checkoutPageTitle} onChange={(value) => setContent({ ...content, shop: { ...content.shop, checkoutPageTitle: value } })} />
+              <TextField label="Checkout page subtitle" value={content.shop.checkoutPageSubtitle} onChange={(value) => setContent({ ...content, shop: { ...content.shop, checkoutPageSubtitle: value } })} />
+              <TextField label="Step: Contact" value={content.shop.checkoutStepContact} onChange={(value) => setContent({ ...content, shop: { ...content.shop, checkoutStepContact: value } })} />
+              <TextField label="Step: Shipping" value={content.shop.checkoutStepShipping} onChange={(value) => setContent({ ...content, shop: { ...content.shop, checkoutStepShipping: value } })} />
+              <TextField label="Step: Review & pay" value={content.shop.checkoutStepReview} onChange={(value) => setContent({ ...content, shop: { ...content.shop, checkoutStepReview: value } })} />
+              <TextAreaField label="Checkout trust copy" value={content.shop.checkoutTrustCopy} onChange={(value) => setContent({ ...content, shop: { ...content.shop, checkoutTrustCopy: value } })} help="Displayed below the pay button on checkout." />
+              <TextField label="Success page title" value={content.shop.successTitle} onChange={(value) => setContent({ ...content, shop: { ...content.shop, successTitle: value } })} />
+              <TextField label="Success page subtitle" value={content.shop.successSubtitle} onChange={(value) => setContent({ ...content, shop: { ...content.shop, successSubtitle: value } })} />
+              <TextAreaField label="What happens next (HTML)" value={content.shop.successNextStepsHtml} onChange={(value) => setContent({ ...content, shop: { ...content.shop, successNextStepsHtml: value } })} help="Use a simple list for post-purchase steps." />
+            </EditorSection>
+            <SelectField
+              label="Product page layout"
+              value={content.shop.productDetailLayout}
+              onChange={(value) => setContent({ ...content, shop: { ...content.shop, productDetailLayout: value as typeof content.shop.productDetailLayout } })}
+              options={[
+                { value: 'standard', label: 'Standard — gallery and details side by side' },
+                { value: 'gallery-focus', label: 'Gallery focus — full-width image above details' },
+              ]}
+            />
+            <EditorSection title="Purchase information" id={cmsSectionElementId('shop', 'purchase')}>
               <CheckboxField label="Show this section" checked={content.shop.showPurchaseInfo} onChange={(value) => setContent({ ...content, shop: { ...content.shop, showPurchaseInfo: value } })} />
               <TextField label="Section title" value={content.shop.purchaseInfo.title} onChange={(value) => setContent({ ...content, shop: { ...content.shop, purchaseInfo: { ...content.shop.purchaseInfo, title: value } } })} />
               <TextField label="Authenticity heading" value={content.shop.purchaseInfo.authenticityTitle} onChange={(value) => setContent({ ...content, shop: { ...content.shop, purchaseInfo: { ...content.shop.purchaseInfo, authenticityTitle: value } } })} />
@@ -850,7 +1174,7 @@ export default function AdminSiteContent() {
         )}
 
         {activePage === 'blog' && (
-          <div className="space-y-4">
+          <div className="space-y-4" id={cmsSectionElementId('blog', 'listing')}>
             <SelectField
               label="Listing header size"
               value={content.blog.hero.height}
@@ -860,8 +1184,60 @@ export default function AdminSiteContent() {
                 { value: 'full', label: 'Spacious' },
               ]}
             />
+            <p className="text-sm text-gray-600">The header and footer link label is edited in Branding → Navigation (the Updates item). This page controls the feed itself.</p>
             <TextField label="Page title" value={content.blog.title} onChange={(value) => setContent({ ...content, blog: { ...content.blog, title: value } })} />
             <TextAreaField label="Page subtitle" value={content.blog.subtitle} onChange={(value) => setContent({ ...content, blog: { ...content.blog, subtitle: value } })} />
+            <SelectField
+              label="Feed layout"
+              value={content.blog.feedLayout}
+              onChange={(value) => setContent({ ...content, blog: { ...content.blog, feedLayout: value as typeof content.blog.feedLayout } })}
+              options={[
+                { value: 'timeline', label: 'Timeline (captions under media)' },
+                { value: 'grid', label: 'Grid (studio wall)' },
+              ]}
+            />
+            <CheckboxField label="Show journal / studio filters" checked={content.blog.showFormatFilters} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showFormatFilters: value } })} />
+            <TextField label="Journal filter label" value={content.blog.journalLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, journalLabel: value } })} />
+            <TextField label="Studio filter label" value={content.blog.studioLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, studioLabel: value } })} />
+            <CheckboxField label="Show collector-only section" checked={content.blog.showPrivateSection} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showPrivateSection: value } })} help="Private updates appear only to signed-in emails you whitelist on the post." />
+            <TextField label="Collector section title" value={content.blog.privateSectionTitle} onChange={(value) => setContent({ ...content, blog: { ...content.blog, privateSectionTitle: value } })} />
+            <TextAreaField label="Collector section description" value={content.blog.privateSectionSubtitle} onChange={(value) => setContent({ ...content, blog: { ...content.blog, privateSectionSubtitle: value } })} />
+            <TextField label="Sign-in button" value={content.blog.privateSignInLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, privateSignInLabel: value } })} />
+            <TextField label="Quick look button" value={content.blog.quickLookLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, quickLookLabel: value } })} />
+            <TextField label="Save update button" value={content.blog.saveUpdateLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, saveUpdateLabel: value } })} />
+            <TextField label="Ask artist button" value={content.blog.askArtistLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, askArtistLabel: value } })} />
+            <TextField label="Featured badge label" value={content.blog.featuredLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, featuredLabel: value } })} />
+            <TextField label="Public tab label" value={content.blog.publicTabLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, publicTabLabel: value } })} />
+            <TextField label="All filter label" value={content.blog.allFilterLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, allFilterLabel: value } })} />
+            <CheckboxField label="Show publish date on timeline posts" checked={content.blog.showFeedDate} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showFeedDate: value } })} />
+            <CheckboxField label="Show author on timeline posts" checked={content.blog.showFeedAuthor} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showFeedAuthor: value } })} />
+            <CheckboxField label="Show tags on timeline posts" checked={content.blog.showFeedTags} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showFeedTags: value } })} />
+            <CheckboxField label="Show comments on updates" checked={content.blog.showComments} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showComments: value } })} />
+            <CheckboxField label="Show likes on updates" checked={content.blog.showLikes} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showLikes: value } })} />
+            <TextField label="Comments section label" value={content.blog.commentsLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, commentsLabel: value } })} />
+            <TextField label="Like button label" value={content.blog.likeLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, likeLabel: value } })} />
+            <SelectField
+              label="Auto-create private update when order enters processing"
+              value={content.blog.autoOrderProgressPost}
+              onChange={(value) => setContent({ ...content, blog: { ...content.blog, autoOrderProgressPost: value as typeof content.blog.autoOrderProgressPost } })}
+              options={[
+                { value: 'off', label: 'Off' },
+                { value: 'draft', label: 'Create as draft for review' },
+                { value: 'publish', label: 'Publish and notify collector' },
+              ]}
+            />
+            <TextAreaField label="Order progress update template" value={content.blog.autoOrderProgressExcerpt} onChange={(value) => setContent({ ...content, blog: { ...content.blog, autoOrderProgressExcerpt: value } })} help="Use {{summary}} and {{orderNumber}} placeholders." />
+            <CheckboxField label="Send public updates digest email" checked={content.blog.digestEnabled} onChange={(value) => setContent({ ...content, blog: { ...content.blog, digestEnabled: value } })} />
+            <TextField label="Digest interval (days)" value={String(content.blog.digestIntervalDays)} onChange={(value) => {
+              const parsed = Number.parseInt(value, 10);
+              if (!Number.isFinite(parsed)) return;
+              setContent({ ...content, blog: { ...content.blog, digestIntervalDays: Math.min(30, Math.max(1, parsed)) } });
+            }} />
+            <TextField label="Digest email subject" value={content.blog.digestSubject} onChange={(value) => setContent({ ...content, blog: { ...content.blog, digestSubject: value } })} />
+            <TextAreaField label="Digest email intro" value={content.blog.digestIntro} onChange={(value) => setContent({ ...content, blog: { ...content.blog, digestIntro: value } })} />
+            <CheckboxField label="Send collector private-updates digest" checked={content.blog.collectorDigestEnabled} onChange={(value) => setContent({ ...content, blog: { ...content.blog, collectorDigestEnabled: value } })} />
+            <TextField label="Collector digest subject" value={content.blog.collectorDigestSubject} onChange={(value) => setContent({ ...content, blog: { ...content.blog, collectorDigestSubject: value } })} />
+            <TextAreaField label="Collector digest intro" value={content.blog.collectorDigestIntro} onChange={(value) => setContent({ ...content, blog: { ...content.blog, collectorDigestIntro: value } })} />
             <CheckboxField label="Show subscribe button" checked={content.blog.showSubscribe} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showSubscribe: value } })} />
             <TextField label="Subscribe button label" value={content.blog.subscribeLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, subscribeLabel: value } })} />
             <CheckboxField label="Show RSS and Atom feeds" checked={content.blog.showRss} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showRss: value } })} />
@@ -879,16 +1255,19 @@ export default function AdminSiteContent() {
         <div className="border-b px-4 py-3 flex items-center justify-between">
           <div>
             <h3 className="text-sm font-semibold text-gray-900">Live preview</h3>
-            <p className="text-xs text-gray-500">Refreshes after each save for the active tab.</p>
+            <p className="text-xs text-gray-500">Updates as you edit — save to publish changes.</p>
           </div>
-          <a href={`${previewHref}?preview=${previewToken}`} target="_blank" rel="noreferrer" className="text-sm font-medium text-primary hover:opacity-80">
-            Open full page
-          </a>
+          <div className="flex items-center gap-3">
+            {isDirty && <span className="text-xs font-medium text-amber-700">Unsaved changes</span>}
+            <a href={`${previewHref}?cmsPreview=1&preview=${previewToken}`} target="_blank" rel="noreferrer" className="text-sm font-medium text-primary hover:opacity-80">
+              Open full page
+            </a>
+          </div>
         </div>
         <iframe
           key={`${activePage}-${previewToken}`}
           title={`Preview ${activeTab.label}`}
-          src={`${previewHref}?preview=${previewToken}`}
+          src={`${previewHref}?cmsPreview=1&preview=${previewToken}`}
           className="w-full h-[720px] bg-white"
         />
       </div>

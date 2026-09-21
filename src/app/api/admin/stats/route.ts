@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/auth';
 import { getAllPosts } from '@/lib/markdown';
 import { getAllProducts } from '@/lib/commerce-server';
 import { db } from '@/lib/db';
+import { getLatestCelebrationOrder } from '@/lib/order-celebration';
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,13 +14,16 @@ export async function GET(request: NextRequest) {
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    const [posts, products, totalArtworks, productViews, monthlyProductViews] = await Promise.all([
+    const [posts, products, totalArtworks, productViews, monthlyProductViews, totalOrders] = await Promise.all([
       getAllPosts(true),
       getAllProducts(),
       db.artwork.count(),
       db.productView.count(),
       db.productView.count({ where: { createdAt: { gte: monthStart } } }),
+      db.order.count(),
     ]);
+
+    const latestCelebration = await getLatestCelebrationOrder();
 
     const stats = {
       totalPosts: posts.length,
@@ -29,11 +33,13 @@ export async function GET(request: NextRequest) {
       totalArtworks,
       totalViews: productViews,
       monthlyViews: monthlyProductViews,
+      totalOrders,
+      latestCelebration,
     };
 
     return NextResponse.json(stats, {
       headers: {
-        'Cache-Control': 'private, max-age=300', // 5 minutes cache
+        'Cache-Control': 'private, max-age=60',
       },
     });
     

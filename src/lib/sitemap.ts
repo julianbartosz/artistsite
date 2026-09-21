@@ -1,4 +1,5 @@
 import { getAllPosts } from '@/lib/markdown';
+import { UPDATES_PATH, updatesPostPath } from '@/lib/site-content-shared';
 import { getAllArtworks } from '@/lib/portfolio';
 import { getAllProducts } from '@/lib/commerce-server';
 
@@ -17,7 +18,7 @@ export async function generateSitemap(): Promise<SitemapEntry[]> {
   // Static pages
   const staticPages = [
     { url: '', priority: 1.0, changeFreq: 'daily' as const },
-    { url: '/blog', priority: 0.8, changeFreq: 'weekly' as const },
+    { url: UPDATES_PATH, priority: 0.8, changeFreq: 'weekly' as const },
     { url: '/portfolio', priority: 0.9, changeFreq: 'weekly' as const },
     { url: '/shop', priority: 0.8, changeFreq: 'daily' as const },
     { url: '/bio', priority: 0.7, changeFreq: 'monthly' as const },
@@ -38,7 +39,7 @@ export async function generateSitemap(): Promise<SitemapEntry[]> {
     const posts = await getAllPosts();
     posts.forEach(post => {
       sitemap.push({
-        url: `${SITE_URL}/blog/${post.slug}`,
+        url: `${SITE_URL}${updatesPostPath(post.slug)}`,
         lastModified: new Date(post.publishedAt),
         changeFrequency: 'monthly',
         priority: 0.6,

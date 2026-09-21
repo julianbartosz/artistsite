@@ -28,11 +28,12 @@ async function runScheduledMarketing(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const [email, social, cartRecovery, expiredReservationsReleased] = await Promise.all([
+  const [email, social, cartRecovery, expiredReservationsReleased, updatesDigest] = await Promise.all([
     processDueEmailCampaigns(),
     processDueSocialPosts(),
     processDueCartRecovery(),
     InventoryService.releaseExpiredReservations(),
+    import('@/lib/updates-digest').then((mod) => mod.processUpdatesDigests()),
   ]);
 
   await setConfig('CRON_LAST_RUN_AT', new Date().toISOString(), { encrypt: false });
@@ -42,7 +43,7 @@ async function runScheduledMarketing(request: NextRequest) {
     success: true,
     processed: email.length + social.attempted + cartRecovery.attempted,
     lastRunAt,
-    results: { email, social, cartRecovery, inventory: { expiredReservationsReleased } },
+    results: { email, social, cartRecovery, inventory: { expiredReservationsReleased }, updatesDigest },
   });
 }
 

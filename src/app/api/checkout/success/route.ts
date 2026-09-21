@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { E2E_CHECKOUT_SESSION_PREFIX } from '@/lib/commerce';
-import { getOrderById, markOrderPaid } from '@/lib/orders';
+import { finalizePaidOrder, getOrderById } from '@/lib/orders';
 import { getStripe } from '@/lib/stripe';
 
 export async function GET(req: NextRequest) {
@@ -27,10 +27,14 @@ export async function GET(req: NextRequest) {
 
       const order = existing.paymentStatus === 'paid'
         ? existing
-        : await markOrderPaid(orderId, `e2e_payment_${orderId}`, 'card', {
-            shipping: existing.shipping,
-            tax: existing.tax,
-            total: existing.total,
+        : await finalizePaidOrder(orderId, {
+            paymentIntentId: `e2e_payment_${orderId}`,
+            paymentMethod: 'card',
+            paidTotals: {
+              shipping: existing.shipping,
+              tax: existing.tax,
+              total: existing.total,
+            },
           });
 
       if (!order) {
@@ -66,16 +70,19 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const order = await markOrderPaid(
-      orderId,
-      typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id,
-      session.payment_method_types?.[0],
-      {
+    const order = await finalizePaidOrder(orderId, {
+      paymentIntentId: typeof session.payment_intent === 'string'
+        ? session.payment_intent
+        : session.payment_intent?.id,
+      paymentMethod: session.payment_method_types?.[0],
+      paidTotals: {
         shipping: centsToDollars(session.total_details?.amount_shipping),
         tax: centsToDollars(session.total_details?.amount_tax),
         total: centsToDollars(session.amount_total),
-      }
-    );
+      },
+      promoCode: session.metadata?.promoCode,
+      stripeSession: session,
+    });
 
     if (!order) {
       return NextResponse.json(
@@ -88,7 +95,7 @@ export async function GET(req: NextRequest) {
       success: true,
       sessionId: session.id,
       paymentStatus: session.payment_status,
-      order
+      order,
     });
   } catch (error) {
     console.error('Error retrieving session:', error);

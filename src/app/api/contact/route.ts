@@ -5,6 +5,18 @@ import { validateContactForm, sanitizeFormData, type ContactFormData } from '@/l
 import { sendTemplateEmail } from '@/lib/email';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
+import { linkContactSubmissionToInbox } from '@/lib/studio-inbox';
+
+async function resolveSessionUserId(): Promise<string | null> {
+  try {
+    const { getServerSession } = await import('next-auth');
+    const { authOptions } = await import('@/lib/auth');
+    const session = await getServerSession(authOptions);
+    return session?.user?.id || null;
+  } catch {
+    return null;
+  }
+}
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 3;
@@ -107,7 +119,21 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
     throw new ApiError(502, 'Failed to send email notification', 'EMAIL_SEND_FAILED');
   }
 
-  return NextResponse.json({ 
+  const userId = await resolveSessionUserId();
+  try {
+    await linkContactSubmissionToInbox({
+      name,
+      email,
+      subject,
+      message,
+      inquiryType,
+      userId,
+    });
+  } catch (inboxError) {
+    console.error('Failed to persist contact message to studio inbox:', inboxError);
+  }
+
+  return NextResponse.json({
     message: 'Message sent successfully!',
     inquiryType,
     timestamp: new Date().toISOString()

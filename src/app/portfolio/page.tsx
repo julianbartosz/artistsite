@@ -1,6 +1,7 @@
 import { getAllArtworks, getUniqueCategories } from '@/lib/portfolio';
 import { getSiteContent, listingHeroPaddingClass } from '@/lib/site-content';
 import PortfolioGallery from '@/components/PortfolioGallery';
+import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,10 +15,11 @@ export default async function PortfolioPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <section className="bg-white shadow-sm">
+      <section className="relative group bg-white shadow-sm">
+        <CmsEditAnchor targetKey="portfolio:listing" />
         <div className={`max-w-7xl mx-auto px-6 ${heroPadding}`}>
           <div className="text-center">
-            <h1 className="text-4xl font-bold text-gray-900 mb-4">{pageContent.title}</h1>
+            <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">{pageContent.title}</h1>
             <p className="text-lg text-gray-600 max-w-2xl mx-auto">{pageContent.subtitle}</p>
           </div>
         </div>

@@ -1,12 +1,13 @@
 'use client';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
 import { useCart } from '@/components/CartContext';
 import { CartDrawer } from '@/components/CartDrawer';
 import type { SiteIdentityContent } from '@/lib/site-content-shared';
-import { DEFAULT_SITE_IDENTITY, headerDisplayName, visibleNavItems } from '@/lib/site-content-shared';
+import { DEFAULT_SITE_IDENTITY, headerDisplayName, navItemIsActive, visibleNavItems } from '@/lib/site-content-shared';
+import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
 
 type HeaderProps = {
   siteIdentity?: SiteIdentityContent;
@@ -23,21 +24,27 @@ export function Header({ siteIdentity = DEFAULT_SITE_IDENTITY }: HeaderProps) {
 
   const navigation = visibleNavItems(siteIdentity);
 
-  const isActive = (href: string) => {
-    if (href === '/') {
-      return pathname === '/';
-    }
-    return pathname.startsWith(href);
-  };
+  const isActive = (href: string) => navItemIsActive(pathname, href);
 
   const handleSignOut = () => {
     signOut({ callbackUrl: '/' });
     setIsUserMenuOpen(false);
   };
 
+  useEffect(() => {
+    if (!isMenuOpen) return undefined;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [isMenuOpen]);
+
   return (
     <>
-      <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
+      <header className="relative group bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
+        <CmsEditAnchor targetKey="identity:navigation" />
+        <CmsEditAnchor targetKey="identity:branding" fixed />
         <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between gap-2 h-16 min-w-0">
             {/* Logo/Brand */}
@@ -53,7 +60,7 @@ export function Header({ siteIdentity = DEFAULT_SITE_IDENTITY }: HeaderProps) {
             </div>
 
             {/* Desktop Navigation */}
-            <div className="hidden lg:block flex-shrink-0">
+            <div className="hidden md:block flex-shrink-0">
               <div className="flex items-center gap-6">
                 {navigation.map((item) => (
                   <Link
@@ -82,7 +89,7 @@ export function Header({ siteIdentity = DEFAULT_SITE_IDENTITY }: HeaderProps) {
                 </Link>
               )}
               {/* Authentication */}
-              <div className="hidden lg:block">
+              <div className="hidden md:block">
                 {session ? (
                   <div className="relative">
                     <button
@@ -151,7 +158,7 @@ export function Header({ siteIdentity = DEFAULT_SITE_IDENTITY }: HeaderProps) {
               <button
                 onClick={toggleCart}
                 data-testid="cart-icon"
-                className="relative p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                className="tap-target relative text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
                 aria-label="Open shopping cart"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -165,12 +172,13 @@ export function Header({ siteIdentity = DEFAULT_SITE_IDENTITY }: HeaderProps) {
               </button>
 
               {/* Mobile menu button */}
-              <div className="lg:hidden">
+              <div className="md:hidden">
                 <button
+                  type="button"
                   onClick={() => setIsMenuOpen(!isMenuOpen)}
                   aria-label="Open main menu"
                   data-testid="mobile-menu-toggle"
-                  className="inline-flex items-center justify-center p-2 rounded-md text-gray-600 hover:text-gray-900 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-gray-500"
+                  className="tap-target rounded-md text-gray-600 hover:text-gray-900 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-gray-500"
                   aria-expanded={isMenuOpen}
                 >
                   <span className="sr-only">Open main menu</span>
@@ -214,13 +222,13 @@ export function Header({ siteIdentity = DEFAULT_SITE_IDENTITY }: HeaderProps) {
 
           {/* Mobile Navigation Menu */}
           {isMenuOpen && (
-            <div className="lg:hidden" data-testid="mobile-menu">
+            <div className="md:hidden" data-testid="mobile-menu">
               <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3 border-t border-gray-200">
                 {navigation.map((item) => (
                   <Link
                     key={item.key}
                     href={item.href}
-                    className={`block px-3 py-2 text-base font-medium transition-colors ${
+                    className={`block tap-target-inline w-full text-left text-base font-medium transition-colors rounded-md ${
                       isActive(item.href)
                         ? 'text-gray-900 bg-gray-50'
                         : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'

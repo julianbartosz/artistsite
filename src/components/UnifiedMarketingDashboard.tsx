@@ -694,7 +694,7 @@ function PromoCodesPanel() {
     }
   }
 
-  async function useForCartRecovery(code: string) {
+  async function assignCartRecoveryPromo(code: string) {
     const response = await fetch('/api/admin/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -756,7 +756,7 @@ function PromoCodesPanel() {
               </div>
               <div className="flex gap-2">
                 <button type="button" onClick={() => navigator.clipboard?.writeText(promo.code)} className="rounded border px-2 py-1">Copy</button>
-                <button type="button" onClick={() => useForCartRecovery(promo.code)} className="rounded border px-2 py-1">Use for cart recovery</button>
+                <button type="button" onClick={() => assignCartRecoveryPromo(promo.code)} className="rounded border px-2 py-1">Use for cart recovery</button>
               </div>
             </li>
           ))}

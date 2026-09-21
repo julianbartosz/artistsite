@@ -5,6 +5,7 @@ import { ApiError } from '@/lib/api-error-handler';
 import { normalizeProductPayload, productPayloadSchema } from '@/lib/admin-content';
 import { requireAdmin } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { InventoryService } from '@/lib/inventory';
 
 function isUniqueConstraintError(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false;
@@ -42,6 +43,10 @@ export async function POST(request: NextRequest) {
     }
 
     const product = await db.product.create({ data: payload as any });
+    const existingInventory = await db.productInventory.findUnique({ where: { productId: product.id } });
+    if (!existingInventory) {
+      await InventoryService.initializeInventory(product.id, 1);
+    }
     revalidateTag('products');
     revalidatePath('/shop');
     return NextResponse.json({ product }, { status: 201 });

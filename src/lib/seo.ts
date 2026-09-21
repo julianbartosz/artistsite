@@ -29,7 +29,8 @@ export function generatePageMetadata({
   modifiedTime,
   authors,
   tags,
-}: SEOParams): Metadata {
+  noIndex = false,
+}: SEOParams & { noIndex?: boolean }): Metadata {
   const fullTitle = `${title} | ${SITE_NAME}`;
   const absoluteImages = images.map(img => 
     img.startsWith('http') ? img : `${SITE_URL}${img}`
@@ -72,11 +73,11 @@ export function generatePageMetadata({
       site: '@artistsite',
     },
     robots: {
-      index: true,
-      follow: true,
+      index: !noIndex,
+      follow: !noIndex,
       googleBot: {
-        index: true,
-        follow: true,
+        index: !noIndex,
+        follow: !noIndex,
         'max-video-preview': -1,
         'max-image-preview': 'large',
         'max-snippet': -1,
@@ -93,6 +94,7 @@ export function generateBlogMetadata({
   tags,
   coverImage,
   slug,
+  noIndex = false,
 }: {
   title: string;
   description: string;
@@ -101,17 +103,19 @@ export function generateBlogMetadata({
   tags?: string[];
   coverImage?: string;
   slug: string;
+  noIndex?: boolean;
 }): Metadata {
   return generatePageMetadata({
     title,
     description,
     type: 'article',
     images: coverImage ? [coverImage] : undefined,
-    url: `/blog/${slug}`,
+    url: `/updates/${slug}`,
     publishedTime: publishedAt,
     modifiedTime: publishedAt,
     authors: author ? [author] : undefined,
     tags,
+    noIndex,
   });
 }
 
@@ -697,7 +701,7 @@ export function generateEnhancedBlogMetadata({
     type: 'article',
     pageType: 'blog',
     images: coverImage ? [coverImage] : undefined,
-    url: `/blog/${slug}`,
+    url: `/updates/${slug}`,
     publishedTime: publishedAt,
     modifiedTime: publishedAt,
     authors: author ? [author] : undefined,

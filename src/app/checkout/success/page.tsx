@@ -7,6 +7,7 @@ import { useCart } from '@/components/CartContext';
 import { Suspense } from 'react';
 import OrderTracking from '@/components/OrderTracking';
 import { Order } from '@/lib/orders';
+import { DEFAULT_SHOP_PAGE } from '@/lib/site-content-shared';
 
 interface OrderDetails {
   sessionId: string;
@@ -20,6 +21,7 @@ function CheckoutSuccessContent() {
   const { clearCart } = useCart();
   const [orderDetails, setOrderDetails] = useState<OrderDetails | null>(null);
   const [supportEmail, setSupportEmail] = useState('orders@artistsite.com');
+  const [shopCopy, setShopCopy] = useState(DEFAULT_SHOP_PAGE);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -32,6 +34,15 @@ function CheckoutSuccessContent() {
       .then((config) => {
         const configuredEmail = config?.SUPPORT_EMAIL || config?.CONTACT_EMAIL || config?.ARTIST_EMAIL;
         if (active && configuredEmail) setSupportEmail(configuredEmail);
+      })
+      .catch(() => undefined);
+
+    fetch('/api/site-content/public')
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (active && data?.shop && typeof data.shop === 'object') {
+          setShopCopy((current) => ({ ...current, ...data.shop }));
+        }
       })
       .catch(() => undefined);
 
@@ -82,9 +93,9 @@ function CheckoutSuccessContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-16">
-      <div className="max-w-3xl mx-auto px-6">
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+    <div className="min-h-screen bg-gray-50 py-8 md:py-12">
+      <div className="max-w-3xl mx-auto page-x">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 md:p-8">
           {/* Success Icon */}
           <div className="text-center mb-8">
             <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-100 mb-4">
@@ -92,8 +103,8 @@ function CheckoutSuccessContent() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Order Confirmed!</h1>
-            <p className="text-lg text-gray-600">Thank you for your purchase</p>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">{shopCopy.successTitle}</h1>
+            <p className="text-lg text-gray-600">{shopCopy.successSubtitle}</p>
           </div>
 
           {/* Order Details */}
@@ -120,32 +131,10 @@ function CheckoutSuccessContent() {
 
               <div className="bg-gray-50 rounded-lg p-6 mb-6">
                 <h3 className="font-semibold text-gray-900 mb-4">What happens next?</h3>
-                <ul className="space-y-2 text-sm text-gray-600">
-                  <li className="flex items-start gap-2">
-                    <svg className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                    </svg>
-                    You&apos;ll receive an order confirmation email shortly
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <svg className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                    </svg>
-                    We&apos;ll prepare your artwork for shipping within 2-3 business days
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <svg className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                    </svg>
-                    You&apos;ll receive tracking information once your order ships
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <svg className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                    </svg>
-                    All artwork is carefully packaged and fully insured
-                  </li>
-                </ul>
+                <div
+                  className="prose prose-sm max-w-none text-gray-600 [&_ul]:space-y-2 [&_li]:flex [&_li]:items-start [&_li]:gap-2"
+                  dangerouslySetInnerHTML={{ __html: shopCopy.successNextStepsHtml }}
+                />
               </div>
             </div>
           )}

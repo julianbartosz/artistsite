@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
+import MediaPickerModal from '@/components/admin/MediaPickerModal';
 
 interface RichTextEditorProps {
   value: string;
@@ -12,6 +13,7 @@ interface RichTextEditorProps {
 }
 
 export function RichTextEditorInner({ value, onChange }: RichTextEditorProps) {
+  const [pickerOpen, setPickerOpen] = useState(false);
   const extensions = useMemo(() => [
     StarterKit.configure({ link: { openOnClick: false } }),
     Image,
@@ -40,8 +42,7 @@ export function RichTextEditorInner({ value, onChange }: RichTextEditorProps) {
   if (!editor) return null;
 
   const addImage = () => {
-    const url = window.prompt('Image URL');
-    if (url) editor.chain().focus().setImage({ src: url }).run();
+    setPickerOpen(true);
   };
 
   const setLink = () => {
@@ -62,6 +63,14 @@ export function RichTextEditorInner({ value, onChange }: RichTextEditorProps) {
         <button type="button" className={buttonClass} onClick={addImage}>Image</button>
       </div>
       <EditorContent editor={editor} />
+      <MediaPickerModal
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={(url) => {
+          const alt = window.prompt('Describe this image for accessibility (alt text)', '')?.trim();
+          editor.chain().focus().setImage({ src: url, alt: alt || 'Image' }).run();
+        }}
+      />
     </div>
   );
 }

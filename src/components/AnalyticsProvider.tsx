@@ -41,6 +41,34 @@ export function AnalyticsProvider({ children }: AnalyticsProviderProps) {
       GA4Analytics.initialize(measurementId)
     }
 
+    fetch('/api/config/public')
+      .then((response) => response.json())
+      .then((config) => {
+        const pixelId = typeof config.FACEBOOK_PIXEL_ID === 'string' ? config.FACEBOOK_PIXEL_ID.trim() : ''
+        if (!pixelId || typeof window === 'undefined') return
+
+        const w = window as typeof window & { fbq?: (...args: unknown[]) => void; _fbq?: (...args: unknown[]) => void }
+        if (w.fbq) {
+          w.fbq('init', pixelId)
+          return
+        }
+
+        const script = document.createElement('script')
+        script.async = true
+        script.src = 'https://connect.facebook.net/en_US/fbevents.js'
+        script.onload = () => {
+          const fbq = (...args: unknown[]) => {
+            if (w.fbq) w.fbq(...args)
+          }
+          w.fbq = w.fbq || fbq
+          w._fbq = w._fbq || w.fbq
+          w.fbq('init', pixelId)
+          w.fbq('track', 'PageView')
+        }
+        document.head.appendChild(script)
+      })
+      .catch(() => undefined)
+
     // Initialize ConversionFunnels system
     ConversionFunnels.initialize()
 
@@ -56,6 +84,10 @@ export function AnalyticsProvider({ children }: AnalyticsProviderProps) {
   useEffect(() => {
     // Track page views on route changes
     GA4Analytics.trackPageView(pathname)
+    const w = window as typeof window & { fbq?: (...args: unknown[]) => void }
+    if (w.fbq) {
+      w.fbq('track', 'PageView')
+    }
     
     // Track specific page types for funnels
     if (pathname === '/portfolio') {

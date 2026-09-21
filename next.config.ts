@@ -10,6 +10,9 @@ const mdx = withMDX({
 
 const nextConfig: NextConfig = {
   pageExtensions: ['ts', 'tsx', 'js', 'jsx', 'md', 'mdx'],
+
+  // Dev server defaults to localhost; allow 127.0.0.1 so auth cookies and /_next/* chunks load.
+  allowedDevOrigins: ['127.0.0.1', 'localhost'],
   
   // Enable standalone output for Docker deployment
   output: 'standalone',
@@ -46,8 +49,21 @@ const nextConfig: NextConfig = {
     ],
   },
 
+  async rewrites() {
+    return [
+      { source: '/updates', destination: '/blog' },
+      { source: '/updates/tag/:tag', destination: '/blog/tag/:tag' },
+      { source: '/updates/:slug', destination: '/blog/:slug' },
+    ];
+  },
+
   // Enhanced caching and ISR
   async headers() {
+    const staticCacheHeaders =
+      process.env.NODE_ENV === 'production'
+        ? [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }]
+        : [{ key: 'Cache-Control', value: 'no-store, must-revalidate' }];
+
     return [
       {
         source: '/api/:path*',
@@ -69,12 +85,7 @@ const nextConfig: NextConfig = {
       },
       {
         source: '/_next/static/:path*',
-        headers: [
-          {
-            key: 'Cache-Control',
-            value: 'public, max-age=31536000, immutable',
-          },
-        ],
+        headers: staticCacheHeaders,
       },
     ];
   },

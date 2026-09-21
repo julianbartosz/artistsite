@@ -11,7 +11,8 @@ import ProductRecommendations from '@/components/ProductRecommendations';
 import RecentlyViewed from '@/components/RecentlyViewed';
 import { stableSearchParamsKey, activeFilterCount, activeFilterChips, removeFilterChip } from '@/lib/search-params';
 import { ShopProductCard } from '@/components/ProductCard';
-import { DEFAULT_SHOP_PAGE, listingHeroPaddingClass, shopPageSchema, type ShopPageContent } from '@/lib/site-content-shared';
+import { DEFAULT_SHOP_PAGE, gridColumnsClass, listingHeroPaddingClass, shopPageSchema, type ShopPageContent } from '@/lib/site-content-shared';
+import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
 import { AdjustmentsHorizontalIcon } from '@heroicons/react/24/outline';
 
 // Sort options for the dropdown
@@ -116,8 +117,10 @@ function ShopPageContent() {
 
   const purchaseInfo = pageContent.purchaseInfo ?? DEFAULT_SHOP_PAGE.purchaseInfo;
   const heroPadding = listingHeroPaddingClass(pageContent.hero?.height ?? 'compact');
-  const filterCount = activeFilterCount(searchParams);
-  const filterChips = activeFilterChips(searchParams);
+  const productGridClass = gridColumnsClass(pageContent.layout?.gridColumns ?? '3');
+  const showFilters = pageContent.layout?.showFilters ?? true;
+  const filterCount = showFilters ? activeFilterCount(searchParams) : 0;
+  const filterChips = showFilters ? activeFilterChips(searchParams) : [];
 
   const handleRemoveFilterChip = (chipId: string) => {
     const next = removeFilterChip(searchParams, chipId);
@@ -126,7 +129,8 @@ function ShopPageContent() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <section className="bg-white shadow-sm">
+      <section className="relative group bg-white shadow-sm">
+        <CmsEditAnchor targetKey="shop:listing" />
         <div className={`max-w-7xl mx-auto px-6 ${heroPadding}`}>
           <div className="text-center mb-6">
             <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-3">{pageContent.title}</h1>
@@ -143,51 +147,42 @@ function ShopPageContent() {
         </div>
       </section>
 
-      <div className="sticky top-16 z-40 border-b border-gray-200 bg-gray-50/95 backdrop-blur lg:hidden">
-        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between gap-3">
+      {showFilters && (
+      <div className="sticky top-16 z-30 border-b border-gray-200 bg-gray-50/95 backdrop-blur lg:hidden">
+        <div className="max-w-7xl mx-auto page-x py-2">
           <button
             type="button"
             onClick={() => setMobileFiltersOpen(true)}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900"
+            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-900"
             aria-expanded={mobileFiltersOpen}
             aria-controls="shop-filters-panel"
           >
             <AdjustmentsHorizontalIcon className="h-4 w-4" />
-            Filters
+            Filters & sort
             {filterCount > 0 && (
               <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-primary px-1.5 py-0.5 text-xs font-semibold text-white">
                 {filterCount}
               </span>
             )}
+            {currentSort !== 'relevance' && (
+              <span className="truncate text-xs font-normal text-gray-500">
+                · {SORT_OPTIONS.find((option) => option.value === currentSort)?.label}
+              </span>
+            )}
           </button>
-          <div className="text-sm text-gray-600 min-w-0 truncate">
-            {searchResults
-              ? `${searchResults.totalResults} ${searchResults.totalResults === 1 ? 'work' : 'works'}`
-              : 'Loading...'}
-          </div>
-          <select
-            id="sort-mobile"
-            value={currentSort}
-            onChange={(e) => handleSortChange(e.target.value as SortOption)}
-            className="border border-gray-300 rounded-md px-2 py-2 text-sm max-w-[9rem]"
-            aria-label="Sort by"
-          >
-            {SORT_OPTIONS.map(option => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
         </div>
       </div>
+      )}
 
-      {filterChips.length > 0 && (
+      {showFilters && filterChips.length > 0 && (
         <div className="lg:hidden border-b border-gray-200 bg-white">
-          <div className="max-w-7xl mx-auto px-6 py-2 flex flex-wrap gap-2">
+          <div className="max-w-7xl mx-auto page-x py-2 flex flex-wrap gap-2">
             {filterChips.map((chip) => (
               <button
                 key={chip.id}
                 type="button"
                 onClick={() => handleRemoveFilterChip(chip.id)}
-                className="inline-flex items-center gap-1 rounded-full border border-gray-300 bg-gray-50 px-3 py-1 text-xs font-medium text-gray-800"
+                className="tap-target-inline rounded-full border border-gray-300 bg-gray-50 text-xs font-medium text-gray-800"
                 aria-label={`Remove ${chip.label} filter`}
               >
                 {chip.label}
@@ -198,8 +193,9 @@ function ShopPageContent() {
         </div>
       )}
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="flex flex-col lg:flex-row gap-8">
+      <div className="max-w-7xl mx-auto page-x py-8">
+        <div className={`flex flex-col gap-8 ${showFilters ? 'lg:flex-row' : ''}`}>
+          {showFilters && (
           <aside className="lg:w-64 flex-shrink-0">
             <FilterSidebar
               categories={searchResults?.filterOptions?.categories}
@@ -207,8 +203,12 @@ function ShopPageContent() {
               mobileOpen={mobileFiltersOpen}
               onMobileOpenChange={setMobileFiltersOpen}
               hideMobileTrigger
+              sortOptions={SORT_OPTIONS}
+              currentSort={currentSort}
+              onSortChange={handleSortChange}
             />
           </aside>
+          )}
 
           <main className="flex-1">
             {searchResults && (
@@ -242,7 +242,7 @@ function ShopPageContent() {
 
             {/* Loading State */}
             {isLoading && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className={productGridClass}>
                 {[1, 2, 3, 4, 5, 6].map(i => (
                   <div key={i} className="animate-pulse">
                     <div className="bg-gray-200 aspect-square rounded-lg mb-4"></div>
@@ -279,7 +279,7 @@ function ShopPageContent() {
             {searchResults && !isLoading && (
               <>
                 {searchResults.products.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <div className={productGridClass}>
                     {searchResults.products.map((product) => (
                       <ShopProductCard key={product.id} product={product} />
                     ))}
@@ -349,37 +349,61 @@ function ShopPageContent() {
       </div>
 
       {pageContent.showPurchaseInfo && (
-      <section className="bg-white section-space-tight border-t border-gray-200">
-        <div className="max-w-4xl mx-auto px-6 text-center">
-          <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-8">{purchaseInfo.title}</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <section className="relative group bg-white section-space-tight border-t border-gray-200">
+        <CmsEditAnchor targetKey="shop:purchase" />
+        <div className="max-w-4xl mx-auto page-x text-center">
+          <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4 md:mb-8">{purchaseInfo.title}</h2>
+
+          <div className="hidden md:grid md:grid-cols-3 md:gap-8 text-left md:text-center">
             {(purchaseInfo.authenticityTitle.trim() || purchaseInfo.authenticityText.trim()) && (
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">{purchaseInfo.authenticityTitle}</h3>
-              <p className="text-gray-600">
-                {purchaseInfo.authenticityText}
-              </p>
+              <p className="text-gray-600">{purchaseInfo.authenticityText}</p>
             </div>
             )}
             {(purchaseInfo.shippingTitle.trim() || purchaseInfo.shippingText.trim()) && (
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">{purchaseInfo.shippingTitle}</h3>
-              <p className="text-gray-600">
-                {purchaseInfo.shippingText}
-              </p>
+              <p className="text-gray-600">{purchaseInfo.shippingText}</p>
             </div>
             )}
             {(purchaseInfo.commissionsTitle.trim() || purchaseInfo.commissionsText.trim()) && (
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">{purchaseInfo.commissionsTitle}</h3>
-              <p className="text-gray-600">
-                {purchaseInfo.commissionsText}
-              </p>
+              <p className="text-gray-600">{purchaseInfo.commissionsText}</p>
             </div>
             )}
           </div>
+
+          <div className="md:hidden space-y-2 text-left">
+            {(purchaseInfo.authenticityTitle.trim() || purchaseInfo.authenticityText.trim()) && (
+              <details className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                <summary className="tap-target-inline cursor-pointer list-none font-semibold text-gray-900 [&::-webkit-details-marker]:hidden">
+                  {purchaseInfo.authenticityTitle || 'Authenticity'}
+                </summary>
+                <p className="mt-2 text-sm text-gray-600">{purchaseInfo.authenticityText}</p>
+              </details>
+            )}
+            {(purchaseInfo.shippingTitle.trim() || purchaseInfo.shippingText.trim()) && (
+              <details className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                <summary className="tap-target-inline cursor-pointer list-none font-semibold text-gray-900 [&::-webkit-details-marker]:hidden">
+                  {purchaseInfo.shippingTitle || 'Shipping'}
+                </summary>
+                <p className="mt-2 text-sm text-gray-600">{purchaseInfo.shippingText}</p>
+              </details>
+            )}
+            {(purchaseInfo.commissionsTitle.trim() || purchaseInfo.commissionsText.trim()) && (
+              <details className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                <summary className="tap-target-inline cursor-pointer list-none font-semibold text-gray-900 [&::-webkit-details-marker]:hidden">
+                  {purchaseInfo.commissionsTitle || 'Commissions'}
+                </summary>
+                <p className="mt-2 text-sm text-gray-600">{purchaseInfo.commissionsText}</p>
+              </details>
+            )}
+          </div>
+
           {purchaseInfo.ctaLabel.trim() && (
-          <div className="mt-8">
+          <div className="mt-6 md:mt-8">
             <Link
               href="/contact"
               className="btn-primary px-6 py-3 rounded-lg inline-block"

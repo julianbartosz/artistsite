@@ -41,6 +41,18 @@ describe('ErrorBoundary Component', () => {
     );
     
     expect(screen.getByText('Something went wrong')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Refresh Page' })).toBeInTheDocument();
+  });
+
+  it('keeps a reload control when a custom fallback is provided', () => {
+    render(
+      <ErrorBoundary fallback={<p>Custom failure</p>}>
+        <ThrowError shouldThrow={true} />
+      </ErrorBoundary>
+    );
+
+    expect(screen.getByText('Custom failure')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reload page' })).toBeInTheDocument();
   });
 
   it('shows error details in development mode', () => {

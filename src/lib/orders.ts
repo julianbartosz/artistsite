@@ -1,9 +1,14 @@
 import { createHmac, timingSafeEqual } from 'crypto';
+import type Stripe from 'stripe';
 import { CartItemVariant, calculateVariantPrice, formatCartItemVariant, Product, productImageSrc } from './commerce';
 import { db } from './db';
 import { getProductById } from './commerce-server';
 import { SHIPPING_CARRIERS, trackingUrl } from '@/lib/shipping';
 import { type ShippingAddress, shippingAddressIsPopulated } from '@/lib/shipping-address';
+import { InventoryService } from '@/lib/inventory';
+import { OrderEmailService } from '@/lib/email';
+import { incrementPromoUsage } from '@/lib/promo-codes';
+import { getStripe } from '@/lib/stripe';
 
 export { SHIPPING_CARRIERS, trackingUrl };
 export type { ShippingAddress } from '@/lib/shipping-address';
@@ -537,6 +542,133 @@ export async function markOrderPaid(
   });
 
   return toDomainOrder(updated);
+}
+
+function stripeShippingDetails(session: Stripe.Checkout.Session) {
+  return session.collected_information?.shipping_details ?? null;
+}
+
+export async function syncShippingAddressFromStripe(
+  orderId: string,
+  session: Stripe.Checkout.Session,
+): Promise<void> {
+  const details = stripeShippingDetails(session);
+  if (!details?.address?.line1) return;
+
+  const record = await db.order.findUnique({
+    where: { id: orderId },
+    select: { shippingAddressId: true },
+  });
+  if (!record?.shippingAddressId) return;
+
+  const nameParts = (details.name || 'Customer').trim().split(/\s+/);
+  const firstName = nameParts[0] || 'Customer';
+  const lastName = nameParts.slice(1).join(' ') || firstName;
+  const phone = session.customer_details?.phone?.trim();
+
+  await db.address.update({
+    where: { id: record.shippingAddressId },
+    data: {
+      firstName,
+      lastName,
+      address1: details.address.line1,
+      address2: details.address.line2 || null,
+      city: details.address.city || '',
+      state: details.address.state || '',
+      postalCode: details.address.postal_code || '',
+      country: details.address.country || 'US',
+      ...(phone ? { phone } : {}),
+    },
+  });
+}
+
+export async function finalizePaidOrder(
+  orderId: string,
+  opts: {
+    paymentIntentId?: string | null;
+    paymentMethod?: string | null;
+    paidTotals?: {
+      shipping?: number | null;
+      tax?: number | null;
+      total?: number | null;
+    };
+    promoCode?: string | null;
+    stripeSession?: Stripe.Checkout.Session | null;
+  },
+): Promise<Order | null> {
+  const existing = await getOrderById(orderId);
+  if (!existing) return null;
+
+  const wasAlreadyPaid = existing.paymentStatus === 'paid';
+
+  if (opts.stripeSession) {
+    await syncShippingAddressFromStripe(orderId, opts.stripeSession);
+  }
+
+  const order = await markOrderPaid(
+    orderId,
+    opts.paymentIntentId,
+    opts.paymentMethod,
+    opts.paidTotals,
+  );
+  if (!order) return null;
+
+  if (!wasAlreadyPaid) {
+    const promoCode = opts.promoCode?.trim().toUpperCase();
+    if (promoCode) {
+      await incrementPromoUsage(promoCode);
+    }
+    await InventoryService.fulfillReservationsForOrder(orderId);
+    await OrderEmailService.sendStatusUpdate(order, 'confirmed');
+    await db.analyticsEvent.create({
+      data: {
+        eventName: 'post_purchase_sequence_triggered',
+        userId: order.customerId,
+        properties: JSON.stringify({
+          order_id: order.id,
+          order_number: order.orderNumber,
+          order_value: order.total,
+        }),
+        timestamp: new Date(),
+      },
+    }).catch(() => undefined);
+  } else {
+    await InventoryService.fulfillReservationsForOrder(orderId);
+  }
+
+  return order;
+}
+
+export async function refundOrder(orderId: string): Promise<Order> {
+  const existing = await getOrderById(orderId);
+  if (!existing) {
+    throw new Error('Order not found');
+  }
+  if (existing.status === 'refunded') {
+    return existing;
+  }
+  if (!OrderManager.canRefundOrder(existing)) {
+    throw new Error('Order cannot be refunded in its current state');
+  }
+  if (!existing.paymentIntentId) {
+    throw new Error('This order has no Stripe payment on file');
+  }
+
+  const stripe = await getStripe();
+  await stripe.refunds.create({ payment_intent: existing.paymentIntentId });
+
+  await InventoryService.releaseStockForOrder(orderId);
+
+  const order = await updateOrder(orderId, {
+    status: 'refunded',
+    message: OrderManager.getStatusMessage('refunded'),
+    details: `Stripe refund issued for payment ${existing.paymentIntentId}`,
+  });
+  if (!order) {
+    throw new Error('Failed to update order after refund');
+  }
+
+  return order;
 }
 
 // Order Management Functions

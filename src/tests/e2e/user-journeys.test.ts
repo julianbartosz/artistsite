@@ -7,6 +7,7 @@ test.describe('Critical User Journeys', () => {
   });
 
   test('Complete purchase flow', async ({ page }) => {
+    test.setTimeout(60_000);
     await page.goto('/shop');
     await expect(page).toHaveURL(/\/shop/);
     await page.waitForSelector('[data-testid="product-card-link"]', { timeout: 15000 });
@@ -19,9 +20,10 @@ test.describe('Critical User Journeys', () => {
     await page.click('[data-testid="cart-icon"]');
     await page.click('[data-testid="proceed-to-checkout"]');
     await expect(page).toHaveURL(/\/checkout/);
+    await expect(page.getByTestId('proceed-to-checkout')).toHaveCount(0);
 
     await page.fill('[name="email"]', 'test@example.com');
-    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.locator('main').getByRole('button', { name: 'Continue' }).click();
 
     await page.fill('[name="firstName"]', 'John');
     await page.fill('[name="lastName"]', 'Doe');
@@ -30,11 +32,11 @@ test.describe('Critical User Journeys', () => {
     await page.fill('[name="state"]', 'NY');
     await page.fill('[name="postalCode"]', '12345');
     await page.fill('[name="phone"]', '5551234567');
-    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.locator('main').getByRole('button', { name: 'Continue' }).click();
+    await expect(page.getByTestId('complete-order')).toBeEnabled({ timeout: 10_000 });
 
     await page.getByTestId('complete-order').click();
-
-    await expect(page).toHaveURL(/\/checkout\/success/, { timeout: 15000 });
+    await expect(page).toHaveURL(/\/checkout\/success/, { timeout: 20000 });
     await expect(page.locator('text=Order Confirmed')).toBeVisible();
   });
 
@@ -76,6 +78,31 @@ test.describe('Critical User Journeys', () => {
     await page.locator('[data-testid="product-card-link"]').first().click();
     await page.click('[data-testid="add-to-cart"]');
     await expect(page.locator('[data-testid="cart-count"]')).toContainText('1');
+  });
+
+  test('Shop mobile filters open sort controls', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/shop');
+    await page.waitForSelector('[data-testid="product-card-link"]', { timeout: 15000 });
+    await page.getByRole('button', { name: /Filters & sort/i }).click();
+    await expect(page.getByLabel('Sort by')).toBeVisible();
+    await page.getByLabel('Sort by').selectOption('newest');
+    await expect(page).toHaveURL(/sort=newest/);
+  });
+
+  test('Admin dashboard tab deep links', async ({ page }) => {
+    await page.goto('/auth/signin?callbackUrl=%2Fadmin%3Ftab%3Dorders');
+    await page.getByLabel('Email address').fill('artist@artistsite.com');
+    await page.getByLabel('Password').fill('AdminPass123!');
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await expect(page).toHaveURL(/\/admin\?tab=orders/, { timeout: 15000 });
+    await expect(page.getByRole('tab', { name: 'Orders', selected: true })).toBeVisible();
+    await expect(page.locator('#admin-panel-orders')).toBeVisible();
+    await expect(page.getByPlaceholder('Order number or customer email')).toBeVisible();
+
+    await page.goto('/admin?tab=inbox');
+    await expect(page.getByRole('tab', { name: 'Inbox', selected: true })).toBeVisible();
+    await expect(page.getByText('Hidden comments')).toBeVisible();
   });
 
   test('Performance and accessibility', async ({ page }) => {

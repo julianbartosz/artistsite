@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { CartItemVariant, Product, productImageSrc, E2E_CHECKOUT_SESSION_PREFIX } from '@/lib/commerce';
 import { getProductById } from '@/lib/commerce-server';
-import { createOrder, markOrderPaid, Order, OrderCustomization, OrderItem, OrderManager, ShippingAddress, updateOrder } from '@/lib/orders';
+import { createOrder, finalizePaidOrder, Order, OrderCustomization, OrderItem, OrderManager, ShippingAddress, updateOrder } from '@/lib/orders';
 import { InventoryService } from '@/lib/inventory';
 import { getConfigBool } from '@/lib/config';
-import { db } from '@/lib/db';
+import { resolvePromoDiscount, roundPromoMoney } from '@/lib/promo-codes';
 import { getStripe } from '@/lib/stripe';
 
 export async function POST(req: NextRequest) {
   try {
-    const { items, customerInfo, promoCode } = await req.json();
+    const { items, customerInfo, promoCode, giftMessage } = await req.json();
 
     if (!customerInfo?.email || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json(
@@ -61,6 +61,9 @@ export async function POST(req: NextRequest) {
       billingAddress: shippingAddress,
       paymentStatus: 'pending',
       shippingMethod: 'standard',
+      giftMessage: typeof giftMessage === 'string' && giftMessage.trim()
+        ? giftMessage.trim().slice(0, 500)
+        : undefined,
       timeline: [
         OrderManager.createTimelineEntry(
           'pending',
@@ -91,16 +94,12 @@ export async function POST(req: NextRequest) {
     }
 
     if (process.env.PLAYWRIGHT_E2E === 'true') {
-      if (promoDiscount.code) {
-        await incrementPromoUsage(promoDiscount.code);
-      }
-
-      await markOrderPaid(
-        persistedOrder.id,
-        `e2e_payment_${persistedOrder.id}`,
-        'card',
-        { shipping, tax, total }
-      );
+      await finalizePaidOrder(persistedOrder.id, {
+        paymentIntentId: `e2e_payment_${persistedOrder.id}`,
+        paymentMethod: 'card',
+        paidTotals: { shipping, tax, total },
+        promoCode: promoDiscount.code,
+      });
 
       return NextResponse.json({
         sessionId: `${E2E_CHECKOUT_SESSION_PREFIX}${persistedOrder.id}`,
@@ -199,10 +198,6 @@ export async function POST(req: NextRequest) {
       ],
     });
 
-    if (promoDiscount.code) {
-      await incrementPromoUsage(promoDiscount.code);
-    }
-
     return NextResponse.json({ sessionId: session.id });
   } catch (error) {
     console.error('Stripe session creation error:', error);
@@ -218,36 +213,11 @@ export async function POST(req: NextRequest) {
 }
 
 function roundMoney(value: number): number {
-  return Math.round(value * 100) / 100;
+  return roundPromoMoney(value);
 }
 
 function toCents(value: number): number {
   return Math.round(roundMoney(value) * 100);
-}
-
-async function resolvePromoDiscount(rawCode: unknown, subtotal: number): Promise<{ code?: string; amount: number }> {
-  const code = typeof rawCode === 'string' ? rawCode.trim().toUpperCase() : '';
-  if (!code || subtotal <= 0) return { amount: 0 };
-
-  const promo = await db.promoCode.findUnique({ where: { code } }).catch(() => null);
-  if (!promo) return { amount: 0 };
-  if (promo.expiresAt && promo.expiresAt < new Date()) return { amount: 0 };
-  if (promo.usageLimit !== null && promo.usageLimit !== undefined && promo.usageCount >= promo.usageLimit) return { amount: 0 };
-
-  const rawAmount = promo.discountType === 'percentage'
-    ? subtotal * (promo.discountValue / 100)
-    : promo.discountValue;
-
-  return { code, amount: roundMoney(Math.min(subtotal, Math.max(0, rawAmount))) };
-}
-
-async function incrementPromoUsage(code: string): Promise<void> {
-  await db.promoCode.update({
-    where: { code },
-    data: { usageCount: { increment: 1 } },
-  }).catch((error) => {
-    console.error('Failed to increment promo code usage:', error);
-  });
 }
 
 function absoluteStripeImageUrls(origin: string, imageUrl?: string): string[] {
@@ -362,6 +332,11 @@ async function resolveOrderItems(items: any[]): Promise<OrderItem[]> {
     }
 
     const quantity = Number(item.quantity);
+    const purchasable = await InventoryService.isPurchasable(product.id, product.availability, quantity);
+    if (!purchasable) {
+      throw new Error(`Product is not available for checkout: ${product.id}`);
+    }
+
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) {
       throw new Error(`Invalid quantity for product ${product.id}`);
     }

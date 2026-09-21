@@ -109,7 +109,20 @@ export class ErrorBoundary extends Component<Props, State> {
 
   private renderFallback() {
     if (this.props.fallback) {
-      return this.props.fallback
+      return (
+        <div>
+          {this.props.fallback}
+          <div className="fixed inset-x-0 bottom-8 z-50 flex justify-center px-4">
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="rounded bg-gray-900 px-6 py-2 text-white transition-colors hover:bg-gray-800"
+            >
+              Reload page
+            </button>
+          </div>
+        </div>
+      )
     }
 
     if (this.props.showDetails) {

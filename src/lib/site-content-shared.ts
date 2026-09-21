@@ -18,15 +18,26 @@ export const heroCtaKeySchema = z.enum(['shop', 'portfolio', 'contact']);
 export const heroHeightSchema = z.enum(['compact', 'full']);
 export const heroImagePlacementSchema = z.enum(['inline', 'badge', 'background']);
 export const fontPresetSchema = z.enum(['system', 'serif', 'modern']);
+export const cardStyleSchema = z.enum(['gallery', 'studio', 'bold']);
+export const spacingDensitySchema = z.enum(['comfortable', 'compact']);
+export const productDetailLayoutSchema = z.enum(['standard', 'gallery-focus']);
 export const featuredSelectionModeSchema = z.enum(['featured_flag', 'latest', 'manual']);
 export const portfolioGridColumnsSchema = z.enum(['2', '3', '4']);
+export const homeLayoutTemplateSchema = z.enum(['classic', 'gallery-first', 'story-first']);
 
 export type FontPreset = z.infer<typeof fontPresetSchema>;
+export type CardStyle = z.infer<typeof cardStyleSchema>;
+export type SpacingDensity = z.infer<typeof spacingDensitySchema>;
+export type ProductDetailLayout = z.infer<typeof productDetailLayoutSchema>;
 export type FeaturedSelectionMode = z.infer<typeof featuredSelectionModeSchema>;
 export type PortfolioGridColumns = z.infer<typeof portfolioGridColumnsSchema>;
+export type HomeLayoutTemplate = z.infer<typeof homeLayoutTemplateSchema>;
 
 export const HOME_SECTION_KEYS = ['featured', 'about', 'blog', 'newsletter'] as const;
 export type HomeSectionKey = (typeof HOME_SECTION_KEYS)[number];
+
+export const BIO_SECTION_KEYS = ['statement', 'background', 'achievements', 'studio', 'collections', 'cta'] as const;
+export type BioSectionKey = (typeof BIO_SECTION_KEYS)[number];
 
 export const FONT_PRESET_FAMILIES: Record<FontPreset, string> = {
   system: 'var(--font-geist-sans), Arial, Helvetica, sans-serif',
@@ -53,6 +64,72 @@ export function normalizeHexColor(value: unknown, fallback: string): string {
   return isValidHexColor(trimmed) ? trimmed : fallback;
 }
 
+function hexChannel(hex: string, start: number): number {
+  const normalized = normalizeHexColor(hex, '#000000');
+  return parseInt(normalized.slice(start, start + 2), 16);
+}
+
+export function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  return {
+    r: hexChannel(hex, 1),
+    g: hexChannel(hex, 3),
+    b: hexChannel(hex, 5),
+  };
+}
+
+function sRgbChannelToLinear(channel: number): number {
+  const normalized = channel / 255;
+  return normalized <= 0.03928
+    ? normalized / 12.92
+    : ((normalized + 0.055) / 1.055) ** 2.4;
+}
+
+export function relativeLuminance(hex: string): number {
+  const { r, g, b } = hexToRgb(hex);
+  return (
+    0.2126 * sRgbChannelToLinear(r)
+    + 0.7152 * sRgbChannelToLinear(g)
+    + 0.0722 * sRgbChannelToLinear(b)
+  );
+}
+
+export function contrastRatio(foregroundHex: string, backgroundHex: string): number {
+  const foreground = relativeLuminance(foregroundHex);
+  const background = relativeLuminance(backgroundHex);
+  const lighter = Math.max(foreground, background);
+  const darker = Math.min(foreground, background);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+/** WCAG contrast for white button text on the primary brand color. */
+export function whiteTextContrastOnPrimary(primaryHex: string): 'pass' | 'warn' | 'fail' {
+  const ratio = contrastRatio('#ffffff', primaryHex);
+  if (ratio >= 4.5) return 'pass';
+  if (ratio >= 3) return 'warn';
+  return 'fail';
+}
+
+const CARD_STYLE_VARIABLES: Record<CardStyle, Record<string, string>> = {
+  gallery: {
+    '--radius-card': '0px',
+    '--shadow-card': 'none',
+    '--card-border-width': '0px',
+    '--card-border-color': 'transparent',
+  },
+  studio: {
+    '--radius-card': '0.5rem',
+    '--shadow-card': '0 1px 2px 0 rgb(0 0 0 / 0.05)',
+    '--card-border-width': '1px',
+    '--card-border-color': 'rgb(229 231 235)',
+  },
+  bold: {
+    '--radius-card': '0.75rem',
+    '--shadow-card': '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+    '--card-border-width': '2px',
+    '--card-border-color': 'rgb(209 213 219)',
+  },
+};
+
 /** Darken a #RRGGBB color by a 0–255 RGB delta (negative values lighten). */
 export function adjustHexRgb(hex: string, delta: number): string {
   const normalized = normalizeHexColor(hex, '#111827');
@@ -62,6 +139,29 @@ export function adjustHexRgb(hex: string, delta: number): string {
   const g = clamp(((parsed >> 8) & 0xff) + delta);
   const b = clamp((parsed & 0xff) + delta);
   return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+}
+
+function isBioSectionKey(value: unknown): value is BioSectionKey {
+  return typeof value === 'string' && (BIO_SECTION_KEYS as readonly string[]).includes(value);
+}
+
+export function normalizeBioSectionOrder(value: unknown): BioSectionKey[] {
+  const incoming = Array.isArray(value) ? value : [];
+  const order: BioSectionKey[] = [];
+
+  for (const item of incoming) {
+    if (isBioSectionKey(item) && !order.includes(item)) {
+      order.push(item);
+    }
+  }
+
+  for (const key of BIO_SECTION_KEYS) {
+    if (!order.includes(key)) {
+      order.push(key);
+    }
+  }
+
+  return order;
 }
 
 export function normalizeHomeSectionOrder(value: unknown): HomeSectionKey[] {
@@ -83,13 +183,54 @@ export function normalizeHomeSectionOrder(value: unknown): HomeSectionKey[] {
   return order;
 }
 
-export function themeCssVariables(theme: { primaryColor: string; accentColor: string; fontPreset: FontPreset }): Record<string, string> {
+export function themeCssVariables(theme: {
+  primaryColor: string;
+  accentColor: string;
+  fontPreset: FontPreset;
+  cardStyle?: CardStyle;
+  spacingDensity?: SpacingDensity;
+}): Record<string, string> {
+  const cardStyle = theme.cardStyle ?? 'studio';
+  const spacingDensity = theme.spacingDensity ?? 'comfortable';
   return {
     '--color-primary': theme.primaryColor,
     '--color-primary-hover': adjustHexRgb(theme.primaryColor, -20),
     '--color-accent': theme.accentColor,
     '--font-site': FONT_PRESET_FAMILIES[theme.fontPreset],
+    ...CARD_STYLE_VARIABLES[cardStyle],
+    ...SPACING_DENSITY_VARIABLES[spacingDensity],
   };
+}
+
+export function gridColumnsClass(columns: PortfolioGridColumns): string {
+  switch (columns) {
+    case '2':
+      return 'grid grid-cols-1 sm:grid-cols-2 gap-6 md:gap-8';
+    case '4':
+      return 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 md:gap-8';
+    default:
+      return 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8';
+  }
+}
+
+export function resolveHomeSectionRenderPlan(home: HomePageContent): {
+  beforeHero: HomeSectionKey[];
+  afterHero: HomeSectionKey[];
+} {
+  const order = normalizeHomeSectionOrder(home.sectionOrder);
+  if (home.layoutTemplate === 'gallery-first' && home.featured.showSection) {
+    return {
+      beforeHero: ['featured'],
+      afterHero: order.filter((key) => key !== 'featured'),
+    };
+  }
+  if (home.layoutTemplate === 'story-first' && home.about.showSection) {
+    return {
+      beforeHero: ['about'],
+      afterHero: order.filter((key) => key !== 'about'),
+    };
+  }
+  return { beforeHero: [], afterHero: order };
 }
 
 export function listingHeroPaddingClass(height: z.infer<typeof heroHeightSchema>): string {
@@ -113,10 +254,38 @@ export const HERO_CTA_HREFS: Record<HeroCtaKey, string> = {
 export const NAV_PAGE_KEYS = ['home', 'portfolio', 'blog', 'shop', 'bio', 'contact'] as const;
 export type NavPageKey = (typeof NAV_PAGE_KEYS)[number];
 
+export const UPDATES_PATH = '/updates';
+export const UPDATES_LEGACY_PATH = '/blog';
+
+export function updatesPostPath(slug: string): string {
+  return `${UPDATES_PATH}/${encodeURIComponent(slug)}`;
+}
+
+export function updatesTagPath(tag: string): string {
+  return `${UPDATES_PATH}/tag/${encodeURIComponent(tag.toLowerCase())}`;
+}
+
+export function isUpdatesPath(pathname: string): boolean {
+  return (
+    pathname === UPDATES_PATH
+    || pathname.startsWith(`${UPDATES_PATH}/`)
+    || pathname === UPDATES_LEGACY_PATH
+    || pathname.startsWith(`${UPDATES_LEGACY_PATH}/`)
+  );
+}
+
+export function navItemIsActive(pathname: string, href: string): boolean {
+  if (href === '/') return pathname === '/';
+  if (href === UPDATES_PATH || href === UPDATES_LEGACY_PATH) {
+    return isUpdatesPath(pathname);
+  }
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export const NAV_PAGE_HREFS: Record<NavPageKey, string> = {
   home: '/',
   portfolio: '/portfolio',
-  blog: '/blog',
+  blog: UPDATES_PATH,
   shop: '/shop',
   bio: '/bio',
   contact: '/contact',
@@ -132,7 +301,7 @@ export const SITE_CONTENT_PREVIEW_HREF: Record<SiteContentPage, string> = {
   contact: '/contact',
   portfolio: '/portfolio',
   shop: '/shop',
-  blog: '/blog',
+  blog: UPDATES_PATH,
 };
 
 function isNavPageKey(value: unknown): value is NavPageKey {
@@ -160,7 +329,7 @@ export type ContactInquiryType = {
 export const DEFAULT_NAVIGATION: NavItem[] = [
   { key: 'home', href: '/', label: 'Home', visible: true, showInFooter: false },
   { key: 'portfolio', href: '/portfolio', label: 'Portfolio', visible: true, showInFooter: true },
-  { key: 'blog', href: '/blog', label: 'Blog', visible: true, showInFooter: true },
+  { key: 'blog', href: UPDATES_PATH, label: 'Updates', visible: true, showInFooter: true },
   { key: 'shop', href: '/shop', label: 'Shop', visible: true, showInFooter: true },
   { key: 'bio', href: '/bio', label: 'Bio', visible: true, showInFooter: true },
   { key: 'contact', href: '/contact', label: 'Contact', visible: true, showInFooter: true },
@@ -197,9 +366,13 @@ export function normalizeNavigation(value: unknown): NavItem[] {
   return order.map((key) => {
     const defaults = DEFAULT_NAVIGATION.find((item) => item.key === key)!;
     const override = byKey.get(key) || {};
-    const label = typeof override.label === 'string' && override.label.trim()
+    let label = typeof override.label === 'string' && override.label.trim()
       ? override.label.trim()
       : defaults.label;
+    // Migrate legacy CMS nav label from the old blog route naming.
+    if (key === 'blog' && label.toLowerCase() === 'blog') {
+      label = defaults.label;
+    }
     return {
       key,
       href: NAV_PAGE_HREFS[key],
@@ -258,10 +431,25 @@ const inquiryTypeSchema = z.object({
   visible: z.boolean().default(true),
 });
 
+const SPACING_DENSITY_VARIABLES: Record<SpacingDensity, Record<string, string>> = {
+  comfortable: {
+    '--section-space-y': '3rem',
+    '--section-space-y-md': '4rem',
+    '--section-space-y-lg': '5rem',
+  },
+  compact: {
+    '--section-space-y': '2rem',
+    '--section-space-y-md': '2.5rem',
+    '--section-space-y-lg': '3rem',
+  },
+};
+
 export const siteThemeSchema = z.object({
   primaryColor: z.preprocess((value) => normalizeHexColor(value, '#111827'), z.string()),
   accentColor: z.preprocess((value) => normalizeHexColor(value, '#374151'), z.string()),
   fontPreset: fontPresetSchema.default('system'),
+  cardStyle: cardStyleSchema.default('studio'),
+  spacingDensity: spacingDensitySchema.default('comfortable'),
 });
 
 export const siteFooterSchema = z.object({
@@ -289,6 +477,8 @@ export const siteIdentitySchema = z.object({
     primaryColor: '#111827',
     accentColor: '#374151',
     fontPreset: 'system',
+    cardStyle: 'studio',
+    spacingDensity: 'comfortable',
   }),
   footer: siteFooterSchema.default({
     quickLinksHeading: 'Quick Links',
@@ -303,6 +493,7 @@ export const pageListingHeroSchema = z.object({
 });
 
 export const homePageSchema = z.object({
+  layoutTemplate: homeLayoutTemplateSchema.default('classic'),
   sectionOrder: z.preprocess(normalizeHomeSectionOrder, z.array(z.enum(HOME_SECTION_KEYS))).default([...HOME_SECTION_KEYS]),
   hero: z.object({
     titleLine1: z.string().min(1),
@@ -327,6 +518,7 @@ export const homePageSchema = z.object({
     selectionMode: featuredSelectionModeSchema.default('featured_flag'),
     manualSlugs: z.array(z.string()).default([]),
     limit: z.number().int().min(1).max(12).default(3),
+    columns: portfolioGridColumnsSchema.default('3'),
   }),
   about: z.object({
     title: z.string().min(1),
@@ -354,6 +546,7 @@ export const homePageSchema = z.object({
 });
 
 export const bioPageSchema = z.object({
+  sectionOrder: z.preprocess(normalizeBioSectionOrder, z.array(z.enum(BIO_SECTION_KEYS))).default([...BIO_SECTION_KEYS]),
   hero: z.object({
     title: z.string().min(1),
     subtitle: z.string(),
@@ -433,14 +626,35 @@ export const portfolioPageSchema = listingPageSchema.extend({
     showFilters: z.boolean().default(true),
     masonry: z.boolean().default(false),
   }).default({ gridColumns: '3', showFilters: true, masonry: false }),
+  artworkDetailLayout: productDetailLayoutSchema.default('standard'),
 });
 
 export const shopPageSchema = listingPageSchema.extend({
+  layout: z.object({
+    gridColumns: portfolioGridColumnsSchema.default('3'),
+    showFilters: z.boolean().default(true),
+  }).default({ gridColumns: '3', showFilters: true }),
   searchPlaceholder: z.string().default('Search artworks, categories, or artists...'),
   showRecentlyViewed: z.boolean().default(true),
   showRecommendations: z.boolean().default(true),
   showPurchaseInfo: z.boolean().default(true),
   checkoutTrustCopy: z.string().default('Your payment information is processed securely by Stripe. We never store your payment details.'),
+  checkoutPageTitle: z.string().default('Checkout'),
+  checkoutPageSubtitle: z.string().default('Complete your purchase securely'),
+  checkoutStepContact: z.string().default('Contact'),
+  checkoutStepShipping: z.string().default('Shipping'),
+  checkoutStepReview: z.string().default('Review & pay'),
+  successTitle: z.string().default('Order Confirmed!'),
+  successSubtitle: z.string().default('Thank you for your purchase'),
+  successNextStepsHtml: z.string().default(`
+    <ul>
+      <li>You'll receive an order confirmation email shortly</li>
+      <li>We'll prepare your artwork for shipping within 2-3 business days</li>
+      <li>You'll receive tracking information once your order ships</li>
+      <li>All artwork is carefully packaged and fully insured</li>
+    </ul>
+  `.trim()),
+  productDetailLayout: productDetailLayoutSchema.default('standard'),
   purchaseInfo: z.object({
     title: z.string().default('Purchase Information'),
     authenticityTitle: z.string().default('Authenticity'),
@@ -462,10 +676,43 @@ export const shopPageSchema = listingPageSchema.extend({
   }),
 });
 
+export const updatesFeedLayoutSchema = z.enum(['timeline', 'grid']);
+export const orderProgressPostModeSchema = z.enum(['off', 'draft', 'publish']);
+
 export const blogPageSchema = listingPageSchema.extend({
   subscribeLabel: z.string().default('Subscribe for Updates'),
   showSubscribe: z.boolean().default(true),
   showRss: z.boolean().default(true),
+  feedLayout: updatesFeedLayoutSchema.default('timeline'),
+  showFormatFilters: z.boolean().default(true),
+  journalLabel: z.string().default('Journal'),
+  studioLabel: z.string().default('Studio'),
+  showPrivateSection: z.boolean().default(true),
+  privateSectionTitle: z.string().default('For collectors'),
+  privateSectionSubtitle: z.string().default('Private studio notes and process videos shared with selected collectors.'),
+  privateSignInLabel: z.string().default('Sign in to see collector updates'),
+  quickLookLabel: z.string().default('Quick look'),
+  saveUpdateLabel: z.string().default('Save'),
+  askArtistLabel: z.string().default('Ask the artist'),
+  featuredLabel: z.string().default('Featured'),
+  publicTabLabel: z.string().default('Public'),
+  allFilterLabel: z.string().default('All'),
+  showFeedDate: z.boolean().default(true),
+  showFeedAuthor: z.boolean().default(true),
+  showFeedTags: z.boolean().default(true),
+  showComments: z.boolean().default(true),
+  showLikes: z.boolean().default(true),
+  commentsLabel: z.string().default('Comments'),
+  likeLabel: z.string().default('Like'),
+  autoOrderProgressPost: orderProgressPostModeSchema.default('draft'),
+  autoOrderProgressExcerpt: z.string().default('Work has started in the studio on {{summary}}. This private update is linked to your order — more photos and notes will appear here as the piece progresses.'),
+  digestEnabled: z.boolean().default(true),
+  digestIntervalDays: z.coerce.number().int().min(1).max(30).default(7),
+  digestSubject: z.string().default('Recent studio updates'),
+  digestIntro: z.string().default('Here is what has been happening in the studio:'),
+  collectorDigestEnabled: z.boolean().default(true),
+  collectorDigestSubject: z.string().default('New collector studio updates'),
+  collectorDigestIntro: z.string().default('New private studio notes shared with you:'),
 });
 
 export type SiteIdentityContent = z.infer<typeof siteIdentitySchema>;
@@ -580,6 +827,8 @@ export const DEFAULT_SITE_IDENTITY: SiteIdentityContent = {
     primaryColor: '#111827',
     accentColor: '#374151',
     fontPreset: 'system',
+    cardStyle: 'studio',
+    spacingDensity: 'comfortable',
   },
   footer: {
     quickLinksHeading: 'Quick Links',
@@ -590,6 +839,7 @@ export const DEFAULT_SITE_IDENTITY: SiteIdentityContent = {
 };
 
 export const DEFAULT_HOME_PAGE: HomePageContent = {
+  layoutTemplate: 'classic',
   sectionOrder: [...HOME_SECTION_KEYS],
   hero: {
     titleLine1: 'Capturing Light',
@@ -614,6 +864,7 @@ export const DEFAULT_HOME_PAGE: HomePageContent = {
     selectionMode: 'featured_flag',
     manualSlugs: [],
     limit: 3,
+    columns: '3',
   },
   about: {
     title: 'About the Artist',
@@ -624,10 +875,10 @@ export const DEFAULT_HOME_PAGE: HomePageContent = {
     showSection: true,
   },
   blog: {
-    title: 'Latest Insights',
-    description: 'Thoughts on art, creativity, and the artistic process. Follow along as I document my journey and share insights from the studio.',
-    cta: 'Read All Posts →',
-    emptyMessage: 'Blog posts coming soon...',
+    title: 'Latest updates',
+    description: 'Studio notes, photos, short videos, and journal posts from the making of the work.',
+    cta: 'See all updates →',
+    emptyMessage: 'Updates coming soon...',
     showSection: true,
   },
   newsletter: {
@@ -641,6 +892,7 @@ export const DEFAULT_HOME_PAGE: HomePageContent = {
 };
 
 export const DEFAULT_BIO_PAGE: BioPageContent = {
+  sectionOrder: [...BIO_SECTION_KEYS],
   hero: {
     title: 'About the Artist',
     subtitle: 'Contemporary painter exploring the intersection of urban landscapes, abstract form, and the ever-changing quality of light through oil and mixed media works.',
@@ -766,14 +1018,32 @@ export const DEFAULT_PORTFOLIO_PAGE: PortfolioPageContent = {
   subtitle: 'A collection of paintings, drawings, and mixed media works exploring themes of light, urban environments, and the intersection of abstraction and representation.',
   hero: { height: 'compact' },
   layout: { gridColumns: '3', showFilters: true, masonry: false },
+  artworkDetailLayout: 'standard',
 };
 
 export const DEFAULT_SHOP_PAGE: ShopPageContent = {
   title: 'Art Shop',
   subtitle: 'Discover original paintings, drawings, prints, and collections. Each piece is carefully crafted and comes with a certificate of authenticity.',
   hero: { height: 'compact' },
+  layout: { gridColumns: '3', showFilters: true },
   searchPlaceholder: 'Search artworks, categories, or artists...',
   checkoutTrustCopy: 'Your payment information is processed securely by Stripe. We never store your payment details.',
+  checkoutPageTitle: 'Checkout',
+  checkoutPageSubtitle: 'Complete your purchase securely',
+  checkoutStepContact: 'Contact',
+  checkoutStepShipping: 'Shipping',
+  checkoutStepReview: 'Review & pay',
+  successTitle: 'Order Confirmed!',
+  successSubtitle: 'Thank you for your purchase',
+  successNextStepsHtml: `
+    <ul>
+      <li>You'll receive an order confirmation email shortly</li>
+      <li>We'll prepare your artwork for shipping within 2-3 business days</li>
+      <li>You'll receive tracking information once your order ships</li>
+      <li>All artwork is carefully packaged and fully insured</li>
+    </ul>
+  `.trim(),
+  productDetailLayout: 'standard',
   showRecentlyViewed: true,
   showRecommendations: true,
   showPurchaseInfo: true,
@@ -790,12 +1060,42 @@ export const DEFAULT_SHOP_PAGE: ShopPageContent = {
 };
 
 export const DEFAULT_BLOG_PAGE: BlogPageContent = {
-  title: 'Art Blog',
-  subtitle: 'Thoughts on art, creativity, and the artistic process. Discover insights into my creative journey, techniques, and the stories behind my artwork.',
+  title: 'Updates',
+  subtitle: 'Studio photos, short videos, and journal notes — a living feed of the work, plus a private space for collectors.',
   hero: { height: 'compact' },
   subscribeLabel: 'Subscribe for Updates',
   showSubscribe: true,
   showRss: true,
+  feedLayout: 'timeline',
+  showFormatFilters: true,
+  journalLabel: 'Journal',
+  studioLabel: 'Studio',
+  showPrivateSection: true,
+  privateSectionTitle: 'For collectors',
+  privateSectionSubtitle: 'Private studio notes and process videos shared with selected collectors.',
+  privateSignInLabel: 'Sign in to see collector updates',
+  quickLookLabel: 'Quick look',
+  saveUpdateLabel: 'Save',
+  askArtistLabel: 'Ask the artist',
+  featuredLabel: 'Featured',
+  publicTabLabel: 'Public',
+  allFilterLabel: 'All',
+  showFeedDate: true,
+  showFeedAuthor: true,
+  showFeedTags: true,
+  showComments: true,
+  showLikes: true,
+  commentsLabel: 'Comments',
+  likeLabel: 'Like',
+  autoOrderProgressPost: 'draft',
+  autoOrderProgressExcerpt: 'Work has started in the studio on {{summary}}. This private update is linked to your order — more photos and notes will appear here as the piece progresses.',
+  digestEnabled: true,
+  digestIntervalDays: 7,
+  digestSubject: 'Recent studio updates',
+  digestIntro: 'Here is what has been happening in the studio:',
+  collectorDigestEnabled: true,
+  collectorDigestSubject: 'New collector studio updates',
+  collectorDigestIntro: 'New private studio notes shared with you:',
 };
 
 export const SITE_CONTENT_DEFAULTS = {

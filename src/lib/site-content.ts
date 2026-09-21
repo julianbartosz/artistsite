@@ -1,6 +1,7 @@
 import 'server-only';
 import { revalidatePath, unstable_noStore as noStore } from 'next/cache';
 import { getConfig, setConfig } from '@/lib/config';
+import { getCmsPreviewSnapshot, mergePreviewPageContent } from '@/lib/cms-preview';
 import { sanitizeRichHtml } from '@/lib/content-sanitize';
 import {
   SITE_CONTENT_KEYS,
@@ -105,7 +106,9 @@ function parseStoredContent<T extends SiteContentPage>(page: T, raw: string | un
 export async function getSiteContent<T extends SiteContentPage>(page: T): Promise<SiteContentByPage[T]> {
   noStore();
   const raw = await getConfig(SITE_CONTENT_KEYS[page]);
-  return parseStoredContent(page, raw);
+  const persisted = parseStoredContent(page, raw);
+  const previewSnapshot = await getCmsPreviewSnapshot();
+  return mergePreviewPageContent(page, persisted, previewSnapshot);
 }
 
 export function revalidateSiteContent(page: SiteContentPage): void {
@@ -124,6 +127,7 @@ export function revalidateSiteContent(page: SiteContentPage): void {
   };
 
   revalidatePath(paths[page]);
+  if (page === 'blog') revalidatePath('/updates');
   revalidatePath('/', 'layout');
 }
 

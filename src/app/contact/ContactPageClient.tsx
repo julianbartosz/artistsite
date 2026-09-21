@@ -11,6 +11,7 @@ import {
 } from '@/lib/form-validation';
 import type { ContactPageContent } from '@/lib/site-content-shared';
 import { defaultInquiryType, htmlHasVisibleText, visibleInquiryTypes } from '@/lib/site-content-shared';
+import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
 
 interface ContactPageClientProps {
   pageContent: ContactPageContent;
@@ -129,7 +130,8 @@ export default function ContactPageClient({ pageContent, contactEmail: initialCo
 
   return (
     <div className="min-h-screen bg-white">
-      <section className="bg-gray-50 section-space-tight">
+      <section className="relative group bg-gray-50 section-space-tight">
+        <CmsEditAnchor targetKey="contact:header" />
         <div className="max-w-4xl mx-auto px-6 text-center">
           <h1 className="text-4xl font-bold text-gray-900 mb-4">{pageContent.header.title}</h1>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">{pageContent.header.subtitle}</p>
@@ -138,7 +140,8 @@ export default function ContactPageClient({ pageContent, contactEmail: initialCo
 
       <div className="max-w-7xl mx-auto px-6 py-10 md:py-16">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16">
-          <aside className="order-2 lg:order-none lg:col-start-2 lg:row-start-1 space-y-6">
+          <aside className="relative group order-2 lg:order-none lg:col-start-2 lg:row-start-1 space-y-6">
+            <CmsEditAnchor targetKey="contact:sidebar" />
             <div className="text-center lg:text-left">
               {pageContent.portraitImage && (
                 <div className="relative w-24 h-24 lg:w-48 lg:h-48 mx-auto lg:mx-0 mb-4 lg:mb-6 rounded-full overflow-hidden">

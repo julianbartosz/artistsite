@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { useCart } from '@/components/CartContext';
+import { useAnalytics } from '@/components/AnalyticsProvider';
 import { formatPrice, productImageSrc, cartItemLineTotal, formatCartItemVariant, E2E_CHECKOUT_SESSION_PREFIX } from '@/lib/commerce';
 import { DEFAULT_SHOP_PAGE } from '@/lib/site-content-shared';
+import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
 import { loadStripe } from '@stripe/stripe-js';
 
 interface CheckoutFormData {
@@ -19,19 +21,29 @@ interface CheckoutFormData {
   country: string;
   phone: string;
   promoCode: string;
+  isGift: boolean;
+  giftMessage: string;
 }
 
 type CheckoutStep = 'contact' | 'shipping' | 'review';
 
-const CHECKOUT_STEPS: Array<{ id: CheckoutStep; label: string }> = [
-  { id: 'contact', label: 'Contact' },
-  { id: 'shipping', label: 'Shipping' },
-  { id: 'review', label: 'Review & pay' },
-];
-
 export default function CheckoutPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-gray-900" aria-label="Loading checkout" />
+      </div>
+    }>
+      <CheckoutPageContent />
+    </Suspense>
+  );
+}
+
+function CheckoutPageContent() {
   const router = useRouter();
-  const { state, getItemKey, closeCart } = useCart();
+  const searchParams = useSearchParams();
+  const analytics = useAnalytics();
+  const { state, getItemKey, closeCart, restoreCart } = useCart();
   const [formData, setFormData] = useState<CheckoutFormData>({
     email: '',
     firstName: '',
@@ -43,19 +55,52 @@ export default function CheckoutPage() {
     country: 'US',
     phone: '',
     promoCode: '',
+    isGift: false,
+    giftMessage: '',
   });
   const [isProcessing, setIsProcessing] = useState(false);
   const [errors, setErrors] = useState<Partial<CheckoutFormData>>({});
   const [submitError, setSubmitError] = useState('');
-  const [trustCopy, setTrustCopy] = useState(DEFAULT_SHOP_PAGE.checkoutTrustCopy);
+  const [shopCopy, setShopCopy] = useState(DEFAULT_SHOP_PAGE);
+  const checkoutSteps = useMemo<Array<{ id: CheckoutStep; label: string }>>(() => ([
+    { id: 'contact', label: shopCopy.checkoutStepContact },
+    { id: 'shipping', label: shopCopy.checkoutStepShipping },
+    { id: 'review', label: shopCopy.checkoutStepReview },
+  ]), [shopCopy.checkoutStepContact, shopCopy.checkoutStepReview, shopCopy.checkoutStepShipping]);
   const [step, setStep] = useState<CheckoutStep>('contact');
+  const recoveryHandled = useRef(false);
+  const checkoutTracked = useRef(false);
+  const [reviewSubmitReady, setReviewSubmitReady] = useState(false);
+  const [recoveryLoading, setRecoveryLoading] = useState(() => Boolean(searchParams.get('recover')));
+
+  useEffect(() => {
+    const recoverToken = searchParams.get('recover');
+    if (!recoverToken || recoveryHandled.current || !state.isLoaded) {
+      if (!recoverToken) setRecoveryLoading(false);
+      return;
+    }
+
+    recoveryHandled.current = true;
+    fetch(`/api/cart/recover?token=${encodeURIComponent(recoverToken)}`)
+      .then((response) => response.json())
+      .then((data) => {
+        if (Array.isArray(data.items) && data.items.length > 0) {
+          restoreCart(data.items);
+        }
+        if (typeof data.email === 'string' && data.email.trim()) {
+          setFormData((current) => ({ ...current, email: data.email.trim() }));
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => setRecoveryLoading(false));
+  }, [searchParams, state.isLoaded, restoreCart]);
 
   useEffect(() => {
     fetch('/api/site-content/public')
       .then((response) => response.json())
       .then((data) => {
-        if (typeof data?.shop?.checkoutTrustCopy === 'string' && data.shop.checkoutTrustCopy.trim()) {
-          setTrustCopy(data.shop.checkoutTrustCopy);
+        if (data?.shop && typeof data.shop === 'object') {
+          setShopCopy((current) => ({ ...current, ...data.shop }));
         }
       })
       .catch(() => undefined);
@@ -66,12 +111,22 @@ export default function CheckoutPage() {
     closeCart();
   }, [closeCart]);
 
+  useEffect(() => {
+    if (step !== 'review') {
+      setReviewSubmitReady(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setReviewSubmitReady(true), 350);
+    return () => window.clearTimeout(timer);
+  }, [step]);
+
   // Redirect if cart is empty
   useEffect(() => {
-    if (state.isLoaded && state.items.length === 0) {
+    if (!state.isLoaded || recoveryLoading) return;
+    if (state.items.length === 0) {
       router.push('/shop');
     }
-  }, [state.isLoaded, state.items.length, router]);
+  }, [state.isLoaded, state.items.length, recoveryLoading, router]);
 
   // Calculate totals
   const subtotal = state.total;
@@ -83,7 +138,7 @@ export default function CheckoutPage() {
   }, 0);
   const total = subtotal + shipping;
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
     // Clear error when user starts typing
@@ -118,6 +173,47 @@ export default function CheckoutPage() {
     return Object.keys(newErrors).length === 0;
   };
 
+  const isValidCheckoutEmail = (email: string): boolean => Boolean(email.trim()) && /\S+@\S+\.\S+/.test(email);
+
+  const trackCheckoutRecovery = useCallback(async (email: string) => {
+    if (checkoutTracked.current || state.items.length === 0 || !isValidCheckoutEmail(email)) {
+      return;
+    }
+    checkoutTracked.current = true;
+
+    let recoveryPath: string | undefined;
+    try {
+      const recoveryResponse = await fetch('/api/cart/recover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: state.items, email }),
+      });
+      const recoveryData = await recoveryResponse.json();
+      if (recoveryResponse.ok && typeof recoveryData.recoveryPath === 'string') {
+        recoveryPath = recoveryData.recoveryPath;
+      }
+    } catch {
+      // Recovery link creation must not block checkout.
+    }
+
+    analytics.trackBeginCheckout(
+      state.items.map((item) => ({
+        item_id: item.product.id,
+        item_name: item.product.title,
+        price: item.totalPrice,
+        quantity: item.quantity,
+        currency: item.product.currency,
+      })),
+      total,
+      { email, recovery_path: recoveryPath },
+    );
+  }, [analytics, state.items, total]);
+
+  const handleContactEmailBlur = () => {
+    if (step !== 'contact') return;
+    void trackCheckoutRecovery(formData.email);
+  };
+
   const validateShippingStep = (): boolean => {
     const newErrors: Partial<CheckoutFormData> = {};
     if (!formData.firstName) newErrors.firstName = 'First name is required';
@@ -131,13 +227,15 @@ export default function CheckoutPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const goToNextStep = () => {
+  const goToNextStep = async () => {
     setSubmitError('');
     if (step === 'contact' && validateContactStep()) {
+      await trackCheckoutRecovery(formData.email);
       setStep('shipping');
       return;
     }
     if (step === 'shipping' && validateShippingStep()) {
+      setReviewSubmitReady(false);
       setStep('review');
     }
   };
@@ -151,7 +249,9 @@ export default function CheckoutPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError('');
-    
+
+    if (step !== 'review') return;
+    if (!reviewSubmitReady) return;
     if (!validateForm()) return;
 
     setIsProcessing(true);
@@ -167,6 +267,7 @@ export default function CheckoutPage() {
           items: state.items,
           customerInfo: formData,
           promoCode: formData.promoCode,
+          giftMessage: formData.isGift ? formData.giftMessage.trim() || undefined : undefined,
         }),
       });
 
@@ -203,11 +304,11 @@ export default function CheckoutPage() {
     }
   };
 
-  if (!state.isLoaded) {
+  if (!state.isLoaded || recoveryLoading) {
     return (
       <main className="min-h-screen bg-neutral-50 py-12">
         <div className="mx-auto max-w-3xl px-4 text-center text-neutral-600">
-          Loading checkout…
+          {recoveryLoading ? 'Restoring your cart…' : 'Loading checkout…'}
         </div>
       </main>
     );
@@ -277,11 +378,12 @@ export default function CheckoutPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 md:py-16">
-      <div className="max-w-7xl mx-auto px-6">
-        <div className="text-center mb-8 md:mb-12">
-          <h1 className="text-3xl font-bold text-gray-900 mb-4">Checkout</h1>
-          <p className="text-gray-600">Complete your purchase securely</p>
+    <div className="relative group min-h-screen bg-gray-50 py-6 md:py-12">
+      <CmsEditAnchor targetKey="shop:checkout" />
+      <div className="max-w-7xl mx-auto page-x">
+        <div className="text-center mb-6 md:mb-10">
+          <h1 className="text-3xl font-bold text-gray-900 mb-3">{shopCopy.checkoutPageTitle}</h1>
+          <p className="text-gray-600">{shopCopy.checkoutPageSubtitle}</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16">
@@ -302,8 +404,8 @@ export default function CheckoutPage() {
 
           <div className="order-2 lg:order-none">
             <div className="mb-6 flex items-center gap-2">
-              {CHECKOUT_STEPS.map((entry, index) => {
-                const activeIndex = CHECKOUT_STEPS.findIndex((item) => item.id === step);
+              {checkoutSteps.map((entry, index) => {
+                const activeIndex = checkoutSteps.findIndex((item) => item.id === step);
                 const isComplete = index < activeIndex;
                 const isCurrent = entry.id === step;
                 return (
@@ -312,7 +414,7 @@ export default function CheckoutPage() {
                       {index + 1}
                     </div>
                     <span className={`text-sm truncate ${isCurrent ? 'font-semibold text-gray-900' : 'text-gray-600'}`}>{entry.label}</span>
-                    {index < CHECKOUT_STEPS.length - 1 && <div className="hidden sm:block h-px flex-1 bg-gray-200" />}
+                    {index < checkoutSteps.length - 1 && <div className="hidden sm:block h-px flex-1 bg-gray-200" />}
                   </div>
                 );
               })}
@@ -342,6 +444,7 @@ export default function CheckoutPage() {
                     name="email"
                     value={formData.email}
                     onChange={handleInputChange}
+                    onBlur={handleContactEmailBlur}
                     className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
                       errors.email ? 'border-red-500' : 'border-gray-300'
                     }`}
@@ -531,6 +634,41 @@ export default function CheckoutPage() {
                     <p>{formData.country}</p>
                     <p>{formData.phone}</p>
                   </div>
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.isGift}
+                        onChange={(event) => setFormData((current) => ({
+                          ...current,
+                          isGift: event.target.checked,
+                          giftMessage: event.target.checked ? current.giftMessage : '',
+                        }))}
+                        className="mt-1 h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-500"
+                      />
+                      <span>
+                        <span className="block font-medium text-gray-900">This is a gift</span>
+                        <span className="block text-gray-600">Include a note for the studio to print with the package.</span>
+                      </span>
+                    </label>
+                    {formData.isGift && (
+                      <div>
+                        <label htmlFor="giftMessage" className="block text-sm font-medium text-gray-700 mb-1">
+                          Gift message (optional)
+                        </label>
+                        <textarea
+                          id="giftMessage"
+                          name="giftMessage"
+                          rows={3}
+                          maxLength={500}
+                          value={formData.giftMessage}
+                          onChange={handleInputChange}
+                          placeholder="A short note for the recipient…"
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-primary"
+                        />
+                      </div>
+                    )}
+                  </div>
                   <p className="text-gray-600">Payment is processed securely by Stripe on the next step.</p>
                 </div>
                 )}
@@ -558,7 +696,7 @@ export default function CheckoutPage() {
               <button
                 type="submit"
                 data-testid="complete-order"
-                disabled={isProcessing}
+                disabled={isProcessing || !reviewSubmitReady}
                 className="w-full sm:flex-1 btn-primary py-4 px-6 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {isProcessing ? (
@@ -582,7 +720,7 @@ export default function CheckoutPage() {
               </div>
 
               {step === 'review' && (
-              <p className="text-sm text-gray-500 text-center">{trustCopy}</p>
+              <p className="text-sm text-gray-500 text-center">{shopCopy.checkoutTrustCopy}</p>
               )}
             </form>
           </div>

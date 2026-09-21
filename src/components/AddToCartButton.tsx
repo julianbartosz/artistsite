@@ -5,21 +5,25 @@ import { Product, CartItemVariant, formatPrice, calculateVariantPrice } from '@/
 import { useCart } from './CartContext';
 import ProductVariantSelector from './ProductVariantSelector';
 import CustomCommissionRequest from './CustomCommissionRequest';
+import { useEcommerceTracking } from './AnalyticsProvider';
 
 interface AddToCartButtonProps {
   product: Product;
+  purchasable?: boolean;
   className?: string;
   showVariants?: boolean;
   size?: 'sm' | 'md' | 'lg';
 }
 
 export default function AddToCartButton({ 
-  product, 
+  product,
+  purchasable = true,
   className = '', 
   showVariants = true,
   size = 'md' 
 }: AddToCartButtonProps) {
   const { addItem, openCart, state } = useCart();
+  const { trackAddToCart } = useEcommerceTracking();
   const [selectedVariant, setSelectedVariant] = useState<CartItemVariant>({});
   const [customizations, setCustomizations] = useState<Record<string, string>>({});
   const [isAdding, setIsAdding] = useState(false);
@@ -27,9 +31,9 @@ export default function AddToCartButton({
   const [isSubmittingCommission, setIsSubmittingCommission] = useState(false);
 
   // Check if product is available for purchase
-  const isAvailable = product.availability === 'available';
+  const isAvailable = product.availability === 'available' && purchasable;
   const isCommissionOnly = product.availability === 'commissioned';
-  const isSoldOut = product.availability === 'sold' || product.availability === 'reserved';
+  const isSoldOut = product.availability === 'sold' || product.availability === 'reserved' || (product.availability === 'available' && !purchasable);
 
   // Helper function to generate item key - moved before usage
   const generateItemKey = (productId: string, variant?: CartItemVariant): string => {
@@ -85,6 +89,7 @@ export default function AddToCartButton({
       }
 
       addItem(product, 1, selectedVariant, customizations);
+      trackAddToCart(product.id, product.title, product.category, displayPrice, 1);
       
       // Brief success feedback
       setTimeout(() => {

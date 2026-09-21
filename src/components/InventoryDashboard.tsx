@@ -22,6 +22,8 @@ export function InventoryDashboard() {
   const [stockDrafts, setStockDrafts] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'alerts' | 'products'>('overview');
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [savingProductId, setSavingProductId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchDashboardData();
@@ -92,8 +94,13 @@ export function InventoryDashboard() {
 
   const handleSetStock = async (productId: string) => {
     const currentStock = Number(stockDrafts[productId] || 0);
-    if (!Number.isFinite(currentStock) || currentStock < 0) return;
+    if (!Number.isFinite(currentStock) || currentStock < 0) {
+      setFeedback({ type: 'error', message: 'Enter a valid quantity (0 or more).' });
+      return;
+    }
 
+    setSavingProductId(productId);
+    setFeedback(null);
     try {
       const response = await fetch('/api/inventory', {
         method: 'POST',
@@ -103,47 +110,67 @@ export function InventoryDashboard() {
           updates: [{ productId, currentStock }]
         })
       });
-
-      if (response.ok) {
-        await fetchDashboardData();
-        await fetchAlerts();
-        await fetchProducts();
+      const data = await response.json();
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error || 'Failed to update stock');
       }
+
+      setFeedback({ type: 'success', message: 'Stock updated.' });
+      await fetchDashboardData();
+      await fetchAlerts();
+      await fetchProducts();
     } catch (error) {
-      console.error('Failed to set stock:', error);
+      setFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to update stock',
+      });
+    } finally {
+      setSavingProductId(null);
     }
   };
 
   const handleAcknowledgeAlert = async (alertId: string) => {
+    setFeedback(null);
     try {
       const response = await fetch('/api/inventory/alerts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'acknowledge', alertId })
       });
-
-      if (response.ok) {
-        fetchAlerts();
+      const data = await response.json();
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error || 'Failed to acknowledge alert');
       }
+      setFeedback({ type: 'success', message: 'Alert acknowledged.' });
+      fetchAlerts();
     } catch (error) {
-      console.error('Failed to acknowledge alert:', error);
+      setFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to acknowledge alert',
+      });
     }
   };
 
   const handleResolveAlert = async (alertId: string) => {
+    setFeedback(null);
     try {
       const response = await fetch('/api/inventory/alerts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'resolve', alertId })
       });
-
-      if (response.ok) {
-        fetchAlerts();
-        fetchDashboardData();
+      const data = await response.json();
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error || 'Failed to resolve alert');
       }
+      setFeedback({ type: 'success', message: 'Alert resolved.' });
+      fetchAlerts();
+      fetchDashboardData();
     } catch (error) {
-      console.error('Failed to resolve alert:', error);
+      setFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to resolve alert',
+      });
     }
   };
 
@@ -167,6 +194,11 @@ export function InventoryDashboard() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Inventory Management</h1>
         <p className="text-gray-600">Monitor stock levels, alerts, and inventory movements</p>
+        {feedback && (
+          <div className={`mt-4 rounded-md border p-3 text-sm ${feedback.type === 'success' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
+            {feedback.message}
+          </div>
+        )}
       </div>
 
       {/* Tabs */}
@@ -434,8 +466,13 @@ export function InventoryDashboard() {
                       ${product.price.toLocaleString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      <button type="button" onClick={() => handleSetStock(product.id)} className="rounded bg-gray-900 px-3 py-1 text-white">
-                        Set Stock
+                      <button
+                        type="button"
+                        onClick={() => handleSetStock(product.id)}
+                        disabled={savingProductId === product.id}
+                        className="rounded bg-gray-900 px-3 py-1 text-white disabled:opacity-50"
+                      >
+                        {savingProductId === product.id ? 'Saving…' : 'Save quantity'}
                       </button>
                     </td>
                   </tr>

@@ -13,6 +13,7 @@ jest.mock('@/components/CartContext', () => ({
   useCart: jest.fn(() => ({
     state: { items: [], total: 0, itemCount: 0, isOpen: false, isLoaded: true, lastUpdated: 0 },
     toggleCart: jest.fn(),
+    restoreCart: jest.fn(),
   })),
 }));
 
@@ -45,7 +46,7 @@ describe('Header Component', () => {
     expect(screen.getByText('Artist Site')).toBeInTheDocument();
     expect(screen.getByText('Home')).toBeInTheDocument();
     expect(screen.getByText('Portfolio')).toBeInTheDocument();
-    expect(screen.getByText('Blog')).toBeInTheDocument();
+    expect(screen.getByText('Updates')).toBeInTheDocument();
     expect(screen.getByText('Shop')).toBeInTheDocument();
     expect(screen.getByText('Contact')).toBeInTheDocument();
   });
@@ -98,7 +99,7 @@ describe('Header Component', () => {
     expect(screen.getByRole('link', { name: 'Artist Site' })).toHaveAttribute('href', '/');
     expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/');
     expect(screen.getByRole('link', { name: 'Portfolio' })).toHaveAttribute('href', '/portfolio');
-    expect(screen.getByRole('link', { name: 'Blog' })).toHaveAttribute('href', '/blog');
+    expect(screen.getByRole('link', { name: 'Updates' })).toHaveAttribute('href', '/updates');
     expect(screen.getByRole('link', { name: 'Shop' })).toHaveAttribute('href', '/shop');
     expect(screen.getByRole('link', { name: 'Contact' })).toHaveAttribute('href', '/contact');
   });
@@ -153,7 +154,7 @@ describe('Header Component', () => {
       />
     );
 
-    expect(screen.queryByRole('link', { name: 'Blog' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Updates' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Store' })).toHaveAttribute('href', '/shop');
   });
 

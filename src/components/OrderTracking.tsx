@@ -3,10 +3,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
 import type { Order, OrderStatus } from '@/lib/orders';
 import { shippingAddressIsPopulated } from '@/lib/shipping-address';
 import { formatCartItemVariant, formatPrice, productImageSrc } from '@/lib/commerce';
 import { shippingCarrierLabel, trackingUrl } from '@/lib/shipping';
+import { OrderProgressSteps } from '@/components/admin/OrderStatusStepper';
+import OrderMessageComposer from '@/components/OrderMessageComposer';
 
 interface OrderTrackingProps {
   orderId?: string;
@@ -14,8 +17,6 @@ interface OrderTrackingProps {
   customerEmail?: string;
   accessToken?: string;
 }
-
-const statusSteps: OrderStatus[] = ['confirmed', 'processing', 'shipped', 'delivered'];
 
 const statusColors: Record<OrderStatus, string> = {
   pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
@@ -38,6 +39,7 @@ const statusIcons: Record<OrderStatus, string> = {
 };
 
 export default function OrderTracking({ orderId, order: initialOrder, accessToken }: OrderTrackingProps) {
+  const { data: session } = useSession();
   const [order, setOrder] = useState<Order | null>(initialOrder || null);
   const [loading, setLoading] = useState(!initialOrder);
   const [error, setError] = useState<string | null>(null);
@@ -68,16 +70,6 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
       fetchOrder();
     }
   }, [orderId, initialOrder, fetchOrder]);
-
-  const getStatusStepIndex = (status: OrderStatus): number => {
-    return statusSteps.indexOf(status);
-  };
-
-  const isStepCompleted = (stepStatus: OrderStatus, currentStatus: OrderStatus): boolean => {
-    const stepIndex = getStatusStepIndex(stepStatus);
-    const currentIndex = getStatusStepIndex(currentStatus);
-    return stepIndex <= currentIndex && currentStatus !== 'cancelled' && currentStatus !== 'refunded';
-  };
 
   const formatDate = (date: Date | string): string => {
     const d = typeof date === 'string' ? new Date(date) : date;
@@ -140,34 +132,7 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
       {order.status !== 'cancelled' && order.status !== 'refunded' && (
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-6">Order Progress</h2>
-          <div className="flex items-center justify-between">
-            {statusSteps.map((step, index) => {
-              const isCompleted = isStepCompleted(step, order.status);
-              const isCurrent = step === order.status;
-              
-              return (
-                <div key={step} className="flex flex-col items-center flex-1">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium ${
-                    isCompleted || isCurrent
-                      ? 'bg-primary text-white'
-                      : 'bg-gray-200 text-gray-600'
-                  }`}>
-                    {isCompleted && !isCurrent ? '✓' : statusIcons[step]}
-                  </div>
-                  <span className={`mt-2 text-sm ${
-                    isCompleted || isCurrent ? 'text-primary font-medium' : 'text-gray-500'
-                  }`}>
-                    {step.charAt(0).toUpperCase() + step.slice(1)}
-                  </span>
-                  {index < statusSteps.length - 1 && (
-                    <div className={`hidden md:block absolute w-full h-0.5 mt-5 ${
-                      isCompleted ? 'bg-primary' : 'bg-gray-200'
-                    }`} style={{ left: '50%', right: '-50%' }} />
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          <OrderProgressSteps status={order.status} />
         </div>
       )}
 
@@ -256,6 +221,17 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
           ))}
         </div>
       </div>
+
+      {session?.user && (
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">Questions about your order?</h2>
+          <p className="text-sm text-gray-600 mb-4">Send a message directly to the studio. Replies appear in your account messages.</p>
+          <OrderMessageComposer
+            orderId={order.id}
+            orderNumber={order.orderNumber}
+          />
+        </div>
+      )}
 
       {shippingAddressIsPopulated(order.shippingAddress) && (
       <div className="bg-white rounded-lg shadow-md p-6">

@@ -62,9 +62,91 @@ export function isPublishableContentTitle(title: string): boolean {
 /** @deprecated Use isPublishableContentTitle */
 export const isPublishableBlogTitle = isPublishableContentTitle;
 
+export const POST_FORMATS = ['article', 'short'] as const;
+export const POST_PROCESS_STAGES = ['sketch', 'glaze', 'finished', 'other'] as const;
+export type PostProcessStage = (typeof POST_PROCESS_STAGES)[number];
+
+export type PostMeta = {
+  pullQuote?: string;
+  location?: string;
+  processStage?: PostProcessStage;
+};
+export const POST_VISIBILITIES = ['public', 'private'] as const;
+
+export type PostFormat = (typeof POST_FORMATS)[number];
+export type PostVisibility = (typeof POST_VISIBILITIES)[number];
+export type PostMediaItem = {
+  url: string;
+  type: 'image' | 'video';
+  alt?: string;
+  poster?: string;
+};
+
+export function isAllowedMediaUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith('/')) {
+    return !trimmed.startsWith('//') && !trimmed.includes('\\');
+  }
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+export function parsePostMedia(value: unknown): PostMediaItem[] {
+  if (!Array.isArray(value)) return [];
+  const items: PostMediaItem[] = [];
+  for (const entry of value) {
+    if (typeof entry === 'string' && isAllowedMediaUrl(entry)) {
+      items.push({ url: entry.trim(), type: 'image' });
+      continue;
+    }
+    if (!entry || typeof entry !== 'object') continue;
+    const record = entry as Record<string, unknown>;
+    const url = typeof record.url === 'string' ? record.url.trim() : '';
+    if (!isAllowedMediaUrl(url)) continue;
+    const type = record.type === 'video' ? 'video' : 'image';
+    const alt = typeof record.alt === 'string' ? record.alt.trim() : undefined;
+    const poster = typeof record.poster === 'string' && isAllowedMediaUrl(record.poster) ? record.poster.trim() : undefined;
+    items.push({ url, type, ...(alt ? { alt } : {}), ...(poster ? { poster } : {}) });
+  }
+  return items;
+}
+
+export function normalizeAudienceEmails(value: unknown): string[] {
+  const source = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : [];
+  const emails: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of source) {
+    if (typeof entry !== 'string') continue;
+    const email = entry.trim().toLowerCase();
+    if (!email || seen.has(email) || !email.includes('@') || email.includes(' ')) continue;
+    seen.add(email);
+    emails.push(email);
+  }
+  return emails;
+}
+
+const postMediaItemSchema = z.object({
+  url: z.string().min(1),
+  type: z.enum(['image', 'video']).default('image'),
+  alt: z.string().optional(),
+  poster: z.string().optional(),
+});
+
 export const blogPostPayloadSchema = z.object({
-  slug: z.string().min(1).optional(),
-  title: z.string().min(1),
+  slug: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.string().min(1).optional(),
+  ),
+  title: z.string().default(''),
   excerpt: z.string().default(''),
   content: z.string().default(''),
   publishedAt: z.coerce.date().default(new Date()),
@@ -73,12 +155,52 @@ export const blogPostPayloadSchema = z.object({
   featured: z.coerce.boolean().default(false),
   coverImage: z.string().optional().nullable(),
   author: z.string().default('Artist'),
+  format: z.enum(POST_FORMATS).default('article'),
+  visibility: z.enum(POST_VISIBILITIES).default('public'),
+  media: z.preprocess(parsePostMedia, z.array(postMediaItemSchema)).default([]),
+  audienceEmails: z.preprocess(normalizeAudienceEmails, z.array(z.string())).default([]),
+  relatedProductId: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? null : value),
+    z.string().nullable().optional(),
+  ),
+  relatedArtworkSlug: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? null : value),
+    z.string().nullable().optional(),
+  ),
+  pullQuote: z.string().optional().nullable(),
+  location: z.string().optional().nullable(),
+  processStage: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? null : value),
+    z.enum(POST_PROCESS_STAGES).nullable().optional(),
+  ),
 }).superRefine((payload, ctx) => {
-  if (!payload.isDraft && !isPublishableContentTitle(payload.title)) {
+  if (payload.isDraft) return;
+
+  if (payload.visibility === 'private' && payload.audienceEmails.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['audienceEmails'],
+      message: 'Private updates must whitelist at least one collector email.',
+    });
+  }
+
+  if (payload.format === 'short') {
+    const caption = payload.excerpt.trim();
+    if (payload.media.length === 0 && caption.length < 3) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['media'],
+        message: 'Published studio updates need a photo, video, or caption.',
+      });
+    }
+    return;
+  }
+
+  if (!isPublishableContentTitle(payload.title)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['title'],
-      message: 'Published posts need a descriptive title (at least 3 characters, not "Untitled").',
+      message: 'Published journal posts need a descriptive title (at least 3 characters, not "Untitled").',
     });
   }
 });
@@ -161,12 +283,54 @@ export const artworkPayloadSchema = z.object({
   }
 });
 
+function shortPostTitle(payload: z.infer<typeof blogPostPayloadSchema>): string {
+  const title = payload.title.trim();
+  if (isPublishableContentTitle(title)) return title;
+  const caption = payload.excerpt.trim();
+  if (caption.length >= 3) {
+    return caption.length > 80 ? `${caption.slice(0, 77).trimEnd()}…` : caption;
+  }
+  return `Studio update ${payload.publishedAt.toISOString().slice(0, 10)}`;
+}
+
+function postSlug(payload: z.infer<typeof blogPostPayloadSchema>, title: string): string {
+  if (payload.slug?.trim()) return slugify(payload.slug);
+  const base = slugify(title);
+  const caption = payload.excerpt.trim();
+  if (payload.format === 'short' && !isPublishableContentTitle(payload.title) && caption.length < 3) {
+    return `${base}-${crypto.randomUUID().slice(0, 8)}`;
+  }
+  return base;
+}
+
 export function sanitizeBlogPostPayload(payload: z.infer<typeof blogPostPayloadSchema>) {
+  const format = payload.format;
+  const title = format === 'short' ? shortPostTitle(payload) : payload.title.trim();
+  const media = parsePostMedia(payload.media);
+  const excerpt = payload.excerpt.trim();
+  const contentSource = payload.content.trim() || (format === 'short' && excerpt ? `<p>${excerpt}</p>` : payload.content);
+  const coverImage = payload.coverImage || media.find((item) => item.type === 'image')?.url || null;
+
   return {
-    ...payload,
-    slug: slugify(payload.slug || payload.title),
-    content: sanitizeRichHtml(payload.content),
-    coverImage: payload.coverImage || null,
+    slug: postSlug(payload, title),
+    title,
+    excerpt,
+    content: sanitizeRichHtml(contentSource),
+    publishedAt: payload.publishedAt,
+    tags: payload.tags,
+    isDraft: payload.isDraft,
+    featured: payload.featured,
+    coverImage,
+    author: payload.author,
+    format,
+    visibility: payload.visibility,
+    media,
+    audienceEmails: payload.visibility === 'private' ? payload.audienceEmails : [],
+    relatedProductId: payload.relatedProductId?.trim() || null,
+    relatedArtworkSlug: payload.relatedArtworkSlug?.trim() || null,
+    pullQuote: payload.pullQuote?.trim() || null,
+    location: payload.location?.trim() || null,
+    processStage: payload.processStage || null,
   };
 }
 

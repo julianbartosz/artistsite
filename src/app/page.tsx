@@ -1,18 +1,23 @@
 import Image from "next/image";
 import Link from "next/link";
+import React from "react";
 import { getAllPosts } from "@/lib/markdown";
 import { resolveFeaturedArtworks } from "@/lib/portfolio";
 import { getSiteContent } from "@/lib/site-content";
 import {
   homeHeroCtas,
   homeHeroHeightClass,
-  normalizeHomeSectionOrder,
+  gridColumnsClass,
+  resolveHomeSectionRenderPlan,
+  UPDATES_PATH,
+  updatesPostPath,
   type HomePageContent,
   type HomeSectionKey,
 } from "@/lib/site-content-shared";
 import type { ArtworkPiece } from "@/lib/portfolio";
 import type { BlogPost } from "@/lib/markdown";
 import { NewsletterSignup } from "@/components/NewsletterSignup";
+import CmsEditAnchor from "@/components/admin/CmsEditAnchor";
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +29,25 @@ type HomeSectionContext = {
   featuredArtworks: ArtworkPiece[];
   recentPosts: BlogPost[];
 };
+
+const HOME_EDIT_TARGETS: Partial<Record<HomeSectionKey, string>> = {
+  featured: 'home:featured',
+  about: 'home:about',
+  blog: 'home:blog',
+  newsletter: 'home:newsletter',
+};
+
+function wrapHomeSection(sectionKey: HomeSectionKey, node: React.ReactNode) {
+  if (!node) return null;
+  const editTarget = HOME_EDIT_TARGETS[sectionKey];
+  if (!editTarget) return node;
+  return (
+    <div className="relative group">
+      <CmsEditAnchor targetKey={editTarget} />
+      {node}
+    </div>
+  );
+}
 
 function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
   const { home, featuredArtworks, recentPosts } = ctx;
@@ -40,10 +64,10 @@ function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
             </div>
 
             {featuredArtworks.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-10">
+              <div className={`${gridColumnsClass(home.featured.columns)} mb-10`}>
                 {featuredArtworks.map((artwork) => (
-                  <Link key={artwork.slug} href={`/portfolio/${artwork.slug}`} className="group">
-                    <div className="relative aspect-square overflow-hidden rounded-lg bg-gray-100 mb-4">
+                  <Link key={artwork.slug} href={`/portfolio/${artwork.slug}`} className="group block card-surface bg-white overflow-hidden p-3">
+                    <div className="relative aspect-square overflow-hidden bg-gray-100 mb-4">
                       <Image
                         src={artwork.images.thumbnail}
                         alt={artwork.title}
@@ -120,8 +144,18 @@ function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
             {recentPosts.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-10">
                 {recentPosts.map((post) => (
-                  <Link key={post.slug} href={`/blog/${post.slug}`} className="group">
-                    <article className="bg-gray-50 rounded-lg p-6 h-full hover:shadow-lg transition-shadow">
+                  <Link key={post.slug} href={updatesPostPath(post.slug)} className="group">
+                    <article className="bg-gray-50 rounded-lg overflow-hidden h-full hover:shadow-lg transition-shadow card-surface">
+                      {(post.coverImage || post.media[0]) && (
+                        <div className="aspect-[4/3] overflow-hidden bg-gray-200">
+                          {post.media[0]?.type === 'video' ? (
+                            <video src={post.media[0].url} className="h-full w-full object-cover" muted playsInline preload="metadata" />
+                          ) : (
+                            <img src={post.coverImage || post.media[0]?.url} alt={post.title} className="h-full w-full object-cover" />
+                          )}
+                        </div>
+                      )}
+                      <div className="p-6">
                       <time className="text-sm text-gray-500">
                         {new Date(post.publishedAt).toLocaleDateString('en-US', {
                           year: 'numeric',
@@ -130,9 +164,10 @@ function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
                         })}
                       </time>
                       <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-4 group-hover:text-gray-700 transition-colors">
-                        {post.title}
+                        {post.format === 'short' ? (post.excerpt || post.title) : post.title}
                       </h3>
-                      <p className="text-gray-700 leading-relaxed">{post.excerpt}</p>
+                      {post.format !== 'short' && <p className="text-gray-700 leading-relaxed">{post.excerpt}</p>}
+                      </div>
                     </article>
                   </Link>
                 ))}
@@ -144,7 +179,7 @@ function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
             )}
 
             <div className="text-center">
-              <Link href="/blog" className="inline-flex items-center text-primary hover:opacity-80 font-medium text-lg">
+              <Link href={UPDATES_PATH} className="inline-flex items-center text-primary hover:opacity-80 font-medium text-lg">
                 {home.blog.cta}
               </Link>
             </div>
@@ -192,12 +227,19 @@ export default async function Home() {
   const heroTextClass = isBackgroundHero ? 'text-white' : 'text-gray-900';
   const heroSubtitleClass = isBackgroundHero ? 'text-gray-100' : 'text-gray-700';
   const heroAccentClass = isBackgroundHero ? 'text-gray-200' : 'text-gray-600';
-  const sectionOrder = normalizeHomeSectionOrder(home.sectionOrder);
+  const { beforeHero, afterHero } = resolveHomeSectionRenderPlan(home);
   const sectionContext: HomeSectionContext = { home, featuredArtworks, recentPosts };
 
   return (
     <div className="min-h-screen">
-      <section className={`relative flex items-center justify-center overflow-hidden ${isBackgroundHero ? 'bg-primary' : 'bg-gradient-to-br from-gray-50 to-gray-100'} ${heroHeightClass}`}>
+      {beforeHero.map((sectionKey) => (
+        <React.Fragment key={sectionKey}>
+          {wrapHomeSection(sectionKey, renderHomeSection(sectionKey, sectionContext))}
+        </React.Fragment>
+      ))}
+
+      <section className={`relative group flex items-center justify-center overflow-hidden ${isBackgroundHero ? 'bg-primary' : 'bg-gradient-to-br from-gray-50 to-gray-100'} ${heroHeightClass}`}>
+        <CmsEditAnchor targetKey="home:hero" />
         {isBackgroundHero && portraitImage && (
           <>
             <Image src={portraitImage} alt="" fill className="object-cover" sizes="100vw" priority />
@@ -249,7 +291,11 @@ export default async function Home() {
         </div>
       </section>
 
-      {sectionOrder.map((sectionKey) => renderHomeSection(sectionKey, sectionContext))}
+      {afterHero.map((sectionKey) => (
+        <React.Fragment key={sectionKey}>
+          {wrapHomeSection(sectionKey, renderHomeSection(sectionKey, sectionContext))}
+        </React.Fragment>
+      ))}
     </div>
   );
 }

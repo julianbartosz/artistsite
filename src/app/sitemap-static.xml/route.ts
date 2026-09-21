@@ -7,7 +7,7 @@ export async function GET() {
     { url: baseUrl, priority: '1.0', changefreq: 'daily' },
     { url: `${baseUrl}/bio`, priority: '0.8', changefreq: 'monthly' },
     { url: `${baseUrl}/portfolio`, priority: '0.9', changefreq: 'weekly' },
-    { url: `${baseUrl}/blog`, priority: '0.8', changefreq: 'daily' },
+    { url: `${baseUrl}/updates`, priority: '0.8', changefreq: 'daily' },
     { url: `${baseUrl}/shop`, priority: '0.9', changefreq: 'daily' },
     { url: `${baseUrl}/contact`, priority: '0.7', changefreq: 'monthly' },
   ];

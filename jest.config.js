@@ -21,6 +21,8 @@ const customJestConfig = {
     'src/app/api/marketing/**/*.ts',
     'src/app/api/cron/**/*.ts',
     'src/lib/orders.ts',
+    'src/lib/inventory.ts',
+    'src/lib/promo-codes.ts',
     'src/lib/shipping.ts',
     'src/lib/config.ts',
     'src/lib/marketing/campaign-execution.ts',

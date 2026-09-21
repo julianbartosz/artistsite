@@ -9,13 +9,21 @@ import ProductRecommendations from '@/components/ProductRecommendations';
 import RecentlyViewed from '@/components/RecentlyViewed';
 import StockIndicator from '@/components/StockIndicator';
 import { WishlistButton } from '@/components/WishlistButton';
+import type { ProductDetailLayout } from '@/lib/site-content-shared';
 
 interface ProductPageClientProps {
   product: Product;
+  purchasable?: boolean;
+  detailLayout?: ProductDetailLayout;
 }
 
-export default function ProductPageClient({ product }: ProductPageClientProps) {
+export default function ProductPageClient({
+  product,
+  purchasable = true,
+  detailLayout = 'standard',
+}: ProductPageClientProps) {
   const { data: session, status } = useSession();
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [viewStartTime] = useState(Date.now());
   const [sessionId] = useState(() => {
     // Generate a simple session ID for guest users
@@ -73,13 +81,35 @@ export default function ProductPageClient({ product }: ProductPageClientProps) {
 
   const isAvailable = product.availability === 'available';
   const isLimitedEdition = product.edition && product.edition.remaining < product.edition.total;
+  const galleryImages = product.images.gallery.length > 0 ? product.images.gallery : [product.images.thumbnail];
+  const activeImage = galleryImages[selectedImageIndex] ?? galleryImages[0];
+  const galleryFocus = detailLayout === 'gallery-focus';
+
+  const purchaseActions = isAvailable ? (
+    <div className="space-y-3">
+      <AddToCartButton product={product} purchasable={purchasable} />
+      <Link
+        href={`/contact?subject=${encodeURIComponent(`Inquiry about ${product.title}`)}`}
+        className="w-full min-h-11 inline-flex items-center justify-center border border-gray-300 text-gray-700 py-3 px-6 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+      >
+        Ask About This Piece
+      </Link>
+    </div>
+  ) : (
+    <button
+      type="button"
+      disabled
+      className="w-full min-h-11 bg-gray-300 text-gray-500 py-3 px-6 rounded-lg cursor-not-allowed font-medium"
+    >
+      Not Available
+    </button>
+  );
 
   return (
-    <div className="min-h-screen bg-white">
-      <div className="max-w-7xl mx-auto px-6 py-16">
-        {/* Breadcrumb */}
-        <nav className="mb-8">
-          <ol className="flex items-center space-x-2 text-sm text-gray-500">
+    <div className="min-h-screen bg-white pb-24 lg:pb-0">
+      <div className="max-w-7xl mx-auto page-x py-8 md:py-12">
+        <nav className="mb-6 md:mb-8">
+          <ol className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-500">
             <li><Link href="/" className="hover:text-gray-700">Home</Link></li>
             <li>/</li>
             <li><Link href="/shop" className="hover:text-gray-700">Shop</Link></li>
@@ -90,13 +120,12 @@ export default function ProductPageClient({ product }: ProductPageClientProps) {
           </ol>
         </nav>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-16">
-          {/* Product Images */}
+        <div className={galleryFocus ? 'space-y-10' : 'grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16'}>
           <div className="space-y-4">
             {/* Main Image */}
             <div className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden">
               <Image
-                src={productImageSrc(product, product.images.gallery[0])}
+                src={productImageSrc(product, activeImage, 'lg')}
                 alt={product.title}
                 fill
                 className="object-cover"
@@ -113,18 +142,25 @@ export default function ProductPageClient({ product }: ProductPageClientProps) {
             </div>
             
             {/* Gallery Thumbnails */}
-            {product.images.gallery.length > 1 && (
+            {galleryImages.length > 1 && (
               <div className="grid grid-cols-4 gap-2">
-                {product.images.gallery.map((image, index) => (
-                  <div key={index} className="relative aspect-square bg-gray-100 rounded overflow-hidden">
+                {galleryImages.map((image, index) => (
+                  <button
+                    key={`${image}-${index}`}
+                    type="button"
+                    onClick={() => setSelectedImageIndex(index)}
+                    className={`relative aspect-square bg-gray-100 rounded overflow-hidden ring-2 transition-all ${selectedImageIndex === index ? 'ring-primary' : 'ring-transparent hover:ring-gray-300'}`}
+                    aria-label={`View image ${index + 1}`}
+                    aria-pressed={selectedImageIndex === index}
+                  >
                     <Image
                       src={productImageSrc(product, image)}
                       alt={`${product.title} view ${index + 1}`}
                       fill
-                      className="object-cover hover:scale-105 transition-transform cursor-pointer"
+                      className="object-cover"
                       sizes="(max-width: 1024px) 25vw, 12.5vw"
                     />
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
@@ -173,25 +209,7 @@ export default function ProductPageClient({ product }: ProductPageClientProps) {
                 </div>
               )}
               
-              {/* Add to Cart / Purchase Options */}
-              {isAvailable ? (
-                <div className="space-y-3">
-                  <AddToCartButton product={product} />
-                  <Link
-                    href="/contact"
-                    className="w-full border border-gray-300 text-gray-700 py-3 px-6 rounded-lg hover:bg-gray-50 transition-colors font-medium text-center block"
-                  >
-                    Ask About This Piece
-                  </Link>
-                </div>
-              ) : (
-                <button
-                  disabled
-                  className="w-full bg-gray-300 text-gray-500 py-3 px-6 rounded-lg cursor-not-allowed font-medium"
-                >
-                  Not Available
-                </button>
-              )}
+              <div className="hidden lg:block">{purchaseActions}</div>
             </div>
 
             {/* Description */}
@@ -272,25 +290,22 @@ export default function ProductPageClient({ product }: ProductPageClientProps) {
           </div>
         </div>
 
-        {/* Product Recommendations */}
-        <div className="mt-20">
-          <ProductRecommendations 
+        <div className="mt-12 md:mt-16">
+          <ProductRecommendations
             productId={product.id}
-            className="border-t border-gray-200 pt-16"
+            className="border-t border-gray-200 pt-10 md:pt-12"
           />
         </div>
 
-        {/* Recently Viewed */}
-        <div className="mt-16">
-          <RecentlyViewed 
+        <div className="mt-10 md:mt-12">
+          <RecentlyViewed
             currentProductId={product.id}
             maxItems={6}
-            className="border-t border-gray-200 pt-16"
+            className="border-t border-gray-200 pt-10 md:pt-12"
           />
         </div>
 
-        {/* Back to Shop */}
-        <div className="mt-16 text-center">
+        <div className="mt-10 md:mt-12 text-center">
           <Link
             href="/shop"
             className="inline-flex items-center text-gray-600 hover:text-gray-900 transition-colors"
@@ -299,6 +314,20 @@ export default function ProductPageClient({ product }: ProductPageClientProps) {
           </Link>
         </div>
       </div>
+
+      {isAvailable && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-white/95 backdrop-blur lg:hidden safe-area-bottom">
+          <div className="page-x py-3 flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-gray-900">{product.title}</p>
+              <p className="text-lg font-bold text-gray-900">{formatPrice(product.price, product.currency)}</p>
+            </div>
+            <div className="flex-shrink-0 [&_button]:min-h-11 [&_button]:px-4">
+              <AddToCartButton product={product} purchasable={purchasable} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

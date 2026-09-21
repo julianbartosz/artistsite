@@ -22,8 +22,11 @@ export async function GET() {
 
   const stripeAutomaticTaxEnabled = await getConfigBool('STRIPE_AUTOMATIC_TAX_ENABLED');
 
+  const facebookPixelId = await getConfig('FACEBOOK_PIXEL_ID');
+
   return NextResponse.json({
     ...Object.fromEntries(entries),
     STRIPE_AUTOMATIC_TAX_ENABLED: stripeAutomaticTaxEnabled,
+    FACEBOOK_PIXEL_ID: facebookPixelId || '',
   });
 }

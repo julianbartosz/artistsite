@@ -367,9 +367,14 @@ export async function processDueCartRecovery(now = new Date()): Promise<Campaign
   for (const event of events) {
     const key = eventActorKey(event);
     if (!key) continue;
-    if (event.eventName === 'begin_checkout' || event.eventName === 'purchase') completedActors.add(key);
+    if (event.eventName === 'purchase') completedActors.add(key);
     if (event.eventName === 'cart_abandoned') recoveredActors.add(key);
-    if (event.eventName === 'add_to_cart' && new Date(event.timestamp) <= staleBefore) cartSignals.push(event);
+    if (
+      (event.eventName === 'add_to_cart' || event.eventName === 'begin_checkout')
+      && new Date(event.timestamp) <= staleBefore
+    ) {
+      cartSignals.push(event);
+    }
   }
 
   const userIds = Array.from(new Set(cartSignals.map((event) => event.userId).filter(Boolean)));
@@ -397,7 +402,10 @@ export async function processDueCartRecovery(now = new Date()): Promise<Campaign
 
     processedActors.add(key);
     summary.attempted += 1;
-    const checkoutUrl = siteUrl ? `${siteUrl}/checkout` : '/checkout';
+    const recoveryPath = typeof properties.recovery_path === 'string' && properties.recovery_path.trim()
+      ? properties.recovery_path.trim()
+      : '/checkout';
+    const checkoutUrl = siteUrl ? `${siteUrl.replace(/\/$/, '')}${recoveryPath.startsWith('/') ? recoveryPath : `/${recoveryPath}`}` : recoveryPath;
     const template = {
       subject: 'Complete your artwork selection',
       html: `<p>Hi ${escapeHtml(recipient.name || 'there')},</p><p>You recently selected artwork but did not finish checkout.</p>${promoCode ? `<p>Use code <strong>${escapeHtml(promoCode)}</strong> when you return.</p>` : ''}<p><a href="${escapeHtml(checkoutUrl)}">Return to checkout</a></p>`,

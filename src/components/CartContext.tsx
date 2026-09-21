@@ -279,6 +279,7 @@ interface CartContextType {
   openCart: () => void;
   closeCart: () => void;
   getItemKey: (productId: string, variant?: CartItemVariant) => string;
+  restoreCart: (items: CartItem[]) => void;
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
@@ -370,6 +371,21 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     return generateVariantKey(productId, variant);
   }, []);
 
+  const restoreCart = useCallback((items: CartItem[]) => {
+    const { total, itemCount } = calculateCartTotals(items);
+    dispatch({
+      type: 'LOAD_CART',
+      payload: {
+        items,
+        total,
+        itemCount,
+        isOpen: false,
+        lastUpdated: Date.now(),
+        isLoaded: true,
+      },
+    });
+  }, [dispatch]);
+
   const contextValue = useMemo<CartContextType>(() => ({
     state,
     addItem,
@@ -381,6 +397,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     openCart,
     closeCart,
     getItemKey,
+    restoreCart,
   }), [
     state,
     addItem,
@@ -392,6 +409,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     openCart,
     closeCart,
     getItemKey,
+    restoreCart,
   ]);
 
   return (

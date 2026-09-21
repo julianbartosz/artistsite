@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { SearchFilters } from '@/lib/types';
+import { SearchFilters, SortOption } from '@/lib/types';
 import { stableSearchParamsKey, displayFilterLabel } from '@/lib/search-params';
 import { ChevronDownIcon, ChevronUpIcon, XMarkIcon, AdjustmentsHorizontalIcon } from '@heroicons/react/24/outline';
 
@@ -14,6 +14,10 @@ interface FilterSidebarProps {
   mobileOpen?: boolean;
   onMobileOpenChange?: (open: boolean) => void;
   hideMobileTrigger?: boolean;
+  /** When provided, sort controls appear in the mobile sheet (avoids a truncated sticky select). */
+  sortOptions?: Array<{ value: SortOption; label: string }>;
+  currentSort?: SortOption;
+  onSortChange?: (sort: SortOption) => void;
 }
 
 interface FilterSection {
@@ -44,6 +48,9 @@ export function FilterSidebar({
   mobileOpen: controlledMobileOpen,
   onMobileOpenChange,
   hideMobileTrigger = false,
+  sortOptions,
+  currentSort,
+  onSortChange,
 }: FilterSidebarProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -56,6 +63,7 @@ export function FilterSidebar({
   const [sections, setSections] = useState<FilterSection[]>([
     { id: 'categories', title: 'Categories', isOpen: true },
     { id: 'price', title: 'Price Range', isOpen: true },
+    { id: 'availability', title: 'Availability', isOpen: true },
     { id: 'medium', title: 'Medium', isOpen: false },
     { id: 'dimensions', title: 'Size', isOpen: false }
   ]);
@@ -192,6 +200,13 @@ export function FilterSidebar({
     });
   };
 
+  const handleAvailabilityChange = (checked: boolean) => {
+    updateFilters({
+      ...filters,
+      availability: checked ? 'in_stock' : undefined,
+    });
+  };
+
   const clearAllFilters = () => {
     setFilters({});
     if (onFiltersChange) {
@@ -240,6 +255,24 @@ export function FilterSidebar({
         )}
       </div>
 
+      {sortOptions && sortOptions.length > 0 && onSortChange && (
+        <div className="mb-6 border-b border-gray-200 pb-6 lg:hidden">
+          <label htmlFor="shop-sort-sheet" className="mb-2 block text-sm font-medium text-gray-900">
+            Sort by
+          </label>
+          <select
+            id="shop-sort-sheet"
+            value={currentSort || 'relevance'}
+            onChange={(event) => onSortChange(event.target.value as SortOption)}
+            className="min-h-11 w-full rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-900"
+          >
+            {sortOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {categories.length > 0 && (
       <FilterSection
         title="Categories"
@@ -284,6 +317,22 @@ export function FilterSidebar({
             </label>
           ))}
         </div>
+      </FilterSection>
+
+      <FilterSection
+        title="Availability"
+        isOpen={sections.find(s => s.id === 'availability')?.isOpen ?? true}
+        onToggle={() => toggleSection('availability')}
+      >
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={filters.availability === 'in_stock'}
+            onChange={(event) => handleAvailabilityChange(event.target.checked)}
+            className="h-4 w-4 text-gray-900 rounded border-gray-300 focus:ring-gray-500"
+          />
+          <span className="text-sm text-gray-700">In stock only</span>
+        </label>
       </FilterSection>
 
       {mediums.length > 0 && (
@@ -361,30 +410,33 @@ export function FilterSidebar({
           />
           <div
             id="shop-filters-panel"
-            className="fixed inset-y-0 left-0 z-50 flex w-full max-w-sm flex-col bg-white shadow-xl lg:hidden"
+            className="fixed inset-x-0 bottom-0 z-50 flex max-h-[min(85vh,640px)] flex-col rounded-t-2xl bg-white shadow-xl lg:hidden"
             role="dialog"
             aria-modal="true"
             aria-label="Shop filters"
           >
+            <div className="mx-auto mt-3 h-1.5 w-12 flex-shrink-0 rounded-full bg-gray-300" aria-hidden="true" />
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-              <h2 className="text-lg font-semibold text-gray-900">Filter Artworks</h2>
+              <h2 className="text-lg font-semibold text-gray-900">
+                {sortOptions && sortOptions.length > 0 ? 'Filters & sort' : 'Filter artworks'}
+              </h2>
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}
-                className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                className="tap-target rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900"
                 aria-label="Close filters"
               >
                 <XMarkIcon className="h-5 w-5" />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-6">{filterPanel}</div>
-            <div className="border-t border-gray-200 p-4">
+            <div className="border-t border-gray-200 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}
                 className="w-full rounded-lg bg-gray-900 px-4 py-3 text-sm font-medium text-white hover:bg-gray-800"
               >
-                View Results
+                View results
               </button>
             </div>
           </div>

@@ -134,16 +134,32 @@ export class InventoryService {
   }
 
   /**
-   * Check if product is available for purchase
+   * Purchasability when inventory tracking is optional (no row = unlimited originals).
+   */
+  static isPurchasableFromStatus(
+    availability: string,
+    inventory: InventoryStatus | null | undefined,
+    quantity: number = 1,
+  ): boolean {
+    if (availability !== 'available') return false;
+    if (!inventory) return true;
+    if (inventory.stockStatus === 'discontinued') return false;
+    if (inventory.allowBackorders) return true;
+    return inventory.availableStock >= quantity;
+  }
+
+  static async isPurchasable(productId: string, availability: string, quantity: number = 1): Promise<boolean> {
+    const inventory = await this.getInventoryStatus(productId);
+    return this.isPurchasableFromStatus(availability, inventory, quantity);
+  }
+
+  /**
+   * Check if product is available for purchase (inventory row required).
    */
   static async isProductAvailable(productId: string, quantity: number = 1): Promise<boolean> {
     const inventory = await this.getInventoryStatus(productId);
-    
     if (!inventory) return false;
-    if (inventory.stockStatus === 'discontinued') return false;
-    if (inventory.allowBackorders) return true;
-    
-    return inventory.availableStock >= quantity;
+    return this.isPurchasableFromStatus('available', inventory, quantity);
   }
 
   /**
@@ -304,6 +320,43 @@ export class InventoryService {
 
     for (const reservation of reservations) {
       await this.fulfillReservation(reservation.id, orderId);
+    }
+  }
+
+  /**
+   * Restore inventory after a refund.
+   */
+  static async releaseStockForOrder(orderId: string): Promise<void> {
+    const reservations = await prisma.stockReservation.findMany({
+      where: {
+        orderId,
+        status: 'fulfilled',
+      },
+    });
+
+    for (const reservation of reservations) {
+      await prisma.stockReservation.update({
+        where: { id: reservation.id },
+        data: { status: 'cancelled' },
+      });
+
+      await this.recordStockMovement({
+        productId: reservation.productId,
+        type: 'return',
+        quantity: reservation.quantity,
+        orderId,
+        reason: 'Order refunded',
+      });
+
+      await prisma.productInventory.update({
+        where: { id: reservation.inventoryId },
+        data: {
+          currentStock: { increment: reservation.quantity },
+          availableStock: { increment: reservation.quantity },
+        },
+      });
+
+      await this.updateStockStatus(reservation.productId);
     }
   }
 

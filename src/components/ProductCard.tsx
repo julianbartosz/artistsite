@@ -2,26 +2,30 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
+import { useState } from 'react';
 import { Product } from '@/lib/commerce';
 import { formatPrice, productImageSrc } from '@/lib/commerce';
 import StockIndicator from '@/components/StockIndicator';
 import { WishlistButton } from '@/components/WishlistButton';
+import ProductQuickLook from '@/components/ProductQuickLook';
 
 interface ProductCardProps {
   product: Product;
 }
 
 export function ShopProductCard({ product }: ProductCardProps) {
+  const [quickLookOpen, setQuickLookOpen] = useState(false);
   const isLimitedEdition = product.edition && product.edition.remaining < product.edition.total;
   const productHref = `/shop/${product.id}`;
 
   return (
+    <>
     <article
       data-testid="product-card"
-      className="group h-full bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow flex flex-col"
+      className="group h-full card-surface bg-white overflow-hidden hover:shadow-lg transition-shadow flex flex-col"
     >
       <div className="relative aspect-square bg-gray-100 flex-shrink-0">
-        <Link href={productHref} data-testid="product-card-link" className="absolute inset-0 block">
+        <Link href={productHref} data-testid="product-card-link" className="absolute inset-0 z-10 block">
           <Image
             src={productImageSrc(product)}
             alt={product.title}
@@ -30,18 +34,22 @@ export function ShopProductCard({ product }: ProductCardProps) {
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
           />
         </Link>
-        <div className="absolute top-3 right-3 z-20 pointer-events-auto opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+        <div
+          className="absolute top-3 right-3 z-20 opacity-0 transition-opacity duration-200 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-hover:pointer-events-auto [@media(hover:none)]:opacity-100 focus-within:opacity-100 pointer-events-none focus-within:pointer-events-auto"
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+        >
           <WishlistButton productId={product.id} size="sm" stopNavigation />
         </div>
         {product.featured && (
-          <div className="absolute top-3 left-3 pointer-events-none">
+          <div className="absolute top-3 left-3 z-10 pointer-events-none">
             <span className="bg-primary text-white px-2 py-1 text-xs font-medium rounded">
               Featured
             </span>
           </div>
         )}
         {isLimitedEdition && (
-          <div className="absolute bottom-3 left-3 pointer-events-none">
+          <div className="absolute bottom-3 left-3 z-10 pointer-events-none">
             <span className="bg-red-600 text-white px-2 py-1 text-xs font-medium rounded">
               Limited Edition
             </span>
@@ -61,9 +69,17 @@ export function ShopProductCard({ product }: ProductCardProps) {
           <span className="text-xl font-bold text-gray-900">
             {formatPrice(product.price, product.currency)}
           </span>
-          <span className="text-sm text-gray-500 capitalize hidden sm:inline">
-            {product.category.replace('-', ' ')}
-          </span>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setQuickLookOpen(true);
+            }}
+            className="text-sm font-medium text-primary hover:opacity-80"
+          >
+            Quick look
+          </button>
         </div>
 
         <div className="mt-2 pointer-events-none">
@@ -77,5 +93,7 @@ export function ShopProductCard({ product }: ProductCardProps) {
         )}
       </Link>
     </article>
+    <ProductQuickLook product={product} open={quickLookOpen} onClose={() => setQuickLookOpen(false)} />
+    </>
   );
 }

@@ -9,15 +9,15 @@ import type { PortfolioPageContent } from '@/lib/site-content-shared';
 type PortfolioLayout = PortfolioPageContent['layout'];
 
 const GRID_CLASS: Record<PortfolioLayout['gridColumns'], string> = {
-  '2': 'grid grid-cols-1 md:grid-cols-2 gap-8',
-  '3': 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8',
-  '4': 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6',
+  '2': 'grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8',
+  '3': 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8',
+  '4': 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 md:gap-6',
 };
 
 const MASONRY_CLASS: Record<PortfolioLayout['gridColumns'], string> = {
-  '2': 'columns-1 md:columns-2 gap-8',
-  '3': 'columns-1 md:columns-2 lg:columns-3 gap-8',
-  '4': 'columns-1 sm:columns-2 lg:columns-4 gap-6',
+  '2': 'columns-1 md:columns-2 gap-6 md:gap-8',
+  '3': 'columns-1 md:columns-2 lg:columns-3 gap-6 md:gap-8',
+  '4': 'columns-1 sm:columns-2 lg:columns-4 gap-5 md:gap-6',
 };
 
 export function PortfolioGallery({
@@ -40,27 +40,29 @@ export function PortfolioGallery({
   return (
     <>
       {layout.showFilters && (
-      <div className="mb-8">
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setSelectedCategory('all')}
-            data-testid="filter-all"
-            className={`px-3 py-1 text-sm rounded transition-colors ${selectedCategory === 'all' ? 'bg-primary text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}
-          >
-            All
-          </button>
-          {categories.map((category) => (
+      <div className="mb-6 md:mb-8">
+        <div className="-mx-6 overflow-x-auto px-6 pb-1 [scrollbar-width:thin]">
+          <div className="flex w-max gap-2" role="group" aria-label="Portfolio categories">
             <button
-              key={category}
               type="button"
-              onClick={() => setSelectedCategory(category)}
-              data-testid={`filter-${category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
-              className={`px-3 py-1 text-sm rounded transition-colors ${selectedCategory === category ? 'bg-primary text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}
+              onClick={() => setSelectedCategory('all')}
+              data-testid="filter-all"
+              className={`tap-target-inline shrink-0 rounded text-sm transition-colors ${selectedCategory === 'all' ? 'bg-primary text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}
             >
-              {category}
+              All
             </button>
-          ))}
+            {categories.map((category) => (
+              <button
+                key={category}
+                type="button"
+                onClick={() => setSelectedCategory(category)}
+                data-testid={`filter-${category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+                className={`tap-target-inline shrink-0 rounded text-sm transition-colors ${selectedCategory === category ? 'bg-primary text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}
+              >
+                {category}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       )}
@@ -72,9 +74,9 @@ export function PortfolioGallery({
       ) : (
         <div className={containerClass}>
           {filteredArtworks.map((artwork) => (
-            <div key={artwork.slug} className={`group ${itemClass}`} data-testid="portfolio-item">
+            <div key={artwork.slug} className={`group card-surface bg-white p-3 ${itemClass}`} data-testid="portfolio-item">
               <Link href={`/portfolio/${artwork.slug}`}>
-                <div className={`relative overflow-hidden rounded-lg bg-gray-100 mb-4 ${layout.masonry ? 'aspect-[4/5]' : 'aspect-square'}`}>
+                <div className={`relative overflow-hidden bg-gray-100 mb-4 ${layout.masonry ? 'aspect-[4/5]' : 'aspect-square'}`}>
                   <Image
                     src={artwork.images.thumbnail}
                     alt={artwork.title}

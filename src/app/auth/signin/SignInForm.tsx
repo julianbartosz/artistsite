@@ -2,7 +2,6 @@
 import { useState } from 'react';
 import { getSession, signIn } from 'next-auth/react';
 import Link from 'next/link';
-import { mergeGuestWishlistIntoAccount } from '@/components/WishlistButton';
 
 export function safeCallbackUrl(raw: string | null | undefined): string {
   if (!raw) {
@@ -68,31 +67,15 @@ export default function SignInForm({ callbackUrlParam }: { callbackUrlParam: str
     setError('');
 
     try {
-      const result = await signIn('credentials', {
+      // Full-page redirect avoids CSRF cookie races from client-side fetch sign-in.
+      await signIn('credentials', {
         email,
         password,
-        redirect: false,
         callbackUrl: requestedCallbackUrl,
+        redirect: true,
       });
-
-      if (result?.error) {
-        setError('Invalid email or password');
-        return;
-      }
-
-      const session = await waitForClientSession();
-      if (!session?.user) {
-        setError('Signed in, but your session could not be established. Please try again.');
-        return;
-      }
-
-      await mergeGuestWishlistIntoAccount();
-
-      const destination = destinationAfterSignIn(requestedCallbackUrl, Boolean(session.user.isAdmin));
-      window.location.assign(destination);
     } catch {
       setError('An error occurred. Please try again.');
-    } finally {
       setIsLoading(false);
     }
   };

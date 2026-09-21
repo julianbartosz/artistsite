@@ -4,7 +4,8 @@ import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 
 export const POST = withApiErrorHandler(async (request: NextRequest) => {
-  const { email } = await request.json();
+  const payload = await request.json() as { email?: string; digest?: boolean };
+  const email = payload.email?.trim().toLowerCase() || '';
   
   if (!email || !email.includes('@')) {
     throw new ApiError(400, 'Valid email address is required', 'INVALID_EMAIL');
@@ -18,7 +19,7 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
   const isE2eLogMode = process.env.PLAYWRIGHT_E2E === 'true';
 
   if (deliveryMode === 'log' || isE2eLogMode) {
-    await recordNewsletterSubscriber(email);
+    await recordNewsletterSubscriber(email, payload.digest !== false);
     return NextResponse.json({
       message: 'Successfully subscribed to newsletter!',
       email,
@@ -34,7 +35,7 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
     console.warn('Mailchimp environment variables not configured, logging email instead:', email);
     
     // Fallback: just log the subscription for development
-    await recordNewsletterSubscriber(email);
+    await recordNewsletterSubscriber(email, payload.digest !== false);
     return NextResponse.json({ 
       message: 'Successfully subscribed to newsletter!',
       email,
@@ -72,7 +73,7 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
     }
 
     console.log(`Newsletter subscription successful: ${email}`);
-    await recordNewsletterSubscriber(email);
+    await recordNewsletterSubscriber(email, payload.digest !== false);
     
     return NextResponse.json({ 
       message: 'Successfully subscribed to newsletter!',
@@ -90,7 +91,7 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
   }
 });
 
-async function recordNewsletterSubscriber(email: string): Promise<void> {
+async function recordNewsletterSubscriber(email: string, digest = true): Promise<void> {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail) return;
 
@@ -103,12 +104,12 @@ async function recordNewsletterSubscriber(email: string): Promise<void> {
     create: {
       email: normalizedEmail,
       segments: JSON.stringify(segments),
-      preferences: JSON.stringify({ newsletter: true }),
+      preferences: JSON.stringify({ newsletter: true, digest }),
       lastActivity: new Date(),
     },
     update: {
       segments: JSON.stringify(segments),
-      preferences: JSON.stringify({ ...(parseObject(existing?.preferences)), newsletter: true }),
+      preferences: JSON.stringify({ ...(parseObject(existing?.preferences)), newsletter: true, digest }),
       lastActivity: new Date(),
     },
   }).catch((error) => {

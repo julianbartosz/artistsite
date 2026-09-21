@@ -45,6 +45,7 @@ const mockCartFunctions = {
   closeCart: jest.fn(),
   updateItemVariant: jest.fn(), // Add missing CartContextType method
   getItemKey: jest.fn(() => 'mock-key'), // Add missing CartContextType method
+  restoreCart: jest.fn(),
 };
 
 describe('AddToCartButton', () => {

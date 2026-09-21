@@ -7,6 +7,13 @@ import { NextRequest } from 'next/server';
 
 jest.mock('@/lib/db', () => ({
   db: {
+    blogPost: {
+      findUnique: jest.fn(async ({ where }: { where: { slug: string } }) => (
+        where.slug === 'test-post'
+          ? { slug: 'test-post', isDraft: true }
+          : null
+      )),
+    },
     analyticsEvent: {
       findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockResolvedValue({ id: '1' }),

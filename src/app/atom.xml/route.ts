@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAllPosts } from '@/lib/markdown';
+import { UPDATES_PATH, updatesPostPath } from '@/lib/site-content-shared';
 
 const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://artistsite.com';
 const siteName = 'Artist Site';
@@ -15,7 +16,7 @@ export async function GET() {
     .filter(post => !post.isDraft)
     .slice(0, 20) // Limit to 20 most recent posts
     .map(post => {
-      const postUrl = `${baseUrl}/blog/${post.slug}`;
+      const postUrl = `${baseUrl}${updatesPostPath(post.slug)}`;
       const published = new Date(post.publishedAt).toISOString();
       
       return `
@@ -37,11 +38,11 @@ export async function GET() {
 
   const atomXml = `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
-  <title><![CDATA[${siteName} Blog]]></title>
+  <title><![CDATA[${siteName} Updates]]></title>
   <subtitle><![CDATA[${siteDescription}]]></subtitle>
-  <link href="${baseUrl}/blog" />
+  <link href="${baseUrl}${UPDATES_PATH}" />
   <link href="${baseUrl}/atom.xml" rel="self" type="application/atom+xml" />
-  <id>${baseUrl}/blog</id>
+  <id>${baseUrl}${UPDATES_PATH}</id>
   <updated>${lastUpdated}</updated>
   <generator uri="https://nextjs.org" version="14.0">Next.js</generator>
   <author>
