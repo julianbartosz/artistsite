@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireAdmin } from '@/lib/auth';
+import { ApiError } from '@/lib/api-error-handler';
 
 interface ErrorReport {
   id: string;
@@ -99,6 +101,7 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
+    await requireAdmin();
     const { searchParams } = new URL(req.url);
     const level = searchParams.get('level');
     const limit = parseInt(searchParams.get('limit') || '50');
@@ -131,6 +134,12 @@ export async function GET(req: NextRequest) {
     });
 
   } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status }
+      );
+    }
     return NextResponse.json(
       { error: 'Failed to retrieve errors' },
       { status: 500 }

@@ -9,6 +9,13 @@ import { getStripe } from '@/lib/stripe';
 
 export async function POST(req: NextRequest) {
   try {
+    if (process.env.PLAYWRIGHT_E2E === 'true' && process.env.NODE_ENV === 'production') {
+      return NextResponse.json(
+        { error: 'E2E checkout mode is not allowed in production' },
+        { status: 503 },
+      );
+    }
+
     const { items, customerInfo, promoCode, giftMessage } = await req.json();
 
     if (!customerInfo?.email || !Array.isArray(items) || items.length === 0) {
@@ -118,7 +125,9 @@ export async function POST(req: NextRequest) {
         })
       : undefined;
 
-    const session = await stripe.checkout.sessions.create({
+    let session;
+    try {
+      session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: orderItems.map((item) => ({
         price_data: {
@@ -197,6 +206,10 @@ export async function POST(req: NextRequest) {
         },
       ],
     });
+    } catch (stripeError) {
+      await InventoryService.releaseActiveReservationsForOrder(persistedOrder.id);
+      throw stripeError;
+    }
 
     return NextResponse.json({ sessionId: session.id });
   } catch (error) {
@@ -377,6 +390,8 @@ async function reserveTrackedInventory(order: Order): Promise<string | null> {
     return null;
   }
 
+  const reservedIds: string[] = [];
+
   for (const item of order.items) {
     const inventory = await InventoryService.getInventoryStatus(item.productId);
     if (!inventory) continue;
@@ -385,7 +400,11 @@ async function reserveTrackedInventory(order: Order): Promise<string | null> {
       orderId: order.id,
       userId: order.customerId,
     });
-    if (!reservationId) return item.productId;
+    if (!reservationId) {
+      await Promise.all(reservedIds.map((id) => InventoryService.releaseReservation(id)));
+      return item.productId;
+    }
+    reservedIds.push(reservationId);
   }
 
   return null;

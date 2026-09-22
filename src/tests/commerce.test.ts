@@ -7,6 +7,23 @@ import {
   PRODUCT_IMAGE_FALLBACK,
   type Product,
 } from '@/lib/commerce';
+import { pickVariantUrl } from '@/lib/image-variant-url';
+import { createCartRecoveryToken, verifyCartRecoveryToken } from '@/lib/cart-recovery';
+import {
+  stableSearchParamsKey,
+  activeFilterChips,
+  removeFilterChip,
+  activeFilterCount,
+} from '@/lib/search-params';
+import { applyCommissionIntake } from '@/lib/commission-intake';
+import {
+  DEFAULT_CONTACT_PAGE,
+  whiteTextContrastOnPrimary,
+  contrastRatio,
+  themeCssVariables,
+} from '@/lib/site-content-shared';
+import { InventoryService } from '@/lib/inventory';
+import { isLiveStripePaymentIntent, OrderManager } from '@/lib/orders';
 
 describe('Commerce Library', () => {
   const sampleProduct: Product = normalizeProduct({
@@ -71,7 +88,6 @@ describe('Commerce Library', () => {
 
 describe('image variant urls', () => {
   it('maps upload urls to webp variants', () => {
-    const { pickVariantUrl } = require('@/lib/image-variant-url');
     expect(pickVariantUrl('/uploads/images/photo.jpg', 'md')).toBe('/uploads/images/photo-md.webp');
   });
 });
@@ -88,7 +104,6 @@ describe('cart recovery tokens', () => {
   });
 
   it('round-trips cart payload', () => {
-    const { createCartRecoveryToken, verifyCartRecoveryToken } = require('@/lib/cart-recovery');
     const token = createCartRecoveryToken([], 'buyer@example.com');
     const payload = verifyCartRecoveryToken(token);
     expect(payload?.email).toBe('buyer@example.com');
@@ -98,13 +113,11 @@ describe('cart recovery tokens', () => {
 
 describe('search params helpers', () => {
   it('builds stable keys regardless of param order', () => {
-    const { stableSearchParamsKey } = require('@/lib/search-params');
     expect(stableSearchParamsKey(new URLSearchParams('sort=price&page=2'))).toBe('page=2&sort=price');
     expect(stableSearchParamsKey(new URLSearchParams('page=2&sort=price'))).toBe('page=2&sort=price');
   });
 
   it('lists and removes active filter chips', () => {
-    const { activeFilterChips, removeFilterChip, activeFilterCount } = require('@/lib/search-params');
     const params = new URLSearchParams('categories=paintings,prints&medium=oil&priceMin=500&priceMax=1000');
     const chips = activeFilterChips(params);
     expect(chips).toHaveLength(4);
@@ -117,8 +130,6 @@ describe('search params helpers', () => {
 
 describe('commission intake wizard', () => {
   it('applies enabled inquiry types in recommended order', () => {
-    const { applyCommissionIntake } = require('@/lib/commission-intake');
-    const { DEFAULT_CONTACT_PAGE } = require('@/lib/site-content-shared');
     const next = applyCommissionIntake(DEFAULT_CONTACT_PAGE, ['commission', 'purchase']);
     const visible = next.form.inquiryTypes.filter((item: { visible: boolean }) => item.visible);
     expect(visible.map((item: { key: string }) => item.key)).toEqual(['purchase', 'commission']);
@@ -127,45 +138,67 @@ describe('commission intake wizard', () => {
 });
 
 describe('inventory purchasability', () => {
-  it('treats untracked products as purchasable when availability is available', () => {
-    const { InventoryService } = require('@/lib/inventory');
-    expect(InventoryService.isPurchasableFromStatus('available', null)).toBe(true);
-  });
-
-  it('blocks sold availability regardless of inventory', () => {
-    const { InventoryService } = require('@/lib/inventory');
-    expect(InventoryService.isPurchasableFromStatus('sold', null)).toBe(false);
-  });
-
-  it('requires stock when inventory tracking exists', () => {
-    const { InventoryService } = require('@/lib/inventory');
-    expect(InventoryService.isPurchasableFromStatus('available', {
-      productId: 'p1',
-      currentStock: 0,
-      availableStock: 0,
-      reservedStock: 0,
-      stockStatus: 'out_of_stock',
-      lowStockThreshold: 1,
-      allowBackorders: false,
-    })).toBe(false);
+  it.each([
+    {
+      name: 'untracked available',
+      availability: 'available',
+      inventory: null,
+      expected: true,
+    },
+    {
+      name: 'sold blocks',
+      availability: 'sold',
+      inventory: null,
+      expected: false,
+    },
+    {
+      name: 'tracked out of stock',
+      availability: 'available',
+      inventory: {
+        productId: 'p1',
+        currentStock: 0,
+        availableStock: 0,
+        reservedStock: 0,
+        stockStatus: 'out_of_stock' as const,
+        lowStockThreshold: 1,
+        allowBackorders: false,
+      },
+      expected: false,
+    },
+    {
+      name: 'tracked with stock',
+      availability: 'available',
+      inventory: {
+        productId: 'p1',
+        currentStock: 3,
+        availableStock: 3,
+        reservedStock: 0,
+        stockStatus: 'in_stock' as const,
+        lowStockThreshold: 1,
+        allowBackorders: false,
+      },
+      expected: true,
+    },
+  ])('$name', ({ availability, inventory, expected }) => {
+    expect(InventoryService.isPurchasableFromStatus(availability, inventory)).toBe(expected);
   });
 });
 
 describe('refund and payment intent gates', () => {
-  it('accepts only live Stripe payment intent ids', () => {
-    const { isLiveStripePaymentIntent } = require('@/lib/orders');
-    expect(isLiveStripePaymentIntent('pi_3Abc')).toBe(true);
-    expect(isLiveStripePaymentIntent('e2e_payment_order1')).toBe(false);
-    expect(isLiveStripePaymentIntent(null)).toBe(false);
+  it.each([
+    ['pi_3Abc', true],
+    ['e2e_payment_order1', false],
+    [null, false],
+  ] as const)('isLiveStripePaymentIntent(%p) -> %p', (id, expected) => {
+    expect(isLiveStripePaymentIntent(id)).toBe(expected);
   });
 
   it('requires paid paymentStatus before refund eligibility', () => {
-    const { OrderManager } = require('@/lib/orders');
     const base = {
       id: 'o1',
       orderNumber: 'ORD-1',
-      type: 'standard',
-      status: 'confirmed',
+      type: 'standard' as const,
+      status: 'confirmed' as const,
       customerEmail: 'a@b.com',
       items: [],
       subtotal: 10,
@@ -189,14 +222,12 @@ describe('refund and payment intent gates', () => {
 
 describe('site theme utilities', () => {
   it('evaluates contrast for white text on primary buttons', () => {
-    const { whiteTextContrastOnPrimary, contrastRatio } = require('@/lib/site-content-shared');
     expect(whiteTextContrastOnPrimary('#111827')).toBe('pass');
     expect(whiteTextContrastOnPrimary('#fde047')).toBe('fail');
     expect(contrastRatio('#ffffff', '#111827')).toBeGreaterThan(4.5);
   });
 
   it('includes card style variables in themeCssVariables', () => {
-    const { themeCssVariables } = require('@/lib/site-content-shared');
     const gallery = themeCssVariables({
       primaryColor: '#111827',
       accentColor: '#374151',

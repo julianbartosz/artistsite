@@ -4,6 +4,7 @@ import { POST as contactPost } from '@/app/api/contact/route';
 import { POST as newsletterPost } from '@/app/api/newsletter/route';
 import { GET as previewGet, DELETE as previewDelete } from '@/app/api/preview/route';
 import { NextRequest } from 'next/server';
+import { safeCallbackUrl, destinationAfterSignIn } from '@/app/auth/signin/SignInForm';
 
 jest.mock('@/lib/db', () => ({
   db: {
@@ -194,8 +195,6 @@ describe('API Integration Tests', () => {
 });
 
 describe('SignInForm helpers', () => {
-  const { safeCallbackUrl, destinationAfterSignIn } = require('@/app/auth/signin/SignInForm');
-
   it.each([
     [null, '/account'],
     ['%2Faccount', '/account'],

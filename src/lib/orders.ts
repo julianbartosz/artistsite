@@ -561,10 +561,22 @@ export async function markOrderPaid(
     });
 
     if (promoCode) {
-      await tx.promoCode.updateMany({
-        where: { code: promoCode },
-        data: { usageCount: { increment: 1 } },
-      });
+      // Column-level CAS: only increment when under usage_limit (or unlimited).
+      const promoUpdated = await tx.$executeRaw`
+        UPDATE promo_codes
+        SET usage_count = usage_count + 1
+        WHERE code = ${promoCode}
+          AND (usage_limit IS NULL OR usage_count < usage_limit)
+      `;
+      if (Number(promoUpdated) === 0) {
+        await tx.analyticsEvent.create({
+          data: {
+            eventName: 'promo_usage_limit_exhausted_at_payment',
+            properties: JSON.stringify({ order_id: orderId, promo_code: promoCode }),
+            timestamp: new Date(),
+          },
+        }).catch(() => undefined);
+      }
     }
 
     return true;
@@ -639,8 +651,14 @@ export async function finalizePaidOrder(
   );
   if (!result) return null;
 
-  // Reservations are CAS'd to fulfilled — safe to retry on already-paid races.
-  await InventoryService.fulfillReservationsForOrder(orderId);
+  // Reservations are CAS'd to fulfilled; shortfall sells cover expired holds.
+  await InventoryService.settlePaidOrderStock(
+    orderId,
+    result.order.items.map((item) => ({
+      productId: item.productId,
+      quantity: item.quantity,
+    })),
+  );
 
   if (result.claimed) {
     await OrderEmailService.sendStatusUpdate(result.order, 'confirmed');

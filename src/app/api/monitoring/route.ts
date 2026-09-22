@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireAdmin } from '@/lib/auth';
+import { ApiError } from '@/lib/api-error-handler';
 
 interface DeploymentMetrics {
   environment: string;
@@ -30,6 +32,7 @@ interface DeploymentMetrics {
 
 export async function GET(req: NextRequest) {
   try {
+    await requireAdmin();
     const now = Date.now();
     const oneHourAgo = now - (60 * 60 * 1000);
     const oneDayAgo = now - (24 * 60 * 60 * 1000);
@@ -115,6 +118,12 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(metrics);
   } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status }
+      );
+    }
     console.error('Monitoring endpoint error:', error);
     return NextResponse.json(
       { error: 'Failed to retrieve monitoring data' },

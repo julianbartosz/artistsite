@@ -26,6 +26,7 @@ export async function resolveGuestSessionId(): Promise<string> {
   jar.set(GUEST_SESSION_COOKIE, generated, {
     httpOnly: true,
     sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
     path: '/',
     maxAge: 60 * 60 * 24 * 365,
   });

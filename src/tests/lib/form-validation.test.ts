@@ -5,6 +5,8 @@ import {
   isRateLimited,
   type ContactFormData 
 } from '@/lib/form-validation';
+import { blogPostPayloadSchema, parsePostMedia, normalizeAudienceEmails } from '@/lib/admin-content';
+import { viewerCanAccessPost } from '@/lib/markdown';
 
 // Mock localStorage for rate limiting tests
 const localStorageMock = {
@@ -321,8 +323,6 @@ describe('Form Validation Utilities', () => {
 });
 
 describe('update post payload', () => {
-  const { blogPostPayloadSchema, parsePostMedia, normalizeAudienceEmails } = require('@/lib/admin-content');
-
   it.each([
     { input: [{ url: '/uploads/images/a.jpg', type: 'image' }], expectedType: 'image' },
     { input: [{ url: 'https://cdn.example.com/clip.mp4', type: 'video' }], expectedType: 'video' },
@@ -386,8 +386,6 @@ describe('update post payload', () => {
 });
 
 describe('update access control', () => {
-  const { viewerCanAccessPost } = require('@/lib/markdown');
-
   it('allows admins to preview drafts without granting private audience access', () => {
     expect(viewerCanAccessPost(
       { visibility: 'private', isDraft: true },
