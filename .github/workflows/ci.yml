@@ -1,306 +1,179 @@
-name: CI/CD Pipeline
+name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
-  release:
-    types: [ published ]
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write
 
 env:
-  NODE_VERSION: '18'
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  NODE_VERSION: '22'
+  # Prisma generate requires a URL shape; CI does not connect to a live database.
+  DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/artistsite_ci?schema=public
 
 jobs:
-  # Quality Gates - Linting, Type Checking, Testing
   quality-gates:
     name: Quality Gates
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 30
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
-        
-    - name: Install dependencies
-      run: npm ci
-      
-    - name: Type checking
-      run: npm run type-check
-      
-    - name: ESLint
-      run: npm run lint
-      
-    - name: Run tests with coverage
-      run: npm run test:ci
-      env:
-        CI: true
-        
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./coverage/lcov.info
-        flags: unittests
-        name: codecov-umbrella
-        fail_ci_if_error: false
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-  # Security Scanning
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Type checking
+        run: npm run type-check
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test:ci
+        env:
+          CI: true
+
+      - name: Production build
+        run: npm run build
+        env:
+          NODE_ENV: production
+          NEXTAUTH_SECRET: ci-build-placeholder-not-for-production
+          NEXTAUTH_URL: http://127.0.0.1:3000
+
+      - name: PR Agent script self-tests
+        run: |
+          set -euo pipefail
+          bash actions/pr-agent-resolve/resolve.sh --self-test
+          bash scripts/pr-agent-describe-track.sh --self-test
+          bash scripts/pr-agent-contacts.sh --self-test
+
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: quality-gates
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Run npm audit
-      run: npm audit --audit-level moderate
-      continue-on-error: true
-      
-    - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-        
-    - name: Upload Trivy scan results to GitHub Security tab
-      uses: github/codeql-action/upload-sarif@v2
-      if: always()
-      with:
-        sarif_file: 'trivy-results.sarif'
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-  # Build and Test Application
-  build:
-    name: Build Application
-    runs-on: ubuntu-latest
-    needs: [quality-gates, security-scan]
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
-        
-    - name: Install dependencies
-      run: npm ci
-      
-    - name: Build application
-      run: npm run build
-      env:
-        NODE_ENV: production
-        
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v3
-      with:
-        name: build-files
-        path: |
-          .next/
-          public/
-        retention-days: 1
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
-  # Docker Build and Security Scan
-  docker-build:
-    name: Docker Build & Scan
-    runs-on: ubuntu-latest
-    needs: build
-    outputs:
-      image-digest: ${{ steps.build.outputs.digest }}
-      image-tag: ${{ steps.meta.outputs.tags }}
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-      
-    - name: Log in to Container Registry
-      if: github.event_name != 'pull_request'
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-        
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-        tags: |
-          type=ref,event=branch
-          type=ref,event=pr
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          type=sha,prefix={{branch}}-
-          
-    - name: Build and push Docker image
-      id: build
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        platforms: linux/amd64,linux/arm64
-        push: ${{ github.event_name != 'pull_request' }}
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-        
-    - name: Run Trivy vulnerability scanner on image
-      uses: aquasecurity/trivy-action@master
-      with:
-        image-ref: ${{ steps.meta.outputs.tags }}
-        format: 'sarif'
-        output: 'trivy-image-results.sarif'
-        
-    - name: Upload Trivy image scan results
-      uses: github/codeql-action/upload-sarif@v2
-      if: always()
-      with:
-        sarif_file: 'trivy-image-results.sarif'
+      - name: Install dependencies
+        run: npm ci
 
-  # Performance Testing
-  performance-test:
-    name: Performance Testing
+      - name: npm audit
+        run: npm audit --audit-level=moderate
+        continue-on-error: true
+
+      - name: Filesystem vulnerability scan
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: '0'
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@8c78abb9b62512e3c45dea6559ffd924ed8549c8 # v3.28.0
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        continue-on-error: true
+        with:
+          sarif_file: trivy-results.sarif
+
+  lighthouse:
+    name: Lighthouse CI
     runs-on: ubuntu-latest
-    needs: docker-build
+    timeout-minutes: 30
+    needs: quality-gates
     if: github.event_name == 'pull_request'
-    
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: artistsite_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d artistsite_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
-        
-    - name: Install dependencies
-      run: npm ci
-      
-    - name: Build for performance testing
-      run: npm run build
-      
-    - name: Install Lighthouse CI
-      run: npm install -g @lhci/cli@0.12.x
-      
-    - name: Run Lighthouse CI
-      run: |
-        npm start &
-        sleep 10
-        lhci autorun
-      env:
-        LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-  # Deploy to Staging
-  deploy-staging:
-    name: Deploy to Staging
-    runs-on: ubuntu-latest
-    needs: [docker-build, performance-test]
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
-    environment:
-      name: staging
-      url: https://staging.artistsite.com
-    
-    steps:
-    - name: Deploy to Azure Container Instances
-      uses: azure/aci-deploy@v1
-      with:
-        resource-group: ${{ secrets.AZURE_RG }}
-        dns-name-label: artistsite-staging
-        image: ${{ needs.docker-build.outputs.image-tag }}
-        registry-login-server: ${{ env.REGISTRY }}
-        registry-username: ${{ github.actor }}
-        registry-password: ${{ secrets.GITHUB_TOKEN }}
-        name: artistsite-staging
-        location: 'East US'
-        environment-variables: |
-          NODE_ENV=staging
-          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${{ secrets.STAGING_STRIPE_PUBLISHABLE_KEY }}
-        secure-environment-variables: |
-          DATABASE_URL=${{ secrets.STAGING_DATABASE_URL }}
-          NEXTAUTH_SECRET=${{ secrets.STAGING_NEXTAUTH_SECRET }}
-          STRIPE_SECRET_KEY=${{ secrets.STAGING_STRIPE_SECRET_KEY }}
-          STRIPE_WEBHOOK_SECRET=${{ secrets.STAGING_STRIPE_WEBHOOK_SECRET }}
-          MAILCHIMP_API_KEY=${{ secrets.STAGING_MAILCHIMP_API_KEY }}
-          MAILCHIMP_LIST_ID=${{ secrets.STAGING_MAILCHIMP_LIST_ID }}
-          SMTP_HOST=${{ secrets.STAGING_SMTP_HOST }}
-          SMTP_PORT=${{ secrets.STAGING_SMTP_PORT }}
-          SMTP_USER=${{ secrets.STAGING_SMTP_USER }}
-          SMTP_PASSWORD=${{ secrets.STAGING_SMTP_PASSWORD }}
-          SMTP_FROM=${{ secrets.STAGING_SMTP_FROM }}
-          
-    - name: Run smoke tests
-      run: |
-        sleep 30
-        curl -f https://staging.artistsite.com/api/health || exit 1
-        curl -f https://staging.artistsite.com/ || exit 1
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
-  # Deploy to Production
-  deploy-production:
-    name: Deploy to Production
-    runs-on: ubuntu-latest
-    needs: docker-build
-    if: github.event_name == 'release'
-    environment:
-      name: production
-      url: https://artistsite.com
-    
-    steps:
-    - name: Deploy to Azure Container Instances
-      uses: azure/aci-deploy@v1
-      with:
-        resource-group: ${{ secrets.AZURE_RG }}
-        dns-name-label: artistsite-prod
-        image: ${{ needs.docker-build.outputs.image-tag }}
-        registry-login-server: ${{ env.REGISTRY }}
-        registry-username: ${{ github.actor }}
-        registry-password: ${{ secrets.GITHUB_TOKEN }}
-        name: artistsite-production
-        location: 'East US'
-        environment-variables: |
-          NODE_ENV=production
-          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${{ secrets.PROD_STRIPE_PUBLISHABLE_KEY }}
-        secure-environment-variables: |
-          DATABASE_URL=${{ secrets.PROD_DATABASE_URL }}
-          NEXTAUTH_SECRET=${{ secrets.PROD_NEXTAUTH_SECRET }}
-          STRIPE_SECRET_KEY=${{ secrets.PROD_STRIPE_SECRET_KEY }}
-          STRIPE_WEBHOOK_SECRET=${{ secrets.PROD_STRIPE_WEBHOOK_SECRET }}
-          MAILCHIMP_API_KEY=${{ secrets.PROD_MAILCHIMP_API_KEY }}
-          MAILCHIMP_LIST_ID=${{ secrets.PROD_MAILCHIMP_LIST_ID }}
-          SMTP_HOST=${{ secrets.PROD_SMTP_HOST }}
-          SMTP_PORT=${{ secrets.PROD_SMTP_PORT }}
-          SMTP_USER=${{ secrets.PROD_SMTP_USER }}
-          SMTP_PASSWORD=${{ secrets.PROD_SMTP_PASSWORD }}
-          SMTP_FROM=${{ secrets.PROD_SMTP_FROM }}
-          
-    - name: Run production smoke tests
-      run: |
-        sleep 30
-        curl -f https://artistsite.com/api/health || exit 1
-        curl -f https://artistsite.com/ || exit 1
-        
-    - name: Notify deployment success
-      uses: 8398a7/action-slack@v3
-      if: success()
-      with:
-        status: success
-        channel: '#deployments'
-        text: '🚀 Production deployment successful!'
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply database migrations
+        run: npx prisma migrate deploy
+
+      - name: Build application
+        run: npm run build
+        env:
+          NODE_ENV: production
+          NEXTAUTH_SECRET: ci-build-placeholder-not-for-production
+          NEXTAUTH_URL: http://127.0.0.1:3000
+
+      - name: Install Lighthouse CI
+        run: npm install --global @lhci/cli@0.14.0
+
+      - name: Run Lighthouse CI
+        run: |
+          set -euo pipefail
+          npm start &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for _ in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:3000/ >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [[ "$ready" -ne 1 ]]; then
+            echo "::error::Next.js server did not become ready for Lighthouse"
+            exit 1
+          fi
+          lhci autorun
+        env:
+          LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
+          NEXTAUTH_SECRET: ci-build-placeholder-not-for-production
+          NEXTAUTH_URL: http://127.0.0.1:3000
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/artistsite_ci?schema=public

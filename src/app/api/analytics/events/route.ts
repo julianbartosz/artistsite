@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { recordAnalyticsEvent } from '@/lib/analytics/customer-insights'
 import { z } from 'zod'
+import { requireAdmin } from '@/lib/auth'
+import { ApiError } from '@/lib/api-error-handler'
 
 const AnalyticsEventSchema = z.object({
   event_name: z.string().min(1).max(100),
@@ -13,8 +15,8 @@ const AnalyticsEventSchema = z.object({
 
 // Add CORS headers to handle cross-origin requests
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Origin': process.env.NEXT_PUBLIC_SITE_URL || 'http://127.0.0.1:3000',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
 
@@ -73,6 +75,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    await requireAdmin()
     const { searchParams } = new URL(request.url)
     const eventName = searchParams.get('event')
     const userId = searchParams.get('userId')
@@ -117,19 +120,20 @@ export async function GET(request: NextRequest) {
       events: formattedEvents,
       total: events.length,
       hasMore: events.length === limit,
-    }, {
-      headers: corsHeaders,
     })
   } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status }
+      )
+    }
     if (process.env.NODE_ENV === 'development') {
       console.error('Analytics events fetch error:', error)
     }
     return NextResponse.json(
       { error: 'Failed to fetch analytics events' },
-      { 
-        status: 500,
-        headers: corsHeaders,
-      }
+      { status: 500 }
     )
   }
 }

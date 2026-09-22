@@ -8,8 +8,15 @@ module.exports = {
   ],
   theme: {
     extend: {
+      colors: {
+        primary: {
+          DEFAULT: 'var(--color-primary)',
+          hover: 'var(--color-primary-hover)',
+        },
+        accent: 'var(--color-accent)',
+      },
       fontFamily: {
-        sans: ['var(--font-geist-sans)', 'Arial', 'Helvetica', 'sans-serif'],
+        sans: ['var(--font-site)', 'var(--font-geist-sans)', 'Arial', 'Helvetica', 'sans-serif'],
         mono: ['var(--font-geist-mono)', 'monospace'],
       },
       typography: {
@@ -50,16 +57,24 @@ module.exports = {
               content: '""',
             },
             blockquote: {
-              borderLeftColor: '#3b82f6',
+              borderLeftColor: '#111827',
               borderLeftWidth: '4px',
+              fontStyle: 'italic',
+              color: '#4b5563',
             },
             a: {
-              color: '#2563eb',
-              textDecoration: 'none',
+              color: '#111827',
+              textDecoration: 'underline',
+              textDecorationColor: '#d1d5db',
+              textUnderlineOffset: '2px',
+              fontWeight: '500',
               '&:hover': {
-                color: '#1d4ed8',
-                textDecoration: 'underline',
+                color: '#374151',
+                textDecorationColor: '#9ca3af',
               },
+            },
+            strong: {
+              color: '#111827',
             },
           },
         },

@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireAdmin } from '@/lib/auth';
+import { ApiError } from '@/lib/api-error-handler';
 
 export async function GET() {
   try {
+    await requireAdmin();
     // Get recent performance metrics from the last 24 hours
     const recentMetrics = await db.analyticsEvent.findMany({
       where: {
@@ -61,6 +64,12 @@ export async function GET() {
       cpuUsage: null
     });
   } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status }
+      );
+    }
     console.error('Error fetching performance metrics:', error);
     return NextResponse.json(
       { error: 'Failed to fetch performance metrics' },

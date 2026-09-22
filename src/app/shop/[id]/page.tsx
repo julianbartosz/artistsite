@@ -3,7 +3,9 @@ import { notFound } from 'next/navigation';
 import { Metadata } from 'next';
 import { getProductById } from '@/lib/commerce-server';
 import { productImageSrc } from '@/lib/commerce';
+import { InventoryService } from '@/lib/inventory';
 import ProductPageClient from './ProductPageClient';
+import { getSiteContent } from '@/lib/site-content';
 
 interface ProductPageProps {
   params: Promise<{
@@ -67,5 +69,14 @@ export default async function ProductPage({ params }: ProductPageProps) {
     notFound();
   }
   
-  return <ProductPageClient product={product} />;
+  const purchasable = await InventoryService.isPurchasable(product.id, product.availability);
+  const shopContent = await getSiteContent('shop');
+
+  return (
+    <ProductPageClient
+      product={product}
+      purchasable={purchasable}
+      detailLayout={shopContent.productDetailLayout}
+    />
+  );
 }

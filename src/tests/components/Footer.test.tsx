@@ -1,26 +1,85 @@
 import { render, screen } from '@testing-library/react';
 import { Footer } from '@/components/Footer';
+import { DEFAULT_NAVIGATION, DEFAULT_SITE_IDENTITY, normalizeNavigation } from '@/lib/site-content-shared';
+import { createCollectorFeedToken, verifyCollectorFeedToken } from '@/lib/collector-feed-token';
 
 describe('Footer Component', () => {
   it('renders footer content correctly', () => {
     render(<Footer />);
-    
-    expect(screen.getByText(/© 2024 Artist Site/)).toBeInTheDocument();
-    expect(screen.getByText('All rights reserved.')).toBeInTheDocument();
+
+    expect(screen.getByText(new RegExp(`© ${new Date().getFullYear()} Artist Site`))).toBeInTheDocument();
+    expect(screen.getByText(/All rights reserved\./)).toBeInTheDocument();
   });
 
   it('renders social media links', () => {
     render(<Footer />);
-    
-    // Check for social media links if they exist
+
     const footer = screen.getByRole('contentinfo');
     expect(footer).toBeInTheDocument();
   });
 
   it('has correct styling classes', () => {
     render(<Footer />);
-    
+
     const footer = screen.getByRole('contentinfo');
-    expect(footer).toHaveClass('bg-gray-900', 'text-white');
+    expect(footer).toHaveClass('bg-primary', 'text-white');
+  });
+
+  it('uses artist-configured footer links and visibility', () => {
+    render(
+      <Footer
+        siteIdentity={{
+          ...DEFAULT_SITE_IDENTITY,
+          navigation: DEFAULT_NAVIGATION.map((item) => {
+            if (item.key === 'shop') return { ...item, visible: true, showInFooter: true, label: 'Store' };
+            if (item.key === 'blog') return { ...item, visible: true, showInFooter: false };
+            return { ...item, showInFooter: false };
+          }),
+        }}
+      />
+    );
+
+    expect(screen.getByRole('link', { name: 'Store' })).toHaveAttribute('href', '/shop');
+    expect(screen.queryByRole('link', { name: 'Updates' })).not.toBeInTheDocument();
+  });
+
+  it('migrates legacy Blog nav label to Updates', () => {
+    const navigation = normalizeNavigation(
+      DEFAULT_NAVIGATION.map((item) => item.key === 'blog' ? { ...item, label: 'Blog' } : item),
+    );
+    const blogItem = navigation.find((item) => item.key === 'blog');
+    expect(blogItem?.label).toBe('Updates');
+    expect(blogItem?.href).toBe('/updates');
+  });
+
+  it('creates and verifies collector feed tokens', async () => {
+    const previous = process.env.NEXTAUTH_SECRET;
+    process.env.NEXTAUTH_SECRET = 'test-feed-secret';
+    try {
+      const token = await createCollectorFeedToken('user-123');
+      const userId = await verifyCollectorFeedToken(token);
+      expect(userId).toBe('user-123');
+      expect(await verifyCollectorFeedToken('invalid.token')).toBeNull();
+      expect(await verifyCollectorFeedToken(await createCollectorFeedToken('user-123', Date.now() - 1000))).toBeNull();
+    } finally {
+      if (previous === undefined) delete process.env.NEXTAUTH_SECRET;
+      else process.env.NEXTAUTH_SECRET = previous;
+    }
+  });
+
+  it('fails closed when collector feed secret is missing', async () => {
+    const previousAuth = process.env.NEXTAUTH_SECRET;
+    const previousAlt = process.env.AUTH_SECRET;
+    delete process.env.NEXTAUTH_SECRET;
+    delete process.env.AUTH_SECRET;
+    try {
+      await expect(createCollectorFeedToken('user-123')).rejects.toThrow(/NEXTAUTH_SECRET|AUTH_SECRET/);
+      expect(await verifyCollectorFeedToken('anything.here')).toBeNull();
+    } finally {
+      if (previousAuth === undefined) delete process.env.NEXTAUTH_SECRET;
+      else process.env.NEXTAUTH_SECRET = previousAuth;
+      if (previousAlt === undefined) delete process.env.AUTH_SECRET;
+      else process.env.AUTH_SECRET = previousAlt;
+    }
   });
 });

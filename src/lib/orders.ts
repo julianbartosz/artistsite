@@ -1,10 +1,17 @@
 import { createHmac, timingSafeEqual } from 'crypto';
+import type Stripe from 'stripe';
 import { CartItemVariant, calculateVariantPrice, formatCartItemVariant, Product, productImageSrc } from './commerce';
 import { db } from './db';
 import { getProductById } from './commerce-server';
 import { SHIPPING_CARRIERS, trackingUrl } from '@/lib/shipping';
+import { type ShippingAddress, shippingAddressIsPopulated } from '@/lib/shipping-address';
+import { InventoryService } from '@/lib/inventory';
+import { OrderEmailService } from '@/lib/email';
+import { getStripe } from '@/lib/stripe';
 
 export { SHIPPING_CARRIERS, trackingUrl };
+export type { ShippingAddress } from '@/lib/shipping-address';
+export { shippingAddressIsPopulated } from '@/lib/shipping-address';
 
 function orderAccessSecret(): string | undefined {
   return process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET;
@@ -76,19 +83,7 @@ export interface OrderCustomization {
   priceModifier?: number;
 }
 
-// Shipping Information
-export interface ShippingAddress {
-  firstName: string;
-  lastName: string;
-  company?: string;
-  address1: string;
-  address2?: string;
-  city: string;
-  state: string;
-  postalCode: string;
-  country: string;
-  phone?: string;
-}
+// Shipping Information — see @/lib/shipping-address for the shared type
 
 // Order Timeline Entry
 export interface OrderTimeline {
@@ -514,38 +509,254 @@ export async function markOrderPaid(
     shipping?: number | null;
     tax?: number | null;
     total?: number | null;
-  }
-): Promise<Order | null> {
+  },
+  options?: {
+    promoCode?: string | null;
+  },
+): Promise<{ order: Order; claimed: boolean } | null> {
   const existing = await getOrderById(orderId);
   if (!existing) return null;
 
-  if (existing.paymentStatus === 'paid' && existing.status === 'confirmed') {
-    return existing;
+  if (existing.paymentStatus === 'paid') {
+    return { order: existing, claimed: false };
   }
 
-  const updated = await db.order.update({
-    where: { id: orderId },
-    data: {
-      status: 'confirmed',
-      paymentStatus: 'paid',
-      paymentIntentId: paymentIntentId || existing.paymentIntentId,
-      paymentMethod: paymentMethod || existing.paymentMethod,
-      ...(paidTotals?.shipping !== undefined && paidTotals.shipping !== null ? { shipping: paidTotals.shipping } : {}),
-      ...(paidTotals?.tax !== undefined && paidTotals.tax !== null ? { tax: paidTotals.tax } : {}),
-      ...(paidTotals?.total !== undefined && paidTotals.total !== null ? { total: paidTotals.total } : {}),
-      timeline: {
-        create: OrderManager.createTimelineEntry(
-          'confirmed',
-          OrderManager.getStatusMessage('confirmed'),
-          'Payment confirmed by Stripe',
-          undefined
-        ),
+  const promoCode = options?.promoCode?.trim().toUpperCase() || null;
+
+  const claimed = await db.$transaction(async (tx) => {
+    const result = await tx.order.updateMany({
+      where: {
+        id: orderId,
+        paymentStatus: { not: 'paid' },
       },
-    },
-    include: orderInclude,
+      data: {
+        status: 'confirmed',
+        paymentStatus: 'paid',
+        paymentIntentId: paymentIntentId || existing.paymentIntentId,
+        paymentMethod: paymentMethod || existing.paymentMethod,
+        ...(paidTotals?.shipping !== undefined && paidTotals.shipping !== null ? { shipping: paidTotals.shipping } : {}),
+        ...(paidTotals?.tax !== undefined && paidTotals.tax !== null ? { tax: paidTotals.tax } : {}),
+        ...(paidTotals?.total !== undefined && paidTotals.total !== null ? { total: paidTotals.total } : {}),
+      },
+    });
+
+    if (result.count === 0) return false;
+
+    const timeline = OrderManager.createTimelineEntry(
+      'confirmed',
+      OrderManager.getStatusMessage('confirmed'),
+      'Payment confirmed by Stripe',
+      undefined
+    );
+    await tx.orderTimelineEntry.create({
+      data: {
+        id: timeline.id,
+        orderId,
+        status: timeline.status,
+        message: timeline.message,
+        details: timeline.details,
+        trackingNumber: timeline.trackingNumber,
+        timestamp: timeline.timestamp,
+      },
+    });
+
+    if (promoCode) {
+      // Column-level CAS: only increment when under usage_limit (or unlimited).
+      const promoUpdated = await tx.$executeRaw`
+        UPDATE promo_codes
+        SET usage_count = usage_count + 1
+        WHERE code = ${promoCode}
+          AND (usage_limit IS NULL OR usage_count < usage_limit)
+      `;
+      if (Number(promoUpdated) === 0) {
+        await tx.analyticsEvent.create({
+          data: {
+            eventName: 'promo_usage_limit_exhausted_at_payment',
+            properties: JSON.stringify({ order_id: orderId, promo_code: promoCode }),
+            timestamp: new Date(),
+          },
+        }).catch(() => undefined);
+      }
+    }
+
+    return true;
   });
 
-  return toDomainOrder(updated);
+  const order = await getOrderById(orderId);
+  return order ? { order, claimed } : null;
+}
+
+function stripeShippingDetails(session: Stripe.Checkout.Session) {
+  return session.collected_information?.shipping_details ?? null;
+}
+
+export async function syncShippingAddressFromStripe(
+  orderId: string,
+  session: Stripe.Checkout.Session,
+): Promise<void> {
+  const details = stripeShippingDetails(session);
+  if (!details?.address?.line1) return;
+
+  const record = await db.order.findUnique({
+    where: { id: orderId },
+    select: { shippingAddressId: true },
+  });
+  if (!record?.shippingAddressId) return;
+
+  const nameParts = (details.name || 'Customer').trim().split(/\s+/);
+  const firstName = nameParts[0] || 'Customer';
+  const lastName = nameParts.slice(1).join(' ') || firstName;
+  const phone = session.customer_details?.phone?.trim();
+
+  await db.address.update({
+    where: { id: record.shippingAddressId },
+    data: {
+      firstName,
+      lastName,
+      address1: details.address.line1,
+      address2: details.address.line2 || null,
+      city: details.address.city || '',
+      state: details.address.state || '',
+      postalCode: details.address.postal_code || '',
+      country: details.address.country || 'US',
+      ...(phone ? { phone } : {}),
+    },
+  });
+}
+
+export async function finalizePaidOrder(
+  orderId: string,
+  opts: {
+    paymentIntentId?: string | null;
+    paymentMethod?: string | null;
+    paidTotals?: {
+      shipping?: number | null;
+      tax?: number | null;
+      total?: number | null;
+    };
+    promoCode?: string | null;
+    stripeSession?: Stripe.Checkout.Session | null;
+  },
+): Promise<Order | null> {
+  if (opts.stripeSession) {
+    await syncShippingAddressFromStripe(orderId, opts.stripeSession);
+  }
+
+  const result = await markOrderPaid(
+    orderId,
+    opts.paymentIntentId,
+    opts.paymentMethod,
+    opts.paidTotals,
+    { promoCode: opts.promoCode },
+  );
+  if (!result) return null;
+
+  // Reservations are CAS'd to fulfilled; shortfall sells cover expired holds.
+  await InventoryService.settlePaidOrderStock(
+    orderId,
+    result.order.items.map((item) => ({
+      productId: item.productId,
+      quantity: item.quantity,
+    })),
+  );
+
+  if (result.claimed) {
+    await OrderEmailService.sendStatusUpdate(result.order, 'confirmed');
+    await db.analyticsEvent.create({
+      data: {
+        eventName: 'post_purchase_sequence_triggered',
+        userId: result.order.customerId,
+        properties: JSON.stringify({
+          order_id: result.order.id,
+          order_number: result.order.orderNumber,
+          order_value: result.order.total,
+        }),
+        timestamp: new Date(),
+      },
+    }).catch(() => undefined);
+  }
+
+  return result.order;
+}
+
+/** Stripe PaymentIntent ids are `pi_…`; synthetic checkout uses `e2e_payment_…`. */
+export function isLiveStripePaymentIntent(paymentIntentId: string | null | undefined): boolean {
+  return Boolean(paymentIntentId && paymentIntentId.startsWith('pi_'));
+}
+
+export async function refundOrder(orderId: string): Promise<Order> {
+  const existing = await getOrderById(orderId);
+  if (!existing) {
+    throw new Error('Order not found');
+  }
+  if (existing.status === 'refunded' || existing.paymentStatus === 'refunded') {
+    return existing;
+  }
+  if (!OrderManager.canRefundOrder(existing)) {
+    throw new Error('Order cannot be refunded in its current state');
+  }
+  if (!existing.paymentIntentId) {
+    throw new Error('This order has no Stripe payment on file');
+  }
+
+  const paymentIntentId = existing.paymentIntentId;
+  const liveStripe = isLiveStripePaymentIntent(paymentIntentId);
+
+  if (liveStripe) {
+    const stripe = await getStripe();
+    await stripe.refunds.create(
+      { payment_intent: paymentIntentId },
+      { idempotencyKey: `refund-order-${orderId}` },
+    );
+  } else if (!paymentIntentId.startsWith('e2e_payment_')) {
+    throw new Error('Order payment intent is not refundable through Stripe');
+  }
+
+  await InventoryService.releaseStockForOrder(orderId);
+
+  const claimed = await db.order.updateMany({
+    where: {
+      id: orderId,
+      paymentStatus: 'paid',
+      status: { not: 'refunded' },
+    },
+    data: {
+      status: 'refunded',
+      paymentStatus: 'refunded',
+    },
+  });
+
+  if (claimed.count === 0) {
+    const current = await getOrderById(orderId);
+    if (current && (current.status === 'refunded' || current.paymentStatus === 'refunded')) {
+      return current;
+    }
+    throw new Error(
+      liveStripe
+        ? 'Stripe refund succeeded but order could not be marked refunded — reconcile manually'
+        : 'Failed to update order after refund',
+    );
+  }
+
+  await db.orderTimelineEntry.create({
+    data: {
+      orderId,
+      ...OrderManager.createTimelineEntry(
+        'refunded',
+        OrderManager.getStatusMessage('refunded'),
+        liveStripe
+          ? `Stripe refund issued for payment ${paymentIntentId}`
+          : `Test refund recorded for payment ${paymentIntentId}`,
+        undefined
+      ),
+    },
+  });
+
+  const order = await getOrderById(orderId);
+  if (!order) {
+    throw new Error('Failed to load order after refund');
+  }
+  return order;
 }
 
 // Order Management Functions
@@ -664,6 +875,7 @@ export class OrderManager {
    * Check if order can be refunded
    */
   static canRefundOrder(order: Order): boolean {
-    return ['confirmed', 'processing', 'shipped', 'delivered'].includes(order.status);
+    return order.paymentStatus === 'paid'
+      && ['confirmed', 'processing', 'shipped', 'delivered'].includes(order.status);
   }
 }

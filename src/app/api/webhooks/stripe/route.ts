@@ -1,11 +1,13 @@
+import { createHash } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
-import { db } from '@/lib/db';
-import { markOrderPaid } from '@/lib/orders';
-import { OrderEmailService } from '@/lib/email';
-import { InventoryService } from '@/lib/inventory';
+import { finalizePaidOrder } from '@/lib/orders';
 import { getConfig } from '@/lib/config';
 import { getStripe } from '@/lib/stripe';
+
+function hashMetaEmail(email: string): string {
+  return createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+}
 
 export async function POST(request: NextRequest) {
   const webhookSecret = await getConfig('STRIPE_WEBHOOK_SECRET');
@@ -55,31 +57,54 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     throw new Error(`Stripe session ${session.id} does not include an order id`);
   }
 
-  const order = await markOrderPaid(
-    orderId,
-    typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id,
-    session.payment_method_types?.[0],
-    {
+  const order = await finalizePaidOrder(orderId, {
+    paymentIntentId: typeof session.payment_intent === 'string'
+      ? session.payment_intent
+      : session.payment_intent?.id,
+    paymentMethod: session.payment_method_types?.[0],
+    paidTotals: {
       shipping: centsToDollars(session.total_details?.amount_shipping),
       tax: centsToDollars(session.total_details?.amount_tax),
       total: centsToDollars(session.amount_total),
-    }
-  );
+    },
+    promoCode: session.metadata?.promoCode,
+    stripeSession: session,
+  });
 
   if (!order) {
     throw new Error(`Order not found for Stripe session ${session.id}: ${orderId}`);
   }
 
-  await InventoryService.fulfillReservationsForOrder(order.id);
-  await OrderEmailService.sendStatusUpdate(order, 'confirmed');
-  await db.analyticsEvent.create({
-    data: {
-      eventName: 'post_purchase_sequence_triggered',
-      userId: order.customerId,
-      properties: JSON.stringify({ order_id: order.id, order_number: order.orderNumber, order_value: order.total }),
-      timestamp: new Date(),
-    },
-  }).catch(() => undefined);
+  await sendMetaPurchaseEvent(session, order.total).catch(() => undefined);
+}
+
+async function sendMetaPurchaseEvent(session: Stripe.Checkout.Session, value: number): Promise<void> {
+  const pixelId = await getConfig('FACEBOOK_PIXEL_ID');
+  const accessToken = await getConfig('FACEBOOK_CONVERSION_API_TOKEN');
+  if (!pixelId?.trim() || !accessToken?.trim()) return;
+
+  const eventTime = Math.floor(Date.now() / 1000);
+  const email = session.customer_details?.email || session.metadata?.customerEmail;
+  const hashedEmail = email?.trim() ? hashMetaEmail(email) : null;
+
+  await fetch(`https://graph.facebook.com/v20.0/${pixelId}/events?access_token=${encodeURIComponent(accessToken)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      data: [{
+        event_name: 'Purchase',
+        event_time: eventTime,
+        event_id: session.id,
+        action_source: 'website',
+        user_data: hashedEmail ? { em: [hashedEmail] } : {},
+        custom_data: {
+          currency: 'USD',
+          value,
+          order_id: session.metadata?.orderId,
+        },
+      }],
+    }),
+  });
 }
 
 function centsToDollars(value: number | null | undefined): number | null {

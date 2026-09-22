@@ -5,6 +5,8 @@ import {
   isRateLimited,
   type ContactFormData 
 } from '@/lib/form-validation';
+import { blogPostPayloadSchema, parsePostMedia, normalizeAudienceEmails } from '@/lib/admin-content';
+import { viewerCanAccessPost } from '@/lib/markdown';
 
 // Mock localStorage for rate limiting tests
 const localStorageMock = {
@@ -317,5 +319,98 @@ describe('Form Validation Utilities', () => {
         value: originalLocalStorage
       });
     });
+  });
+});
+
+describe('update post payload', () => {
+  it.each([
+    { input: [{ url: '/uploads/images/a.jpg', type: 'image' }], expectedType: 'image' },
+    { input: [{ url: 'https://cdn.example.com/clip.mp4', type: 'video' }], expectedType: 'video' },
+    { input: ['/uploads/images/legacy.jpg'], expectedType: 'image' },
+  ])('parses $expectedType media', ({ input, expectedType }) => {
+    const parsed = parsePostMedia(input);
+    expect(parsed[0].type).toBe(expectedType);
+    expect(parsed[0].url).toBeTruthy();
+  });
+
+  it('rejects javascript and protocol-relative media URLs', () => {
+    expect(parsePostMedia(['javascript:alert(1)', '//evil.example', { url: '/ok.jpg' }])).toEqual([
+      { url: '/ok.jpg', type: 'image' },
+    ]);
+  });
+
+  it('allows a studio update with media and no journal title', () => {
+    const parsed = blogPostPayloadSchema.parse({
+      format: 'short',
+      excerpt: 'Oil study after rain',
+      media: [{ url: '/uploads/images/rain.jpg', type: 'image' }],
+      isDraft: false,
+    });
+    expect(parsed.format).toBe('short');
+    expect(parsed.media).toHaveLength(1);
+  });
+
+  it('rejects a published studio update with no media or caption', () => {
+    expect(() => blogPostPayloadSchema.parse({
+      format: 'short',
+      isDraft: false,
+    })).toThrow();
+  });
+
+  it('normalizes collector emails', () => {
+    expect(normalizeAudienceEmails('Buyer@Example.com, buyer@example.com, not-an-email')).toEqual([
+      'buyer@example.com',
+    ]);
+  });
+
+  it('rejects a published private update without collector emails', () => {
+    expect(() => blogPostPayloadSchema.parse({
+      format: 'short',
+      excerpt: 'Private studio note',
+      isDraft: false,
+      visibility: 'private',
+      audienceEmails: [],
+    })).toThrow();
+  });
+
+  it('treats a blank slug as omitted so studio posts can auto-generate one', () => {
+    const parsed = blogPostPayloadSchema.parse({
+      format: 'short',
+      slug: '',
+      excerpt: 'Morning glaze test',
+      media: [{ url: '/uploads/images/glaze.jpg', type: 'image' }],
+      isDraft: false,
+    });
+    expect(parsed.slug).toBeUndefined();
+  });
+});
+
+describe('update access control', () => {
+  it('allows admins to preview drafts without granting private audience access', () => {
+    expect(viewerCanAccessPost(
+      { visibility: 'private', isDraft: true },
+      { id: 'admin', email: 'artist@artistsite.com', isAdmin: true },
+      { includeDrafts: true },
+    )).toBe(true);
+
+    expect(viewerCanAccessPost(
+      { visibility: 'private', isDraft: false },
+      { id: 'admin', email: 'artist@artistsite.com', isAdmin: true },
+      { audienceEmails: ['buyer@example.com'] },
+    )).toBe(true);
+  });
+
+  it('blocks private updates for viewers not on the whitelist', () => {
+    expect(viewerCanAccessPost(
+      { visibility: 'private', isDraft: false },
+      { id: 'other', email: 'stranger@example.com' },
+      { audienceEmails: ['buyer@example.com'] },
+    )).toBe(false);
+
+    expect(viewerCanAccessPost(
+      { visibility: 'private', isDraft: false },
+      { id: 'buyer', email: 'buyer@example.com' },
+      { audienceEmails: ['buyer@example.com'] },
+    )).toBe(true);
   });
 });

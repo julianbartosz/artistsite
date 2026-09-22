@@ -1,15 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { CartItemVariant, Product, productImageSrc } from '@/lib/commerce';
+import { CartItemVariant, Product, productImageSrc, E2E_CHECKOUT_SESSION_PREFIX } from '@/lib/commerce';
 import { getProductById } from '@/lib/commerce-server';
-import { createOrder, Order, OrderCustomization, OrderItem, OrderManager, ShippingAddress, updateOrder } from '@/lib/orders';
+import { createOrder, finalizePaidOrder, Order, OrderCustomization, OrderItem, OrderManager, ShippingAddress, updateOrder } from '@/lib/orders';
 import { InventoryService } from '@/lib/inventory';
 import { getConfigBool } from '@/lib/config';
-import { db } from '@/lib/db';
+import { resolvePromoDiscount, roundPromoMoney } from '@/lib/promo-codes';
 import { getStripe } from '@/lib/stripe';
 
 export async function POST(req: NextRequest) {
   try {
-    const { items, customerInfo, promoCode } = await req.json();
+    if (process.env.PLAYWRIGHT_E2E === 'true' && process.env.NODE_ENV === 'production') {
+      return NextResponse.json(
+        { error: 'E2E checkout mode is not allowed in production' },
+        { status: 503 },
+      );
+    }
+
+    const { items, customerInfo, promoCode, giftMessage } = await req.json();
 
     if (!customerInfo?.email || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json(
@@ -17,15 +24,6 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-
-    if (process.env.PLAYWRIGHT_E2E === 'true') {
-      return NextResponse.json(
-        { error: 'Checkout reached the payment-provider boundary in e2e mode' },
-        { status: 503 }
-      );
-    }
-
-    const stripe = await getStripe();
 
     const shippingAddress: ShippingAddress = {
       firstName: customerInfo.firstName,
@@ -70,11 +68,16 @@ export async function POST(req: NextRequest) {
       billingAddress: shippingAddress,
       paymentStatus: 'pending',
       shippingMethod: 'standard',
+      giftMessage: typeof giftMessage === 'string' && giftMessage.trim()
+        ? giftMessage.trim().slice(0, 500)
+        : undefined,
       timeline: [
         OrderManager.createTimelineEntry(
           'pending',
           OrderManager.getStatusMessage('pending'),
-          'Stripe checkout session created and awaiting payment confirmation'
+          process.env.PLAYWRIGHT_E2E === 'true'
+            ? 'E2E checkout session created'
+            : 'Stripe checkout session created and awaiting payment confirmation'
         ),
       ],
       createdAt: new Date(),
@@ -97,6 +100,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (process.env.PLAYWRIGHT_E2E === 'true') {
+      await finalizePaidOrder(persistedOrder.id, {
+        paymentIntentId: `e2e_payment_${persistedOrder.id}`,
+        paymentMethod: 'card',
+        paidTotals: { shipping, tax, total },
+        promoCode: promoDiscount.code,
+      });
+
+      return NextResponse.json({
+        sessionId: `${E2E_CHECKOUT_SESSION_PREFIX}${persistedOrder.id}`,
+        e2e: true,
+      });
+    }
+
+    const stripe = await getStripe();
+
     const discountCoupon = promoDiscount.amount > 0
       ? await stripe.coupons.create({
           amount_off: toCents(promoDiscount.amount),
@@ -106,8 +125,9 @@ export async function POST(req: NextRequest) {
         })
       : undefined;
 
-    // Create Stripe checkout session
-    const session = await stripe.checkout.sessions.create({
+    let session;
+    try {
+      session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: orderItems.map((item) => ({
         price_data: {
@@ -125,7 +145,6 @@ export async function POST(req: NextRequest) {
         },
         quantity: item.quantity,
       })),
-      // Add shipping as a separate line item
       ...(shipping > 0 && {
         shipping_options: [
           {
@@ -150,7 +169,6 @@ export async function POST(req: NextRequest) {
           },
         ],
       }),
-      // Add tax calculation
       automatic_tax: {
         enabled: await getConfigBool('STRIPE_AUTOMATIC_TAX_ENABLED'),
       },
@@ -176,7 +194,6 @@ export async function POST(req: NextRequest) {
           promoDiscount: promoDiscount.amount.toString(),
         } : {}),
       },
-      // Store customer information for order fulfillment
       custom_fields: [
         {
           key: 'phone',
@@ -189,9 +206,9 @@ export async function POST(req: NextRequest) {
         },
       ],
     });
-
-    if (promoDiscount.code) {
-      await incrementPromoUsage(promoDiscount.code);
+    } catch (stripeError) {
+      await InventoryService.releaseActiveReservationsForOrder(persistedOrder.id);
+      throw stripeError;
     }
 
     return NextResponse.json({ sessionId: session.id });
@@ -209,36 +226,11 @@ export async function POST(req: NextRequest) {
 }
 
 function roundMoney(value: number): number {
-  return Math.round(value * 100) / 100;
+  return roundPromoMoney(value);
 }
 
 function toCents(value: number): number {
   return Math.round(roundMoney(value) * 100);
-}
-
-async function resolvePromoDiscount(rawCode: unknown, subtotal: number): Promise<{ code?: string; amount: number }> {
-  const code = typeof rawCode === 'string' ? rawCode.trim().toUpperCase() : '';
-  if (!code || subtotal <= 0) return { amount: 0 };
-
-  const promo = await db.promoCode.findUnique({ where: { code } }).catch(() => null);
-  if (!promo) return { amount: 0 };
-  if (promo.expiresAt && promo.expiresAt < new Date()) return { amount: 0 };
-  if (promo.usageLimit !== null && promo.usageLimit !== undefined && promo.usageCount >= promo.usageLimit) return { amount: 0 };
-
-  const rawAmount = promo.discountType === 'percentage'
-    ? subtotal * (promo.discountValue / 100)
-    : promo.discountValue;
-
-  return { code, amount: roundMoney(Math.min(subtotal, Math.max(0, rawAmount))) };
-}
-
-async function incrementPromoUsage(code: string): Promise<void> {
-  await db.promoCode.update({
-    where: { code },
-    data: { usageCount: { increment: 1 } },
-  }).catch((error) => {
-    console.error('Failed to increment promo code usage:', error);
-  });
 }
 
 function absoluteStripeImageUrls(origin: string, imageUrl?: string): string[] {
@@ -353,6 +345,11 @@ async function resolveOrderItems(items: any[]): Promise<OrderItem[]> {
     }
 
     const quantity = Number(item.quantity);
+    const purchasable = await InventoryService.isPurchasable(product.id, product.availability, quantity);
+    if (!purchasable) {
+      throw new Error(`Product is not available for checkout: ${product.id}`);
+    }
+
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) {
       throw new Error(`Invalid quantity for product ${product.id}`);
     }
@@ -389,6 +386,12 @@ function calculateProductShipping(items: OrderItem[], country: string): number {
 }
 
 async function reserveTrackedInventory(order: Order): Promise<string | null> {
+  if (process.env.PLAYWRIGHT_E2E === 'true') {
+    return null;
+  }
+
+  const reservedIds: string[] = [];
+
   for (const item of order.items) {
     const inventory = await InventoryService.getInventoryStatus(item.productId);
     if (!inventory) continue;
@@ -397,7 +400,11 @@ async function reserveTrackedInventory(order: Order): Promise<string | null> {
       orderId: order.id,
       userId: order.customerId,
     });
-    if (!reservationId) return item.productId;
+    if (!reservationId) {
+      await Promise.all(reservedIds.map((id) => InventoryService.releaseReservation(id)));
+      return item.productId;
+    }
+    reservedIds.push(reservationId);
   }
 
   return null;

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth';
 import { ApiError } from '@/lib/api-error-handler';
 import { getConfig, isSecretSettingKey, maskSecret, setConfig } from '@/lib/config';
+import { SITE_CONTENT_KEYS } from '@/lib/site-content-shared';
 
 const SETTING_KEYS = [
   'ADMIN_EMAILS',
@@ -64,9 +65,13 @@ const SETTING_KEYS = [
   'SHIPPING_DEFAULT_PACKAGE_HEIGHT_IN',
   'LEGAL_PRIVACY_HTML',
   'LEGAL_TERMS_HTML',
+  'CRON_SECRET',
+  'CRON_LAST_RUN_AT',
+  ...Object.values(SITE_CONTENT_KEYS),
 ] as const;
 
 const SETTING_KEY_SET = new Set<string>(SETTING_KEYS);
+const SITE_CONTENT_SETTING_KEYS = new Set<string>(Object.values(SITE_CONTENT_KEYS));
 
 const SettingsPayloadSchema = z.object({
   settings: z.record(z.string(), z.union([z.string(), z.boolean(), z.number(), z.null()])).default({}),
@@ -75,6 +80,10 @@ const SettingsPayloadSchema = z.object({
 function serializeSetting(key: string, value: string | undefined) {
   if (isSecretSettingKey(key)) {
     return { key, value: '', status: maskSecret(value), secret: true };
+  }
+
+  if (SITE_CONTENT_SETTING_KEYS.has(key)) {
+    return { key, value: '', status: value ? 'configured' : 'not_set', secret: false };
   }
 
   return { key, value: value || '', status: value ? 'configured' : 'not_set', secret: false };

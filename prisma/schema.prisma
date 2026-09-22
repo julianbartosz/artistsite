@@ -54,6 +54,11 @@ model User {
   wishlist      WishlistItem[]
   viewHistory   ProductView[]
   searchQueries SearchQuery[]
+  updateAudience BlogPostAudience[]
+  studioThreads  StudioMessageThread[]
+  savedUpdates   SavedUpdate[]
+  updateComments UpdateComment[]
+  updateLikes    UpdateLike[]
   
   // Profile information
   firstName     String?
@@ -319,10 +324,116 @@ model BlogPost {
   featured    Boolean  @default(false)
   coverImage  String?
   author      String   @default("Artist")
+  format      String   @default("article") // article | short
+  visibility  String   @default("public") // public | private
+  media       Json     @default("[]")
+  relatedProductId  String?
+  relatedArtworkSlug String?
+  relatedOrderId    String?  @unique
+  pullQuote   String?
+  location    String?
+  processStage String?
+  audience    BlogPostAudience[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([isDraft, publishedAt])
+  @@index([visibility, isDraft, publishedAt])
+  @@index([format])
+  @@index([featured, publishedAt])
+  @@index([relatedOrderId])
+}
+
+model StudioMessageThread {
+  id               String   @id @default(cuid())
+  subject          String
+  userId           String?
+  userEmail        String
+  userName         String?
+  relatedPostSlug  String?
+  relatedOrderId   String?
+  status           String   @default("open")
+  crmStage         String   @default("new")
+  tags             Json     @default("[]")
+  artistLastReadAt DateTime?
+  userLastReadAt   DateTime?
+  lastMessageAt    DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user     User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  messages StudioMessage[]
+
+  @@index([userEmail])
+  @@index([userId])
+  @@index([lastMessageAt])
+  @@index([relatedPostSlug])
+  @@index([crmStage])
+}
+
+model UpdateComment {
+  id        String   @id @default(cuid())
+  postSlug  String
+  userId    String
+  body      String
+  status    String   @default("visible")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([postSlug, status, createdAt])
+}
+
+model UpdateLike {
+  id        String   @id @default(cuid())
+  postSlug  String
+  userId    String?
+  sessionId String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([postSlug])
+}
+
+model StudioMessage {
+  id           String   @id @default(cuid())
+  threadId     String
+  senderRole   String
+  senderUserId String?
+  body         String
+  createdAt    DateTime @default(now())
+
+  thread StudioMessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+}
+
+model SavedUpdate {
+  id        String   @id @default(cuid())
+  userId    String
+  postSlug  String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postSlug])
+  @@index([userId])
+}
+
+model BlogPostAudience {
+  id     String @id @default(cuid())
+  postId String
+  userId String?
+  email  String
+
+  post BlogPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([postId, email])
+  @@index([email])
+  @@index([userId])
 }
 
 model SiteSetting {

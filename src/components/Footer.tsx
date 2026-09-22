@@ -1,48 +1,36 @@
 'use client';
 
+import React from 'react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import type { SiteFooterContent, SiteIdentityContent } from '@/lib/site-content-shared';
+import { DEFAULT_SITE_IDENTITY, footerNavItems } from '@/lib/site-content-shared';
+import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
 
 const DEFAULT_CONTACT_EMAIL = 'hello@artistsite.com';
+const DEFAULT_FOOTER = DEFAULT_SITE_IDENTITY.footer;
 
-export function Footer() {
+type FooterProps = {
+  siteIdentity?: SiteIdentityContent;
+  footerContent?: SiteFooterContent;
+  contactEmail?: string;
+  socialUrls?: {
+    instagram: string;
+    facebook: string;
+    twitter: string;
+    pinterest: string;
+  };
+};
+
+export function Footer({
+  siteIdentity = DEFAULT_SITE_IDENTITY,
+  footerContent = DEFAULT_FOOTER,
+  contactEmail = DEFAULT_CONTACT_EMAIL,
+  socialUrls = { instagram: '', facebook: '', twitter: '', pinterest: '' },
+}: FooterProps) {
   const currentYear = new Date().getFullYear();
-  const [contactEmail, setContactEmail] = useState(DEFAULT_CONTACT_EMAIL);
-  const [socialUrls, setSocialUrls] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'test') return;
-
-    let active = true;
-
-    fetch('/api/config/public')
-      .then((response) => response.ok ? response.json() : null)
-      .then((config) => {
-        const configuredEmail = config?.CONTACT_EMAIL || config?.ARTIST_EMAIL || config?.SUPPORT_EMAIL;
-        if (active && configuredEmail) setContactEmail(configuredEmail);
-        if (active && config) {
-          setSocialUrls({
-            instagram: config.SOCIAL_INSTAGRAM_URL || '',
-            facebook: config.SOCIAL_FACEBOOK_URL || '',
-            twitter: config.SOCIAL_X_URL || '',
-            pinterest: config.SOCIAL_PINTEREST_URL || '',
-          });
-        }
-      })
-      .catch(() => undefined);
-
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const footerLinks = {
-    main: [
-      { name: 'Portfolio', href: '/portfolio' },
-      { name: 'Blog', href: '/blog' },
-      { name: 'Shop', href: '/shop' },
-      { name: 'Contact', href: '/contact' },
-    ],
+    main: footerNavItems(siteIdentity),
     legal: [
       { name: 'Privacy Policy', href: '/privacy' },
       { name: 'Terms of Service', href: '/terms' },
@@ -55,6 +43,14 @@ export function Footer() {
       { name: 'Email', href: `mailto:${contactEmail}`, icon: 'email' },
     ].filter(Boolean) as Array<{ name: string; href: string; icon: string }>,
   };
+
+  const extraColumn = footerContent.extraColumn;
+  const showExtraColumn = extraColumn.show && (extraColumn.heading.trim() || extraColumn.bodyHtml.trim());
+  const linkColumnCount = [
+    footerLinks.main.length > 0,
+    footerContent.showLegal,
+    showExtraColumn,
+  ].filter(Boolean).length;
 
   const SocialIcon = ({ icon }: { icon: string }) => {
     switch (icon) {
@@ -93,23 +89,28 @@ export function Footer() {
     }
   };
 
+  const linkGridClass = linkColumnCount >= 3
+    ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-8'
+    : linkColumnCount === 2
+      ? 'grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-8'
+      : 'grid grid-cols-1 gap-y-8';
+
   return (
-    <footer className="bg-gray-900 text-white">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-          {/* Brand & Description */}
-          <div className="md:col-span-2">
-            <h3 className="text-2xl font-bold mb-4">Artist Site</h3>
-            <p className="text-gray-300 mb-6 max-w-md">
-              Contemporary paintings and drawings exploring the intersection of 
-              urban landscapes, abstract form, and the ever-changing quality of light.
+    <footer className="relative group bg-primary text-white" role="contentinfo">
+      <CmsEditAnchor targetKey="identity:footer" />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-12">
+        <div className="space-y-8 md:space-y-0 md:grid md:grid-cols-12 md:gap-8">
+          <div className="md:col-span-5">
+            <h3 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4">{siteIdentity.siteName}</h3>
+            <p className="text-gray-300 mb-5 sm:mb-6 text-sm sm:text-base leading-relaxed">
+              {siteIdentity.tagline}
             </p>
-            <div className="flex space-x-4">
+            <div className="flex flex-wrap gap-2">
               {footerLinks.social.map((item) => (
                 <a
                   key={item.name}
                   href={item.href}
-                  className="text-gray-400 hover:text-white transition-colors"
+                  className="tap-target rounded-md text-gray-400 hover:text-white transition-colors"
                   aria-label={item.name}
                 >
                   <SocialIcon icon={item.icon} />
@@ -118,48 +119,67 @@ export function Footer() {
             </div>
           </div>
 
-          {/* Quick Links */}
-          <div>
-            <h4 className="text-lg font-semibold mb-4">Quick Links</h4>
-            <ul className="space-y-2">
-              {footerLinks.main.map((item) => (
-                <li key={item.name}>
-                  <Link
-                    href={item.href}
-                    className="text-gray-300 hover:text-white transition-colors"
-                  >
-                    {item.name}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
+          {linkColumnCount > 0 && (
+            <div className={`md:col-span-7 ${linkGridClass}`}>
+              {footerLinks.main.length > 0 && (
+                <div className="min-w-0">
+                  <h4 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">{footerContent.quickLinksHeading}</h4>
+                  <ul className="space-y-2">
+                    {footerLinks.main.map((item) => (
+                      <li key={item.key}>
+                        <Link
+                          href={item.href}
+                          className="tap-target-inline text-sm sm:text-base text-gray-300 hover:text-white transition-colors rounded-md"
+                        >
+                          {item.label}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
-          {/* Legal */}
-          <div>
-            <h4 className="text-lg font-semibold mb-4">Legal</h4>
-            <ul className="space-y-2">
-              {footerLinks.legal.map((item) => (
-                <li key={item.name}>
-                  <Link
-                    href={item.href}
-                    className="text-gray-300 hover:text-white transition-colors"
-                  >
-                    {item.name}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
+              {footerContent.showLegal && (
+                <div className="min-w-0">
+                  <h4 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">{footerContent.legalHeading}</h4>
+                  <ul className="space-y-2">
+                    {footerLinks.legal.map((item) => (
+                      <li key={item.name}>
+                        <Link
+                          href={item.href}
+                          className="tap-target-inline text-sm sm:text-base text-gray-300 hover:text-white transition-colors rounded-md"
+                        >
+                          {item.name}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {showExtraColumn && (
+                <div className="min-w-0">
+                  {extraColumn.heading.trim() && (
+                    <h4 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">{extraColumn.heading}</h4>
+                  )}
+                  {extraColumn.bodyHtml.trim() && (
+                    <div
+                      className="prose prose-invert prose-sm max-w-none text-gray-300"
+                      dangerouslySetInnerHTML={{ __html: extraColumn.bodyHtml }}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Bottom Bar */}
-        <div className="border-t border-gray-800 mt-8 pt-8 flex flex-col sm:flex-row justify-between items-center">
+        <div className="border-t border-white/10 mt-8 pt-6 flex flex-row flex-wrap items-start justify-between gap-x-6 gap-y-3">
           <p className="text-gray-400 text-sm">
-            © {currentYear} Artist Site. All rights reserved.
+            © {currentYear} {siteIdentity.copyrightName}. All rights reserved.
           </p>
-          <p className="text-gray-400 text-sm mt-2 sm:mt-0">
-            Built with passion and creativity
+          <p className="text-gray-400 text-sm max-w-md text-left sm:text-right leading-relaxed">
+            {siteIdentity.footerTagline}
           </p>
         </div>
       </div>

@@ -153,21 +153,43 @@ export class GA4Analytics {
    * Track add to cart
    */
   static trackAddToCart(item: EcommerceItem): void {
-    GA4Analytics.trackEvent('add_to_cart', {
+    const eventData = {
       currency: item.currency || 'USD',
       value: item.price * item.quantity,
       items: [item],
+    }
+
+    if (GA4Analytics.isReady()) {
+      window.gtag('event', 'add_to_cart', eventData)
+    }
+
+    GA4Analytics.storeLocalEvent('add_to_cart', eventData).catch(() => {
+      // Analytics must never block checkout flows.
     })
   }
 
   /**
    * Track begin checkout
    */
-  static trackBeginCheckout(items: EcommerceItem[], value: number): void {
-    GA4Analytics.trackEvent('begin_checkout', {
+  static trackBeginCheckout(
+    items: EcommerceItem[],
+    value: number,
+    metadata?: { email?: string; recovery_path?: string },
+  ): void {
+    const eventData = {
       currency: 'USD',
       value,
       items,
+      email: metadata?.email,
+      recovery_path: metadata?.recovery_path,
+    }
+
+    if (GA4Analytics.isReady()) {
+      window.gtag('event', 'begin_checkout', eventData)
+    }
+
+    GA4Analytics.storeLocalEvent('begin_checkout', eventData).catch(() => {
+      // Analytics must never block checkout flows.
     })
   }
 

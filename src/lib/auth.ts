@@ -170,11 +170,15 @@ export const authOptions: NextAuthOptions = {
   },
   
   callbacks: {
-    async jwt({ token, user, account }) {
+    async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
+        if (user.email) {
+          token.email = user.email;
+        }
       }
-      token.isAdmin = await isAdminEmailResolved((user?.email || token.email) as string | undefined);
+      const email = (user?.email || token.email) as string | undefined;
+      token.isAdmin = await isAdminEmailResolved(email);
       return token;
     },
     

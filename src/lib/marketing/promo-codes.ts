@@ -368,4 +368,41 @@ export class PromoCodeManager {
       }
     });
   }
+
+  static async createManual(input: {
+    code: string;
+    discountType: 'percentage' | 'fixed';
+    discountValue: number;
+    usageLimit?: number | null;
+    expiresAt?: Date | null;
+  }): Promise<PromoCode> {
+    const code = input.code.trim().toUpperCase();
+    if (!code) {
+      throw new Error('Promo code is required');
+    }
+
+    const existing = await db.promoCode.findUnique({ where: { code } });
+    if (existing) {
+      throw new Error('Promo code already exists');
+    }
+
+    const dbPromoCode = await db.promoCode.create({
+      data: {
+        code,
+        discountType: input.discountType,
+        discountValue: input.discountValue,
+        usageLimit: input.usageLimit ?? null,
+        usageCount: 0,
+        expiresAt: input.expiresAt ?? null,
+        createdAt: new Date(),
+      },
+    });
+
+    return this.transformDbPromoCode(dbPromoCode);
+  }
+
+  static async listAll(): Promise<PromoCode[]> {
+    const rows = await db.promoCode.findMany({ orderBy: { createdAt: 'desc' } });
+    return rows.map(this.transformDbPromoCode);
+  }
 }

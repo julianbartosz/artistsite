@@ -1,6 +1,6 @@
 'use client'
 
-import React, { createContext, useContext, useReducer, useEffect } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
 import { Product, CartItemVariant, calculateVariantPrice } from '@/lib/commerce';
 
 export interface CartItem {
@@ -42,6 +42,35 @@ type CartAction =
   | { type: 'CLOSE_CART' }
   | { type: 'LOAD_CART'; payload: CartState }
   | { type: 'CART_LOADED' };
+
+const CART_STORAGE_KEY = 'artist-site-cart';
+const CART_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function persistCartState(state: CartState): void {
+  if (typeof window === 'undefined' || !state.isLoaded) {
+    return;
+  }
+
+  try {
+    localStorage.setItem(
+      CART_STORAGE_KEY,
+      JSON.stringify({ ...state, isOpen: false }),
+    );
+  } catch (error) {
+    console.error('Failed to save cart to localStorage:', error);
+  }
+}
+
+function shouldPersistCartAction(action: CartAction): boolean {
+  return (
+    action.type === 'ADD_ITEM' ||
+    action.type === 'REMOVE_ITEM' ||
+    action.type === 'UPDATE_QUANTITY' ||
+    action.type === 'UPDATE_ITEM_VARIANT' ||
+    action.type === 'CLEAR_CART' ||
+    action.type === 'LOAD_CART'
+  );
+}
 
 const initialState: CartState = {
   items: [],
@@ -111,6 +140,7 @@ function cartReducer(state: CartState, action: CartAction): CartState {
         total,
         itemCount,
         lastUpdated: Date.now(),
+        isLoaded: true,
       };
     }
 
@@ -249,23 +279,32 @@ interface CartContextType {
   openCart: () => void;
   closeCart: () => void;
   getItemKey: (productId: string, variant?: CartItemVariant) => string;
+  restoreCart: (items: CartItem[]) => void;
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(cartReducer, initialState);
+  const [state, baseDispatch] = useReducer(cartReducer, initialState);
+  const stateRef = React.useRef(state);
+  stateRef.current = state;
+
+  const dispatch = useCallback((action: CartAction) => {
+    const nextState = cartReducer(stateRef.current, action);
+    if (shouldPersistCartAction(action)) {
+      persistCartState(nextState);
+    }
+    baseDispatch(action);
+  }, []);
 
   // Load cart from localStorage on mount
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const savedCart = localStorage.getItem('artist-site-cart');
+      const savedCart = localStorage.getItem(CART_STORAGE_KEY);
       if (savedCart) {
         try {
           const parsedCart = JSON.parse(savedCart);
-          // Validate cart age (expire after 7 days)
-          const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
-          if (Date.now() - parsedCart.lastUpdated < maxAge) {
+          if (Date.now() - parsedCart.lastUpdated < CART_MAX_AGE_MS) {
             dispatch({ type: 'LOAD_CART', payload: parsedCart });
             return;
           }
@@ -275,52 +314,103 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       }
       dispatch({ type: 'CART_LOADED' });
     }
+  }, [dispatch]);
+
+  const addItem = useCallback((
+    product: Product,
+    quantity?: number,
+    variant?: CartItemVariant,
+    customizations?: Record<string, string>,
+  ) => {
+    dispatch({
+      type: 'ADD_ITEM',
+      payload: { product, quantity, variant, customizations },
+    });
+  }, [dispatch]);
+
+  const removeItem = useCallback((productId: string, variantKey?: string) => {
+    dispatch({ type: 'REMOVE_ITEM', payload: { productId, variantKey } });
+  }, [dispatch]);
+
+  const updateQuantity = useCallback((productId: string, quantity: number, variantKey?: string) => {
+    dispatch({
+      type: 'UPDATE_QUANTITY',
+      payload: { productId, quantity, variantKey },
+    });
+  }, [dispatch]);
+
+  const updateItemVariant = useCallback((
+    productId: string,
+    variant: CartItemVariant,
+    customizations?: Record<string, string>,
+    variantKey?: string,
+  ) => {
+    dispatch({
+      type: 'UPDATE_ITEM_VARIANT',
+      payload: { productId, variant, customizations, variantKey },
+    });
+  }, [dispatch]);
+
+  const clearCart = useCallback(() => {
+    dispatch({ type: 'CLEAR_CART' });
+  }, [dispatch]);
+
+  const toggleCart = useCallback(() => {
+    dispatch({ type: 'TOGGLE_CART' });
+  }, [dispatch]);
+
+  const openCart = useCallback(() => {
+    dispatch({ type: 'OPEN_CART' });
+  }, [dispatch]);
+
+  const closeCart = useCallback(() => {
+    dispatch({ type: 'CLOSE_CART' });
+  }, [dispatch]);
+
+  const getItemKey = useCallback((productId: string, variant?: CartItemVariant) => {
+    return generateVariantKey(productId, variant);
   }, []);
 
-  // Save cart to localStorage whenever it changes
-  useEffect(() => {
-    if (typeof window !== 'undefined' && state.isLoaded) {
-      localStorage.setItem('artist-site-cart', JSON.stringify(state));
-    }
-  }, [state]);
+  const restoreCart = useCallback((items: CartItem[]) => {
+    const { total, itemCount } = calculateCartTotals(items);
+    dispatch({
+      type: 'LOAD_CART',
+      payload: {
+        items,
+        total,
+        itemCount,
+        isOpen: false,
+        lastUpdated: Date.now(),
+        isLoaded: true,
+      },
+    });
+  }, [dispatch]);
 
-  const contextValue: CartContextType = {
+  const contextValue = useMemo<CartContextType>(() => ({
     state,
-    addItem: (product, quantity, variant, customizations) => {
-      dispatch({ 
-        type: 'ADD_ITEM', 
-        payload: { product, quantity, variant, customizations } 
-      });
-    },
-    removeItem: (productId, variantKey) => {
-      dispatch({ type: 'REMOVE_ITEM', payload: { productId, variantKey } });
-    },
-    updateQuantity: (productId, quantity, variantKey) => {
-      dispatch({ 
-        type: 'UPDATE_QUANTITY', 
-        payload: { productId, quantity, variantKey } 
-      });
-    },
-    updateItemVariant: (productId, variant, customizations, variantKey) => {
-      dispatch({
-        type: 'UPDATE_ITEM_VARIANT',
-        payload: { productId, variant, customizations, variantKey }
-      });
-    },
-    clearCart: () => {
-      dispatch({ type: 'CLEAR_CART' });
-    },
-    toggleCart: () => {
-      dispatch({ type: 'TOGGLE_CART' });
-    },
-    openCart: () => {
-      dispatch({ type: 'OPEN_CART' });
-    },
-    closeCart: () => {
-      dispatch({ type: 'CLOSE_CART' });
-    },
-    getItemKey: generateVariantKey,
-  };
+    addItem,
+    removeItem,
+    updateQuantity,
+    updateItemVariant,
+    clearCart,
+    toggleCart,
+    openCart,
+    closeCart,
+    getItemKey,
+    restoreCart,
+  }), [
+    state,
+    addItem,
+    removeItem,
+    updateQuantity,
+    updateItemVariant,
+    clearCart,
+    toggleCart,
+    openCart,
+    closeCart,
+    getItemKey,
+    restoreCart,
+  ]);
 
   return (
     <CartContext.Provider value={contextValue}>

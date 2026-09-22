@@ -1,9 +1,12 @@
 import 'server-only';
 import { unstable_cache } from 'next/cache';
 import { db } from '@/lib/db';
-import { sanitizeRichHtml } from '@/lib/content-sanitize';
+import { sanitizeRichHtml, stripLeadingDuplicateHeading } from '@/lib/content-sanitize';
+import { isPublishableContentTitle } from '@/lib/admin-content';
+import { PRODUCT_IMAGE_FALLBACK } from '@/lib/commerce';
+import type { HomePageContent } from '@/lib/site-content-shared';
 
-const ARTWORK_IMAGE_FALLBACK = '/images/shop/placeholder-1.jpg';
+const ARTWORK_IMAGE_FALLBACK = PRODUCT_IMAGE_FALLBACK;
 
 export interface ArtworkPiece {
   slug: string;
@@ -88,7 +91,9 @@ const getCachedArtworks = unstable_cache(
     const artworks = await db.artwork.findMany({
       orderBy: [{ featured: 'desc' }, { createdAt: 'desc' }],
     });
-    return artworks.map((artwork) => toArtwork(artwork as ArtworkRecord));
+    return artworks
+      .filter((artwork) => isPublishableContentTitle(artwork.title))
+      .map((artwork) => toArtwork(artwork as ArtworkRecord));
   },
   ['artworks'],
   { tags: ['artworks'], revalidate: 300 }
@@ -107,7 +112,11 @@ export async function getArtworkBySlug(slug: string): Promise<ArtworkPieceWithCo
     return null;
   }
 
-  const content = sanitizeRichHtml(artwork.content);
+  if (!isPublishableContentTitle(artwork.title)) {
+    return null;
+  }
+
+  const content = stripLeadingDuplicateHeading(sanitizeRichHtml(artwork.content), artwork.title);
   return {
     ...toArtwork(artwork as ArtworkRecord),
     content,
@@ -117,14 +126,41 @@ export async function getArtworkBySlug(slug: string): Promise<ArtworkPieceWithCo
 
 export async function getArtworkSlugs(): Promise<string[]> {
   const artworks = await db.artwork.findMany({
-    select: { slug: true },
+    select: { slug: true, title: true },
   });
-  return artworks.map((artwork) => artwork.slug);
+  return artworks
+    .filter((artwork) => isPublishableContentTitle(artwork.title))
+    .map((artwork) => artwork.slug);
+}
+
+export async function resolveFeaturedArtworks(
+  config: Pick<HomePageContent['featured'], 'selectionMode' | 'manualSlugs' | 'limit'>,
+): Promise<ArtworkPiece[]> {
+  const allArtworks = await getAllArtworks();
+  const limit = config.limit ?? 3;
+
+  if (config.selectionMode === 'manual' && config.manualSlugs.length > 0) {
+    const bySlug = new Map(allArtworks.map((artwork) => [artwork.slug, artwork]));
+    return config.manualSlugs
+      .map((slug) => bySlug.get(slug))
+      .filter((artwork): artwork is ArtworkPiece => Boolean(artwork))
+      .slice(0, limit);
+  }
+
+  if (config.selectionMode === 'latest') {
+    return allArtworks.slice(0, limit);
+  }
+
+  const featured = allArtworks.filter((artwork) => artwork.featured);
+  if (featured.length > 0) {
+    return featured.slice(0, limit);
+  }
+
+  return allArtworks.slice(0, limit);
 }
 
 export async function getFeaturedArtworks(limit = 3): Promise<ArtworkPiece[]> {
-  const allArtworks = await getAllArtworks();
-  return allArtworks.filter(artwork => artwork.featured).slice(0, limit);
+  return resolveFeaturedArtworks({ selectionMode: 'featured_flag', manualSlugs: [], limit });
 }
 
 export async function getArtworksByCategory(category: string): Promise<ArtworkPiece[]> {

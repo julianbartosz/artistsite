@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { 
   UpdateOrderRequest, 
   getOrderById,
+  refundOrder,
   updateOrder,
-  verifyOrderAccessToken
+  verifyOrderAccessToken,
 } from '@/lib/orders';
 import { OrderEmailService } from '@/lib/email';
 import { requireAdmin, requireUser } from '@/lib/auth';
@@ -99,6 +100,26 @@ export async function PUT(
       );
     }
 
+    if (body.action === 'refund') {
+      const order = await refundOrder(orderId);
+      return NextResponse.json({
+        success: true,
+        order: {
+          id: order.id,
+          orderNumber: order.orderNumber,
+          status: order.status,
+          timeline: order.timeline,
+        },
+      });
+    }
+
+    if (body.status === 'refunded') {
+      return NextResponse.json(
+        { error: 'Use the Issue refund action to refund through Stripe.' },
+        { status: 400 }
+      );
+    }
+
     let label;
     if (body.action === 'buy_label') {
       label = await buyShippingLabel(existingOrder);
@@ -122,13 +143,21 @@ export async function PUT(
     }
 
     if (order.status !== existingOrder.status) {
-      // Send email notification for status change
       try {
         await OrderEmailService.sendStatusUpdate(order, order.status);
         console.log(`Email notification sent for order ${order.orderNumber} status change: ${existingOrder.status} -> ${order.status}`);
       } catch (emailError) {
         console.error('Failed to send email notification:', emailError);
-        // Don't fail the order update if email fails
+      }
+
+      try {
+        const { maybeCreateOrderProgressPost } = await import('@/lib/order-progress-update');
+        const progress = await maybeCreateOrderProgressPost(order, existingOrder.status);
+        if (progress.created) {
+          console.log(`Order progress post created (${progress.mode}): ${progress.slug}`);
+        }
+      } catch (progressError) {
+        console.error('Failed to create order progress post:', progressError);
       }
     }
 

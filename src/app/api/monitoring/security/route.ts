@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireAdmin } from '@/lib/auth';
+import { ApiError } from '@/lib/api-error-handler';
 
 export async function GET() {
   try {
+    await requireAdmin();
     // Get the latest security audit results
     const latestAudit = await db.analyticsEvent.findFirst({
       where: {
@@ -32,6 +35,12 @@ export async function GET() {
       recommendations: auditData.recommendations || []
     });
   } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status }
+      );
+    }
     console.error('Error fetching security status:', error);
     return NextResponse.json(
       { error: 'Failed to fetch security status' },

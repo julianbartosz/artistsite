@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { RecommendationService } from '@/lib/search-recommendations';
 import { RecommendationType } from '@/lib/types';
 
@@ -6,38 +8,33 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const productId = searchParams.get('productId');
-    const userId = searchParams.get('userId');
     const types = searchParams.get('types')?.split(',') as RecommendationType[] || ['similar'];
     const limit = parseInt(searchParams.get('limit') || '4');
-
-    if (!productId && !userId) {
-      return NextResponse.json(
-        { error: 'Either productId or userId is required' },
-        { status: 400 }
-      );
-    }
 
     let recommendations;
 
     if (productId) {
-      // Get product-based recommendations
       recommendations = await RecommendationService.getProductRecommendations(
         productId,
         types,
         limit
       );
-    } else if (userId) {
-      // Get personalized recommendations
-      const personalizedProducts = await RecommendationService.getPersonalizedRecommendations(
-        userId,
-        limit
-      );
-      recommendations = [{
-        type: 'personalized' as RecommendationType,
-        products: personalizedProducts,
-        reason: 'Recommended for you',
-        score: 0.9
-      }];
+    } else {
+      const session = await getServerSession(authOptions);
+      if (session?.user?.id) {
+        const personalizedProducts = await RecommendationService.getPersonalizedRecommendations(
+          session.user.id,
+          limit
+        );
+        recommendations = [{
+          type: 'personalized' as RecommendationType,
+          products: personalizedProducts,
+          reason: 'Recommended for you',
+          score: 0.9,
+        }];
+      } else {
+        recommendations = await RecommendationService.getPopularRecommendations(limit);
+      }
     }
 
     return NextResponse.json({
@@ -69,7 +66,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = JSON.parse(rawBody);
-    const { productId, userId, sessionId, source, duration } = body;
+    const { productId, sessionId, source, duration } = body;
 
     if (!productId) {
       return NextResponse.json(
@@ -78,10 +75,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Track product view for analytics
+    const session = await getServerSession(authOptions);
+
     await RecommendationService.trackProductView(
       productId,
-      userId,
+      session?.user?.id,
       sessionId,
       source,
       duration

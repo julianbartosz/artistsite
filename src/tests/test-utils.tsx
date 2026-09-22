@@ -39,6 +39,9 @@ export const createMockBlogPost = (overrides = {}) => ({
   tags: ['test'],
   isDraft: false,
   author: 'Artist',
+  format: 'article',
+  visibility: 'public',
+  media: [],
   ...overrides,
 });
 

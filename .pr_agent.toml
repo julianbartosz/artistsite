@@ -1,0 +1,22 @@
+# Loaded from the repository default branch (main).
+# https://docs.pr-agent.ai/usage-guide/configuration_options/
+
+[pr_reviewer]
+extra_instructions = """\
+- Prefer security, auth, payment, and data-correctness findings over style nits
+- Flag secrets, webhook signature gaps, and unsanitized HTML/Markdown rendering
+- Call out Prisma/query changes that risk inventory or order integrity
+- Keep comments concise and actionable
+"""
+
+[pr_code_suggestions]
+extra_instructions = """\
+- Focus on regressions, missing tests for commerce/auth paths, and API contract mismatches
+- Prefer reusing existing helpers in src/lib over new one-off utilities
+"""
+
+[pr_description]
+extra_instructions = """\
+- Summarize user-facing / operator-facing impact first
+- Call out any required secrets, env, or migration steps
+"""

@@ -61,6 +61,10 @@ describe('CartContext', () => {
     expect(result.current.state.items[0].quantity).toBe(1);
     expect(result.current.state.total).toBe(100);
     expect(result.current.state.itemCount).toBe(1);
+
+    const stored = localStorage.getItem('artist-site-cart');
+    expect(stored).toBeTruthy();
+    expect(JSON.parse(stored!).items).toHaveLength(1);
   });
 
   it('updates quantity when adding existing item', () => {

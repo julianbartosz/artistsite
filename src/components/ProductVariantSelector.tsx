@@ -105,7 +105,7 @@ export default function ProductVariantSelector({
               onClick={() => handleVariantSelection(type, variant)}
               className={`p-3 border rounded-lg text-left transition-colors ${
                 isSelected
-                  ? 'border-indigo-500 bg-indigo-50 text-indigo-900'
+                  ? 'border-primary bg-primary/10 text-gray-900'
                   : 'border-gray-300 hover:border-gray-400'
               }`}
             >
@@ -147,7 +147,7 @@ export default function ProductVariantSelector({
             <select
               value={value}
               onChange={(e) => handleCustomizationChange(customization.id, e.target.value)}
-              className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
+              className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
                 hasError ? 'border-red-300' : 'border-gray-300'
               }`}
               required={customization.required}
@@ -174,7 +174,7 @@ export default function ProductVariantSelector({
               onChange={(e) => handleCustomizationChange(customization.id, e.target.value)}
               placeholder={customization.placeholder}
               maxLength={customization.maxLength}
-              className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
+              className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
                 hasError ? 'border-red-300' : 'border-gray-300'
               }`}
               rows={4}
@@ -201,7 +201,7 @@ export default function ProductVariantSelector({
               onChange={(e) => handleCustomizationChange(customization.id, e.target.value)}
               placeholder={customization.placeholder}
               maxLength={customization.maxLength}
-              className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
+              className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
                 hasError ? 'border-red-300' : 'border-gray-300'
               }`}
               required={customization.required}
@@ -217,7 +217,7 @@ export default function ProductVariantSelector({
                 type="checkbox"
                 checked={value === 'true'}
                 onChange={(e) => handleCustomizationChange(customization.id, e.target.checked.toString())}
-                className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                className="rounded border-gray-300 text-primary focus:ring-primary"
               />
               <span className="ml-2 text-sm text-gray-700">
                 {customization.name}

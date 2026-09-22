@@ -1,7 +1,5 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/db';
 import { getAllProducts } from './commerce-server';
-
-const prisma = new PrismaClient();
 
 export interface InventoryStatus {
   productId: string;
@@ -49,19 +47,19 @@ export class InventoryService {
     lowStockThreshold: number = 5,
     allowBackorders: boolean = false
   ): Promise<void> {
+    // Start at zero so recordStockMovement is the sole writer of stock levels.
     await prisma.productInventory.create({
       data: {
         productId,
-        currentStock: initialStock,
-        availableStock: initialStock,
+        currentStock: 0,
+        availableStock: 0,
         lowStockThreshold,
         allowBackorders,
-        stockStatus: this.calculateStockStatus(initialStock, lowStockThreshold),
+        stockStatus: this.calculateStockStatus(0, lowStockThreshold),
         isTrackingEnabled: true
       }
     });
 
-    // Create initial movement record
     if (initialStock > 0) {
       await this.recordStockMovement({
         productId,
@@ -134,20 +132,36 @@ export class InventoryService {
   }
 
   /**
-   * Check if product is available for purchase
+   * Purchasability when inventory tracking is optional (no row = unlimited originals).
    */
-  static async isProductAvailable(productId: string, quantity: number = 1): Promise<boolean> {
-    const inventory = await this.getInventoryStatus(productId);
-    
-    if (!inventory) return false;
+  static isPurchasableFromStatus(
+    availability: string,
+    inventory: InventoryStatus | null | undefined,
+    quantity: number = 1,
+  ): boolean {
+    if (availability !== 'available') return false;
+    if (!inventory) return true;
     if (inventory.stockStatus === 'discontinued') return false;
     if (inventory.allowBackorders) return true;
-    
     return inventory.availableStock >= quantity;
   }
 
+  static async isPurchasable(productId: string, availability: string, quantity: number = 1): Promise<boolean> {
+    const inventory = await this.getInventoryStatus(productId);
+    return this.isPurchasableFromStatus(availability, inventory, quantity);
+  }
+
   /**
-   * Reserve stock for checkout process
+   * Check if product is available for purchase (inventory row required).
+   */
+  static async isProductAvailable(productId: string, quantity: number = 1): Promise<boolean> {
+    const inventory = await this.getInventoryStatus(productId);
+    if (!inventory) return false;
+    return this.isPurchasableFromStatus('available', inventory, quantity);
+  }
+
+  /**
+   * Reserve stock for checkout process (atomic claim on availableStock).
    */
   static async reserveStock(
     productId: string,
@@ -159,70 +173,73 @@ export class InventoryService {
       userId?: string;
     } = {}
   ): Promise<string | null> {
-    const inventory = await prisma.productInventory.findUnique({
-      where: { productId }
-    });
-
-    if (!inventory) return null;
-
-    // Check availability
-    if (!inventory.allowBackorders && inventory.availableStock < quantity) {
-      return null;
-    }
+    if (!Number.isInteger(quantity) || quantity < 1) return null;
 
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + expirationMinutes);
 
-    // Create reservation
-    const reservation = await prisma.stockReservation.create({
-      data: {
-        productId,
-        inventoryId: inventory.id,
-        quantity,
-        expiresAt,
-        orderId: options.orderId,
-        cartSessionId: options.cartSessionId,
-        userId: options.userId
-      }
+    const reservationId = await prisma.$transaction(async (tx) => {
+      const inventory = await tx.productInventory.findUnique({
+        where: { productId },
+      });
+      if (!inventory) return null;
+
+      const claimed = await tx.productInventory.updateMany({
+        where: inventory.allowBackorders
+          ? { id: inventory.id }
+          : { id: inventory.id, availableStock: { gte: quantity } },
+        data: {
+          reservedStock: { increment: quantity },
+          availableStock: { decrement: quantity },
+        },
+      });
+      if (claimed.count === 0) return null;
+
+      const reservation = await tx.stockReservation.create({
+        data: {
+          productId,
+          inventoryId: inventory.id,
+          quantity,
+          expiresAt,
+          orderId: options.orderId,
+          cartSessionId: options.cartSessionId,
+          userId: options.userId,
+        },
+      });
+      return reservation.id;
     });
 
-    // Update inventory
-    await prisma.productInventory.update({
-      where: { id: inventory.id },
-      data: {
-        reservedStock: { increment: quantity },
-        availableStock: { decrement: quantity }
-      }
-    });
-
-    await this.updateStockStatus(productId);
-    return reservation.id;
+    if (reservationId) {
+      await this.updateStockStatus(productId);
+    }
+    return reservationId;
   }
 
   /**
-   * Release stock reservation
+   * Release stock reservation (CAS on active status).
    */
   static async releaseReservation(reservationId: string): Promise<void> {
     const reservation = await prisma.stockReservation.findUnique({
       where: { id: reservationId },
-      include: { inventory: true }
     });
 
     if (!reservation || reservation.status !== 'active') return;
 
-    // Update reservation status
-    await prisma.stockReservation.update({
-      where: { id: reservationId },
-      data: { status: 'cancelled' }
+    const claimed = await prisma.stockReservation.updateMany({
+      where: { id: reservationId, status: 'active' },
+      data: { status: 'cancelled' },
     });
+    if (claimed.count === 0) return;
 
-    // Update inventory
-    await prisma.productInventory.update({
-      where: { id: reservation.inventoryId },
+    await prisma.productInventory.updateMany({
+      where: {
+        id: reservation.inventoryId,
+        reservedStock: { gte: reservation.quantity },
+      },
       data: {
         reservedStock: { decrement: reservation.quantity },
-        availableStock: { increment: reservation.quantity }
-      }
+        availableStock: { increment: reservation.quantity },
+      },
     });
 
     await this.updateStockStatus(reservation.productId);
@@ -249,7 +266,8 @@ export class InventoryService {
   }
 
   /**
-   * Fulfill stock reservation (convert to sale)
+   * Fulfill stock reservation (convert to sale).
+   * reservedStock is released here; current/available stock change only via recordStockMovement.
    */
   static async fulfillReservation(reservationId: string, orderId?: string): Promise<void> {
     const reservation = await prisma.stockReservation.findUnique({
@@ -259,17 +277,28 @@ export class InventoryService {
 
     if (!reservation || reservation.status !== 'active') return;
 
-    // Update reservation status
-    await prisma.stockReservation.update({
-      where: { id: reservationId },
-      data: { 
+    const claimed = await prisma.stockReservation.updateMany({
+      where: { id: reservationId, status: 'active' },
+      data: {
         status: 'fulfilled',
         fulfilledAt: new Date(),
         orderId: orderId || reservation.orderId
       }
     });
+    if (claimed.count === 0) return;
 
-    // Record stock movement
+    // Release the hold before the sale movement so availableStock = current - reserved stays correct.
+    await prisma.productInventory.updateMany({
+      where: {
+        id: reservation.inventoryId,
+        reservedStock: { gte: reservation.quantity },
+      },
+      data: {
+        reservedStock: { decrement: reservation.quantity },
+        lastSold: new Date(),
+      },
+    });
+
     await this.recordStockMovement({
       productId: reservation.productId,
       type: 'sale',
@@ -277,18 +306,19 @@ export class InventoryService {
       orderId: orderId || reservation.orderId || undefined,
       reason: 'Order fulfillment'
     });
+  }
 
-    // Update inventory (reserved stock becomes sold)
-    await prisma.productInventory.update({
-      where: { id: reservation.inventoryId },
-      data: {
-        currentStock: { decrement: reservation.quantity },
-        reservedStock: { decrement: reservation.quantity },
-        lastSold: new Date()
-      }
+  /**
+   * Release every active reservation for an order (checkout/session failure cleanup).
+   */
+  static async releaseActiveReservationsForOrder(orderId: string): Promise<void> {
+    const reservations = await prisma.stockReservation.findMany({
+      where: { orderId, status: 'active' },
+      select: { id: true },
     });
-
-    await this.updateStockStatus(reservation.productId);
+    for (const reservation of reservations) {
+      await this.releaseReservation(reservation.id);
+    }
   }
 
   /**
@@ -308,54 +338,132 @@ export class InventoryService {
   }
 
   /**
-   * Record stock movement
+   * After payment: fulfill active holds, then sell any tracked shortfall
+   * (e.g. reservation expired/released before webhook arrived).
    */
-  static async recordStockMovement(data: StockMovementData): Promise<void> {
-    const inventory = await prisma.productInventory.findUnique({
-      where: { productId: data.productId }
+  static async settlePaidOrderStock(
+    orderId: string,
+    items: Array<{ productId: string; quantity: number }>,
+  ): Promise<void> {
+    await this.fulfillReservationsForOrder(orderId);
+
+    for (const item of items) {
+      if (!item.productId || !Number.isInteger(item.quantity) || item.quantity < 1) continue;
+
+      const inventory = await prisma.productInventory.findUnique({
+        where: { productId: item.productId },
+        select: { id: true },
+      });
+      if (!inventory) continue;
+
+      const covered = await prisma.stockReservation.aggregate({
+        where: {
+          orderId,
+          productId: item.productId,
+          status: 'fulfilled',
+        },
+        _sum: { quantity: true },
+      });
+      const coveredQty = covered._sum.quantity ?? 0;
+      const shortfall = item.quantity - coveredQty;
+      if (shortfall <= 0) continue;
+
+      await this.recordStockMovement({
+        productId: item.productId,
+        type: 'sale',
+        quantity: -shortfall,
+        orderId,
+        reason: 'Paid order stock settlement without active reservation',
+      });
+    }
+  }
+
+  /**
+   * Restore inventory after a refund.
+   * Stock levels change only via recordStockMovement (no second apply).
+   */
+  static async releaseStockForOrder(orderId: string): Promise<void> {
+    const reservations = await prisma.stockReservation.findMany({
+      where: {
+        orderId,
+        status: 'fulfilled',
+      },
     });
 
-    if (!inventory) {
-      throw new Error(`Inventory not found for product ${data.productId}`);
+    for (const reservation of reservations) {
+      const claimed = await prisma.stockReservation.updateMany({
+        where: { id: reservation.id, status: 'fulfilled' },
+        data: { status: 'cancelled' },
+      });
+      if (claimed.count === 0) continue;
+
+      await this.recordStockMovement({
+        productId: reservation.productId,
+        type: 'return',
+        quantity: reservation.quantity,
+        orderId,
+        reason: 'Order refunded',
+      });
     }
+  }
 
-    const previousStock = inventory.currentStock;
-    const newStock = previousStock + data.quantity;
+  /**
+   * Record stock movement with optimistic CAS on current/reserved levels.
+   */
+  static async recordStockMovement(data: StockMovementData, maxAttempts: number = 5): Promise<void> {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const inventory = await prisma.productInventory.findUnique({
+        where: { productId: data.productId },
+      });
 
-    // Create movement record
-    await prisma.stockMovement.create({
-      data: {
-        productId: data.productId,
-        inventoryId: inventory.id,
-        type: data.type,
-        quantity: data.quantity,
-        previousStock,
-        newStock,
-        orderId: data.orderId,
-        userId: data.userId,
-        reason: data.reason,
-        notes: data.notes,
-        cost: data.cost,
-        supplier: data.supplier
+      if (!inventory) {
+        throw new Error(`Inventory not found for product ${data.productId}`);
       }
-    });
 
-    // Update inventory
-    const updateData: any = {
-      currentStock: newStock,
-      availableStock: Math.max(0, newStock - inventory.reservedStock)
-    };
+      const previousStock = inventory.currentStock;
+      const newStock = previousStock + data.quantity;
 
-    if (data.type === 'restock') {
-      updateData.lastRestocked = new Date();
+      const applied = await prisma.$transaction(async (tx) => {
+        const updated = await tx.productInventory.updateMany({
+          where: {
+            id: inventory.id,
+            currentStock: previousStock,
+            reservedStock: inventory.reservedStock,
+          },
+          data: {
+            currentStock: newStock,
+            availableStock: Math.max(0, newStock - inventory.reservedStock),
+            ...(data.type === 'restock' ? { lastRestocked: new Date() } : {}),
+          },
+        });
+        if (updated.count === 0) return false;
+
+        await tx.stockMovement.create({
+          data: {
+            productId: data.productId,
+            inventoryId: inventory.id,
+            type: data.type,
+            quantity: data.quantity,
+            previousStock,
+            newStock,
+            orderId: data.orderId,
+            userId: data.userId,
+            reason: data.reason,
+            notes: data.notes,
+            cost: data.cost,
+            supplier: data.supplier,
+          },
+        });
+        return true;
+      });
+
+      if (applied) {
+        await this.updateStockStatus(data.productId);
+        return;
+      }
     }
 
-    await prisma.productInventory.update({
-      where: { id: inventory.id },
-      data: updateData
-    });
-
-    await this.updateStockStatus(data.productId);
+    throw new Error(`Concurrent stock update failed for product ${data.productId}`);
   }
 
   /**
@@ -522,38 +630,10 @@ export class InventoryService {
   }
 
   /**
-   * Clean up expired reservations
+   * Clean up expired reservations via the CAS release path only.
    */
   static async cleanupExpiredReservations(): Promise<number> {
-    const expiredReservations = await prisma.stockReservation.findMany({
-      where: {
-        status: 'active',
-        expiresAt: { lt: new Date() }
-      },
-      include: { inventory: true }
-    });
-
-    let cleanedCount = 0;
-
-    for (const reservation of expiredReservations) {
-      await prisma.stockReservation.update({
-        where: { id: reservation.id },
-        data: { status: 'expired' }
-      });
-
-      await prisma.productInventory.update({
-        where: { id: reservation.inventoryId },
-        data: {
-          reservedStock: { decrement: reservation.quantity },
-          availableStock: { increment: reservation.quantity }
-        }
-      });
-
-      await this.updateStockStatus(reservation.productId);
-      cleanedCount++;
-    }
-
-    return cleanedCount;
+    return this.releaseExpiredReservations();
   }
 
   /**

@@ -1,7 +1,8 @@
 // src/components/ErrorBoundary.tsx
 'use client'
 
-import React, { Component, ErrorInfo, ReactNode } from 'react'
+import React, { Component, ErrorInfo, ReactNode, useEffect } from 'react'
+import { usePathname } from 'next/navigation'
 
 interface Props {
   children: ReactNode
@@ -15,7 +16,26 @@ interface State {
   errorInfo: ErrorInfo | null
 }
 
+function isRecoverableHydrationError(error: Error): boolean {
+  const message = error.message || '';
+  return (
+    message.includes('Hydration failed') ||
+    message.includes("server rendered HTML didn't match") ||
+    message.includes('There was an error while hydrating')
+  );
+}
+
+function PathnameReset({ onChange }: { onChange: (pathname: string) => void }) {
+  const pathname = usePathname();
+  useEffect(() => {
+    onChange(pathname);
+  }, [pathname, onChange]);
+  return null;
+}
+
 export class ErrorBoundary extends Component<Props, State> {
+  private lastPathname: string | null = null;
+
   constructor(props: Props) {
     super(props)
     this.state = {
@@ -25,7 +45,26 @@ export class ErrorBoundary extends Component<Props, State> {
     }
   }
 
+  handlePathnameChange = (pathname: string) => {
+    if (this.lastPathname && this.lastPathname !== pathname && this.state.hasError) {
+      this.setState({
+        hasError: false,
+        error: null,
+        errorInfo: null,
+      });
+    }
+    this.lastPathname = pathname;
+  }
+
   static getDerivedStateFromError(error: Error): State {
+    if (isRecoverableHydrationError(error)) {
+      return {
+        hasError: false,
+        error: null,
+        errorInfo: null,
+      };
+    }
+
     return {
       hasError: true,
       error,
@@ -39,7 +78,6 @@ export class ErrorBoundary extends Component<Props, State> {
       errorInfo
     })
 
-    // Enhanced error logging with stack trace
     console.error('Error Boundary Caught:', {
       error: error.message,
       stack: error.stack,
@@ -47,7 +85,6 @@ export class ErrorBoundary extends Component<Props, State> {
       errorBoundary: this.constructor.name
     })
 
-    // In development, show detailed error information
     if (process.env.NODE_ENV === 'development') {
       console.group('Error Details')
       console.error('Error:', error)
@@ -58,91 +95,109 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   render() {
-    if (this.state.hasError) {
-      // Custom fallback UI
-      if (this.props.fallback) {
-        return this.props.fallback
-      }
+    const fallback = this.state.hasError
+      ? this.renderFallback()
+      : this.props.children;
 
-      // Development error display
-      if (this.props.showDetails) {
-        return (
-          <div className="min-h-screen bg-red-50 p-8">
-            <div className="max-w-4xl mx-auto">
-              <div className="bg-red-100 border border-red-400 rounded-lg p-6 mb-6">
-                <h2 className="text-2xl font-bold text-red-800 mb-4">
-                  Application Error
-                </h2>
-                <p className="text-red-700 mb-4">
-                  Something went wrong in the application. Check the console for more details.
-                </p>
-                
-                {this.state.error && (
-                  <div className="bg-red-200 p-4 rounded mb-4">
-                    <h3 className="font-bold text-red-800 mb-2">Error Message:</h3>
-                    <code className="text-red-900 text-sm">
-                      {this.state.error.message}
-                    </code>
-                  </div>
-                )}
+    return (
+      <>
+        <PathnameReset onChange={this.handlePathnameChange} />
+        {fallback}
+      </>
+    );
+  }
 
-                {this.state.error?.stack && (
-                  <div className="bg-red-200 p-4 rounded mb-4">
-                    <h3 className="font-bold text-red-800 mb-2">Stack Trace:</h3>
-                    <pre className="text-red-900 text-xs overflow-auto max-h-64">
-                      {this.state.error.stack}
-                    </pre>
-                  </div>
-                )}
-
-                {this.state.errorInfo?.componentStack && (
-                  <div className="bg-red-200 p-4 rounded mb-4">
-                    <h3 className="font-bold text-red-800 mb-2">Component Stack:</h3>
-                    <pre className="text-red-900 text-xs overflow-auto max-h-64">
-                      {this.state.errorInfo.componentStack}
-                    </pre>
-                  </div>
-                )}
-
-                <button
-                  onClick={() => window.location.reload()}
-                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded transition-colors"
-                >
-                  Reload Page
-                </button>
-              </div>
-            </div>
-          </div>
-        )
-      }
-
-      // Production error display
+  private renderFallback() {
+    if (this.props.fallback) {
       return (
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-          <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-6 text-center">
-            <div className="text-red-500 text-6xl mb-4">⚠️</div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">
-              Something went wrong
-            </h2>
-            <p className="text-gray-600 mb-6">
-              We&apos;re sorry, but something unexpected happened. Please try refreshing the page.
-            </p>
+        <div>
+          {this.props.fallback}
+          <div className="fixed inset-x-0 bottom-8 z-50 flex justify-center px-4">
             <button
+              type="button"
               onClick={() => window.location.reload()}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded transition-colors"
+              className="rounded bg-gray-900 px-6 py-2 text-white transition-colors hover:bg-gray-800"
             >
-              Refresh Page
+              Reload page
             </button>
           </div>
         </div>
       )
     }
 
-    return this.props.children
+    if (this.props.showDetails) {
+      return (
+        <div className="min-h-screen bg-red-50 p-8">
+          <div className="max-w-4xl mx-auto">
+            <div className="bg-red-100 border border-red-400 rounded-lg p-6 mb-6">
+              <h2 className="text-2xl font-bold text-red-800 mb-4">
+                Application Error
+              </h2>
+              <p className="text-red-700 mb-4">
+                Something went wrong in the application. Check the console for more details.
+              </p>
+              
+              {this.state.error && (
+                <div className="bg-red-200 p-4 rounded mb-4">
+                  <h3 className="font-bold text-red-800 mb-2">Error Message:</h3>
+                  <code className="text-red-900 text-sm">
+                    {this.state.error.message}
+                  </code>
+                </div>
+              )}
+
+              {this.state.error?.stack && (
+                <div className="bg-red-200 p-4 rounded mb-4">
+                  <h3 className="font-bold text-red-800 mb-2">Stack Trace:</h3>
+                  <pre className="text-red-900 text-xs overflow-auto max-h-64">
+                    {this.state.error.stack}
+                  </pre>
+                </div>
+              )}
+
+              {this.state.errorInfo?.componentStack && (
+                <div className="bg-red-200 p-4 rounded mb-4">
+                  <h3 className="font-bold text-red-800 mb-2">Component Stack:</h3>
+                  <pre className="text-red-900 text-xs overflow-auto max-h-64">
+                    {this.state.errorInfo.componentStack}
+                  </pre>
+                </div>
+              )}
+
+              <button
+                onClick={() => window.location.reload()}
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded transition-colors"
+              >
+                Reload Page
+              </button>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-6 text-center">
+          <div className="text-red-500 text-6xl mb-4">⚠️</div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">
+            Something went wrong
+          </h2>
+          <p className="text-gray-600 mb-6">
+            We&apos;re sorry, but something unexpected happened. Please try refreshing the page.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded transition-colors"
+          >
+            Refresh Page
+          </button>
+        </div>
+      </div>
+    )
   }
 }
 
-// Higher-order component for wrapping components with error boundary
 export function withErrorBoundary<T extends object>(
   Component: React.ComponentType<T>,
   fallback?: ReactNode

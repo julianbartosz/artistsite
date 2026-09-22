@@ -2,6 +2,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PerformanceMonitor } from '@/lib/performance/performance-monitor';
 import { db } from '@/lib/db';
+import { requireAdmin } from '@/lib/auth';
+import { ApiError } from '@/lib/api-error-handler';
 
 export async function POST(request: NextRequest) {
   try {
@@ -45,10 +47,17 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   try {
+    await requireAdmin();
     const recommendations = await PerformanceMonitor.getOptimizationRecommendations();
     
     return NextResponse.json(recommendations);
   } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status }
+      );
+    }
     console.error('Error getting optimization recommendations:', error);
     return NextResponse.json(
       { error: 'Failed to get recommendations' },

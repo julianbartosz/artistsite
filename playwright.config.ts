@@ -73,7 +73,11 @@ export default defineConfig({
   webServer: {
     command: 'PLAYWRIGHT_E2E=true npm run build && PLAYWRIGHT_E2E=true npm run start -- --hostname 127.0.0.1 --port 3100',
     url: 'http://127.0.0.1:3100',
-    reuseExistingServer: false,
+    reuseExistingServer: !process.env.CI,
     timeout: 180 * 1000,
+    env: {
+      ...process.env,
+      PLAYWRIGHT_E2E: 'true',
+    },
   },
 });

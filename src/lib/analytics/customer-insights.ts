@@ -97,7 +97,7 @@ async function createAnalyticsEvent(input: TrackableAnalyticsEvent, userId?: str
 
 export async function recordAnalyticsEvent(input: TrackableAnalyticsEvent): Promise<AnalyticsEventRecordResult> {
   try {
-    let event = await createAnalyticsEvent(input, input.userId)
+    const event = await createAnalyticsEvent(input, input.userId)
 
     if (input.userId) {
       try {

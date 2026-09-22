@@ -1,41 +1,55 @@
 import Image from 'next/image';
 import Link from 'next/link';
+import { getSiteContent } from '@/lib/site-content';
+import {
+  htmlHasVisibleText,
+  normalizeBioSectionOrder,
+  type BioPageContent,
+  type BioSectionKey,
+} from '@/lib/site-content-shared';
+import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
 
-export default function BioPage() {
+export const dynamic = 'force-dynamic';
+
+function BioHero({ bio }: { bio: BioPageContent }) {
   return (
-    <div className="min-h-screen bg-white">
-      {/* Hero Section */}
-      <section className="relative bg-gray-50 py-20">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <div>
-              <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-6">
-                About the Artist
-              </h1>
+    <section className="relative group bg-gray-50 section-space">
+      <CmsEditAnchor targetKey="bio:hero" />
+      <div className="max-w-6xl mx-auto px-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-12 items-center">
+          <div>
+            <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-6">
+              {bio.hero.title}
+            </h1>
+            {bio.hero.subtitle.trim() && (
               <p className="text-xl text-gray-600 mb-8 leading-relaxed">
-                Contemporary painter exploring the intersection of urban landscapes, 
-                abstract form, and the ever-changing quality of light through oil 
-                and mixed media works.
+                {bio.hero.subtitle}
               </p>
-              <div className="flex flex-col sm:flex-row gap-4">
-                <Link 
-                  href="/portfolio" 
+            )}
+            <div className="flex flex-col sm:flex-row gap-4">
+              {bio.hero.ctaPortfolio.trim() && (
+                <Link
+                  href="/portfolio"
                   className="bg-gray-900 text-white px-6 py-3 rounded-lg hover:bg-gray-800 transition-colors text-center font-medium"
                 >
-                  View Portfolio
+                  {bio.hero.ctaPortfolio}
                 </Link>
-                <Link 
-                  href="/contact" 
+              )}
+              {bio.hero.ctaContact.trim() && (
+                <Link
+                  href="/contact"
                   className="border border-gray-900 text-gray-900 px-6 py-3 rounded-lg hover:bg-gray-900 hover:text-white transition-colors text-center font-medium"
                 >
-                  Get in Touch
+                  {bio.hero.ctaContact}
                 </Link>
-              </div>
+              )}
             </div>
+          </div>
+          {bio.hero.portraitImage && (
             <div className="relative">
-              <div className="relative w-full aspect-[4/5] rounded-lg overflow-hidden shadow-xl">
+              <div className="relative w-full max-w-xs mx-auto lg:max-w-none aspect-[3/4] lg:aspect-[4/5] rounded-lg overflow-hidden shadow-xl">
                 <Image
-                  src="/images/artist-portrait.jpg"
+                  src={bio.hero.portraitImage}
                   alt="Artist in studio"
                   fill
                   className="object-cover"
@@ -44,189 +58,221 @@ export default function BioPage() {
                 />
               </div>
             </div>
-          </div>
+          )}
         </div>
-      </section>
+      </div>
+    </section>
+  );
+}
 
-      {/* Artist Statement */}
-      <section className="py-16">
-        <div className="max-w-4xl mx-auto px-6">
-          <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">Artist Statement</h2>
-          <div className="prose prose-lg mx-auto text-gray-700">
-            <p className="text-xl leading-relaxed mb-6">
-              My work explores the dynamic relationship between urban environments and natural light, 
-              capturing fleeting moments where architecture becomes canvas and shadow becomes form. 
-              Through oil painting and mixed media, I seek to translate the emotional resonance of 
-              city life into abstract compositions that speak to our shared human experience.
-            </p>
-            <p className="leading-relaxed mb-6">
-              Each piece begins with observation—the way morning light filters through building facades, 
-              how evening shadows create unexpected geometries, or the rhythm of movement in bustling 
-              street scenes. These moments of urban poetry become the foundation for works that balance 
-              representation with abstraction, allowing viewers to discover their own connections to 
-              the metropolitan landscape.
-            </p>
-            <p className="leading-relaxed">
-              Working primarily in oil on canvas, I employ both traditional techniques and contemporary 
-              approaches, often incorporating elements of collage and mixed media to create textural 
-              depth that mirrors the complexity of urban experience. My palette draws from the subtle 
-              variations of city light—warm ochres of sunset on concrete, cool blues of predawn streets, 
-              and the infinite grays that define metropolitan atmosphere.
-            </p>
-          </div>
-        </div>
-      </section>
+function BioStatement({ bio }: { bio: BioPageContent }) {
+  if (!bio.showStatement || !htmlHasVisibleText(bio.artistStatementHtml)) return null;
+  return (
+    <section className="relative group section-space-tight">
+      <CmsEditAnchor targetKey="bio:statement" />
+      <div className="max-w-4xl mx-auto px-6">
+        <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">{bio.statementTitle}</h2>
+        <div className="prose prose-lg mx-auto text-gray-700" dangerouslySetInnerHTML={{ __html: bio.artistStatementHtml }} />
+      </div>
+    </section>
+  );
+}
 
-      {/* Background & Education */}
-      <section className="bg-gray-50 py-16">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-            <div>
-              <h2 className="text-3xl font-bold text-gray-900 mb-8">Background</h2>
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-xl font-semibold text-gray-900 mb-3">Education</h3>
-                  <div className="space-y-2 text-gray-700">
-                    <p><strong>MFA, Painting</strong> - Yale School of Art, 2018</p>
-                    <p><strong>BFA, Fine Arts</strong> - Rhode Island School of Design, 2015</p>
-                    <p><strong>Study Abroad</strong> - Florence Academy of Art, 2014</p>
-                  </div>
-                </div>
-                
-                <div>
-                  <h3 className="text-xl font-semibold text-gray-900 mb-3">Professional Experience</h3>
-                  <div className="space-y-2 text-gray-700">
-                    <p><strong>Studio Artist</strong> - Independent Practice, 2018-Present</p>
-                    <p><strong>Teaching Assistant</strong> - Yale School of Art, 2016-2018</p>
-                    <p><strong>Gallery Intern</strong> - David Zwirner Gallery, 2015</p>
-                  </div>
-                </div>
+function BioBackgroundAchievements({ bio }: { bio: BioPageContent }) {
+  const showBackground = bio.showBackground && htmlHasVisibleText(bio.backgroundHtml);
+  const showAchievements = bio.showAchievements && htmlHasVisibleText(bio.achievementsHtml);
+  if (!showBackground && !showAchievements) return null;
+
+  return (
+    <section className="bg-gray-50 section-space-tight">
+      <div className="max-w-6xl mx-auto px-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-12">
+          {showBackground && (
+            <>
+              <details className="lg:hidden group">
+                <summary className="cursor-pointer text-2xl font-bold text-gray-900 mb-4">{bio.backgroundTitle}</summary>
+                <div className="prose prose-lg text-gray-700" dangerouslySetInnerHTML={{ __html: bio.backgroundHtml }} />
+              </details>
+              <div className="hidden lg:block">
+                <h2 className="text-3xl font-bold text-gray-900 mb-8">{bio.backgroundTitle}</h2>
+                <div className="prose prose-lg text-gray-700" dangerouslySetInnerHTML={{ __html: bio.backgroundHtml }} />
               </div>
-            </div>
-
-            <div>
-              <h2 className="text-3xl font-bold text-gray-900 mb-8">Achievements</h2>
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-xl font-semibold text-gray-900 mb-3">Selected Exhibitions</h3>
-                  <div className="space-y-2 text-gray-700">
-                    <p><strong>2024</strong> - &ldquo;Urban Abstractions&rdquo; - Solo Exhibition, Gallery Modern</p>
-                    <p><strong>2023</strong> - &ldquo;New Voices in Contemporary Art&rdquo; - Group Show, MoMA PS1</p>
-                    <p><strong>2022</strong> - &ldquo;Light and Shadow&rdquo; - Solo Exhibition, Tribeca Gallery</p>
-                    <p><strong>2021</strong> - &ldquo;Emerging Artists&rdquo; - Group Show, Whitney Biennial</p>
-                  </div>
-                </div>
-                
-                <div>
-                  <h3 className="text-xl font-semibold text-gray-900 mb-3">Awards & Recognition</h3>
-                  <div className="space-y-2 text-gray-700">
-                    <p><strong>2023</strong> - Artist Fellowship, New York Foundation for the Arts</p>
-                    <p><strong>2022</strong> - Emerging Artist Award, Art Basel Miami</p>
-                    <p><strong>2019</strong> - Yale School of Art Merit Scholarship</p>
-                  </div>
-                </div>
+            </>
+          )}
+          {showAchievements && (
+            <>
+              <details className="lg:hidden">
+                <summary className="cursor-pointer text-2xl font-bold text-gray-900 mb-4">{bio.achievementsTitle}</summary>
+                <div className="prose prose-lg text-gray-700" dangerouslySetInnerHTML={{ __html: bio.achievementsHtml }} />
+              </details>
+              <div className="hidden lg:block">
+                <h2 className="text-3xl font-bold text-gray-900 mb-8">{bio.achievementsTitle}</h2>
+                <div className="prose prose-lg text-gray-700" dangerouslySetInnerHTML={{ __html: bio.achievementsHtml }} />
               </div>
-            </div>
-          </div>
+            </>
+          )}
         </div>
-      </section>
+      </div>
+    </section>
+  );
+}
 
-      {/* Studio Practice */}
-      <section className="py-16">
-        <div className="max-w-6xl mx-auto px-6">
-          <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">Studio Practice</h2>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+function BioBackground({ bio }: { bio: BioPageContent }) {
+  if (!bio.showBackground || !htmlHasVisibleText(bio.backgroundHtml)) return null;
+  return (
+    <section className="relative group bg-gray-50 section-space-tight">
+      <CmsEditAnchor targetKey="bio:background" />
+      <div className="max-w-4xl mx-auto px-6">
+        <h2 className="text-3xl font-bold text-gray-900 mb-8">{bio.backgroundTitle}</h2>
+        <div className="prose prose-lg text-gray-700" dangerouslySetInnerHTML={{ __html: bio.backgroundHtml }} />
+      </div>
+    </section>
+  );
+}
+
+function BioAchievements({ bio }: { bio: BioPageContent }) {
+  if (!bio.showAchievements || !htmlHasVisibleText(bio.achievementsHtml)) return null;
+  return (
+    <section className="bg-gray-50 section-space-tight">
+      <div className="max-w-4xl mx-auto px-6">
+        <h2 className="text-3xl font-bold text-gray-900 mb-8">{bio.achievementsTitle}</h2>
+        <div className="prose prose-lg text-gray-700" dangerouslySetInnerHTML={{ __html: bio.achievementsHtml }} />
+      </div>
+    </section>
+  );
+}
+
+function BioStudio({ bio }: { bio: BioPageContent }) {
+  if (!bio.showStudio || (!htmlHasVisibleText(bio.studioPracticeHtml) && !bio.studioImage)) return null;
+  return (
+    <section className="relative group section-space-tight">
+      <CmsEditAnchor targetKey="bio:studio" />
+      <div className="max-w-6xl mx-auto px-6">
+        <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">{bio.studioTitle}</h2>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-12 items-center">
+          {bio.studioImage && (
             <div className="relative w-full aspect-[4/3] rounded-lg overflow-hidden shadow-lg">
               <Image
-                src="/images/artist-studio.jpg"
+                src={bio.studioImage}
                 alt="Artist studio workspace"
                 fill
                 className="object-cover"
                 sizes="(max-width: 1024px) 100vw, 50vw"
               />
             </div>
-            <div>
-              <div className="prose prose-lg text-gray-700">
-                <p className="text-lg leading-relaxed mb-6">
-                  My studio practice is rooted in direct observation and material experimentation. 
-                  Located in a converted warehouse in Long Island City, the space allows for both 
-                  intimate drawing sessions and large-scale painting projects.
-                </p>
-                <p className="leading-relaxed mb-6">
-                  I typically work on multiple pieces simultaneously, allowing ideas to cross-pollinate 
-                  and evolve organically. The studio serves as both laboratory and sanctuary, where 
-                  urban inspiration is transformed into artistic expression through careful attention 
-                  to color, form, and texture.
-                </p>
-                <p className="leading-relaxed">
-                  My materials range from traditional oil paints and brushes to unconventional tools 
-                  like palette knives, found objects, and various texturing mediums. This hybrid 
-                  approach reflects my interest in bridging classical techniques with contemporary 
-                  conceptual frameworks.
-                </p>
-              </div>
-            </div>
-          </div>
+          )}
+          {htmlHasVisibleText(bio.studioPracticeHtml) && (
+            <div className="prose prose-lg text-gray-700" dangerouslySetInnerHTML={{ __html: bio.studioPracticeHtml }} />
+          )}
         </div>
-      </section>
+      </div>
+    </section>
+  );
+}
 
-      {/* Collections & Press */}
-      <section className="bg-gray-50 py-16">
-        <div className="max-w-4xl mx-auto px-6 text-center">
-          <h2 className="text-3xl font-bold text-gray-900 mb-8">Collections & Press</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-4">Public Collections</h3>
-              <div className="space-y-2 text-gray-700">
-                <p>Museum of Contemporary Art, Chicago</p>
-                <p>Brooklyn Museum Permanent Collection</p>
-                <p>Yale University Art Gallery</p>
-                <p>Private collections throughout the US and Europe</p>
-              </div>
-            </div>
-            <div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-4">Press & Publications</h3>
-              <div className="space-y-2 text-gray-700">
-                <p><em>Artforum</em> - &ldquo;Rising Stars of 2024&rdquo;</p>
-                <p><em>ARTnews</em> - &ldquo;Urban Abstractions Review&rdquo;</p>
-                <p><em>Art in America</em> - &ldquo;New York Studio Visits&rdquo;</p>
-                <p><em>Hyperallergic</em> - &ldquo;Contemporary Landscape Painting&rdquo;</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+function BioCollections({ bio }: { bio: BioPageContent }) {
+  if (!bio.showCollections || !htmlHasVisibleText(bio.collectionsHtml)) return null;
+  return (
+    <section className="relative group bg-gray-50 section-space-tight">
+      <CmsEditAnchor targetKey="bio:collections" />
+      <div className="max-w-4xl mx-auto px-6 text-center">
+        <h2 className="text-3xl font-bold text-gray-900 mb-8">{bio.collectionsTitle}</h2>
+        <div className="prose prose-lg mx-auto text-gray-700 text-left" dangerouslySetInnerHTML={{ __html: bio.collectionsHtml }} />
+      </div>
+    </section>
+  );
+}
 
-      {/* Call to Action */}
-      <section className="py-16">
-        <div className="max-w-4xl mx-auto px-6 text-center">
-          <h2 className="text-3xl font-bold text-gray-900 mb-6">Connect With My Work</h2>
+function BioCta({ bio }: { bio: BioPageContent }) {
+  if (!bio.showCta) return null;
+  return (
+    <section className="relative group section-space-tight">
+      <CmsEditAnchor targetKey="bio:cta" />
+      <div className="max-w-4xl mx-auto px-6 text-center">
+        <h2 className="text-3xl font-bold text-gray-900 mb-6">{bio.cta.title}</h2>
+        {bio.cta.subtitle.trim() && (
           <p className="text-lg text-gray-600 mb-8 max-w-2xl mx-auto">
-            Interested in learning more about my artistic practice, available works, 
-            or commission opportunities? I&rsquo;d love to hear from you.
+            {bio.cta.subtitle}
           </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link 
-              href="/portfolio" 
+        )}
+        <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          {bio.cta.portfolioLabel.trim() && (
+            <Link
+              href="/portfolio"
               className="bg-gray-900 text-white px-8 py-3 rounded-lg hover:bg-gray-800 transition-colors font-medium"
             >
-              Explore Portfolio
+              {bio.cta.portfolioLabel}
             </Link>
-            <Link 
-              href="/shop" 
+          )}
+          {bio.cta.shopLabel.trim() && (
+            <Link
+              href="/shop"
               className="border border-gray-900 text-gray-900 px-8 py-3 rounded-lg hover:bg-gray-900 hover:text-white transition-colors font-medium"
             >
-              Available Works
+              {bio.cta.shopLabel}
             </Link>
-            <Link 
-              href="/contact" 
+          )}
+          {bio.cta.contactLabel.trim() && (
+            <Link
+              href="/contact"
               className="border border-gray-300 text-gray-700 px-8 py-3 rounded-lg hover:border-gray-900 hover:text-gray-900 transition-colors font-medium"
             >
-              Contact
+              {bio.cta.contactLabel}
             </Link>
-          </div>
+          )}
         </div>
-      </section>
+      </div>
+    </section>
+  );
+}
+
+function renderBioSection(key: BioSectionKey, bio: BioPageContent) {
+  switch (key) {
+    case 'statement':
+      return <BioStatement key="statement" bio={bio} />;
+    case 'background':
+      return <BioBackground key="background" bio={bio} />;
+    case 'achievements':
+      return <BioAchievements key="achievements" bio={bio} />;
+    case 'studio':
+      return <BioStudio key="studio" bio={bio} />;
+    case 'collections':
+      return <BioCollections key="collections" bio={bio} />;
+    case 'cta':
+      return <BioCta key="cta" bio={bio} />;
+    default:
+      return null;
+  }
+}
+
+function isBackgroundAchievementsPair(order: BioSectionKey[], index: number): boolean {
+  const current = order[index];
+  const next = order[index + 1];
+  return (
+    (current === 'background' && next === 'achievements') ||
+    (current === 'achievements' && next === 'background')
+  );
+}
+
+export default async function BioPage() {
+  const bio = await getSiteContent('bio');
+  const order = normalizeBioSectionOrder(bio.sectionOrder);
+  const sections: React.ReactNode[] = [];
+
+  for (let index = 0; index < order.length; index += 1) {
+    const key = order[index];
+    if (isBackgroundAchievementsPair(order, index)) {
+      sections.push(<BioBackgroundAchievements key={`pair-${index}`} bio={bio} />);
+      index += 1;
+      continue;
+    }
+    sections.push(renderBioSection(key, bio));
+  }
+
+  return (
+    <div className="min-h-screen bg-white">
+      <BioHero bio={bio} />
+      {sections}
     </div>
   );
 }

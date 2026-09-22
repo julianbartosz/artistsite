@@ -1,3 +1,5 @@
+import { pickVariantUrl, type ImageVariantSize } from '@/lib/image-variant-url';
+
 export interface ProductVariant {
   id: string;
   name: string;
@@ -7,7 +9,8 @@ export interface ProductVariant {
   stock?: number;
 }
 
-export const PRODUCT_IMAGE_FALLBACK = '/images/shop/placeholder-1.jpg';
+export const PRODUCT_IMAGE_FALLBACK = '/images/fallback-artwork.svg';
+export const E2E_CHECKOUT_SESSION_PREFIX = 'e2e_';
 
 export interface ProductCustomization {
   id: string;
@@ -128,8 +131,16 @@ export function normalizeProduct(product: ProductInput): Product {
   } as Product;
 }
 
-export function productImageSrc(product: Product, preferred?: string): string {
-  return preferred?.trim() || product.images.thumbnail?.trim() || product.images.gallery.find(image => image.trim()) || PRODUCT_IMAGE_FALLBACK;
+export function productImageSrc(
+  product: Product,
+  preferred?: string,
+  size: ImageVariantSize = 'thumb',
+): string {
+  const base = preferred?.trim()
+    || product.images.thumbnail?.trim()
+    || product.images.gallery.find((image) => image.trim())
+    || PRODUCT_IMAGE_FALLBACK;
+  return pickVariantUrl(base, size);
 }
 
 export interface CartItemVariant {
@@ -187,6 +198,10 @@ export function formatPrice(price: number, currency: string = 'USD'): string {
     style: 'currency',
     currency: currency,
   }).format(price);
+}
+
+export function cartItemLineTotal(item: { totalPrice: number; quantity: number }): number {
+  return item.totalPrice * item.quantity;
 }
 
 export function calculateTotal(price: number, shipping: number): number {

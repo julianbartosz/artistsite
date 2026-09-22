@@ -1,6 +1,16 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import ContactPage from '@/app/contact/page';
+import ContactPageClient from '@/app/contact/ContactPageClient';
+import { DEFAULT_CONTACT_INQUIRY_TYPES, DEFAULT_CONTACT_PAGE } from '@/lib/site-content-shared';
+
+function renderContactPage() {
+  return render(
+    <ContactPageClient
+      pageContent={DEFAULT_CONTACT_PAGE}
+      contactEmail="hello@artistsite.com"
+    />
+  );
+}
 
 // Mock Next.js Image component
 jest.mock('next/image', () => {
@@ -31,7 +41,7 @@ describe('Contact Page', () => {
 
   describe('Form Rendering', () => {
     it('renders the contact form with all required fields', () => {
-      render(<ContactPage />);
+      renderContactPage();
       
       expect(screen.getByRole('heading', { name: /get in touch/i })).toBeInTheDocument();
       expect(screen.getByLabelText(/type of inquiry/i)).toBeInTheDocument();
@@ -43,25 +53,51 @@ describe('Contact Page', () => {
     });
 
     it('displays contact information and artist details', () => {
-      render(<ContactPage />);
+      renderContactPage();
       
       expect(screen.getByText(/hello@artistsite.com/i)).toBeInTheDocument();
       expect(screen.getByText(/new york, ny/i)).toBeInTheDocument();
-      expect(screen.getByText(/@artistsite/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/@artistsite/i).length).toBeGreaterThan(0);
+
+      const headings = screen.getAllByRole('heading').map((heading) => heading.textContent);
+      expect(headings.indexOf("Let's Connect")).toBeGreaterThan(-1);
+      expect(headings.indexOf('Send a Message')).toBeGreaterThan(headings.indexOf("Let's Connect"));
     });
 
     it('shows response time information', () => {
-      render(<ContactPage />);
+      renderContactPage();
       
-      expect(screen.getByText(/24-48 hours/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/24-48 hours/i).length).toBeGreaterThan(0);
       expect(screen.getByText(/purchase inquiries: same day/i)).toBeInTheDocument();
+    });
+
+    it('renders inquiry types from site content', () => {
+      render(
+        <ContactPageClient
+          pageContent={{
+            ...DEFAULT_CONTACT_PAGE,
+            form: {
+              ...DEFAULT_CONTACT_PAGE.form,
+              inquiryTypes: DEFAULT_CONTACT_INQUIRY_TYPES.map((item) => {
+                if (item.key === 'press') return { ...item, visible: false };
+                if (item.key === 'purchase') return { ...item, label: 'Buy a Work' };
+                return item;
+              }),
+            },
+          }}
+          contactEmail="hello@artistsite.com"
+        />
+      );
+
+      expect(screen.getByRole('option', { name: 'Buy a Work' })).toBeInTheDocument();
+      expect(screen.queryByRole('option', { name: 'Press & Media' })).not.toBeInTheDocument();
     });
   });
 
   describe('Form Validation', () => {
     it('shows validation errors for empty required fields', async () => {
       const user = userEvent.setup();
-      render(<ContactPage />);
+      renderContactPage();
       
       const submitButton = screen.getByRole('button', { name: /send message/i });
       await user.click(submitButton);
@@ -76,7 +112,7 @@ describe('Contact Page', () => {
 
     it('validates email format', async () => {
       const user = userEvent.setup();
-      render(<ContactPage />);
+      renderContactPage();
       
       const emailInput = screen.getByLabelText(/email/i);
       await user.type(emailInput, 'invalid-email');
@@ -89,7 +125,7 @@ describe('Contact Page', () => {
 
     it('validates minimum length requirements', async () => {
       const user = userEvent.setup();
-      render(<ContactPage />);
+      renderContactPage();
       
       const nameInput = screen.getByLabelText(/name/i);
       const subjectInput = screen.getByLabelText(/subject/i);
@@ -111,7 +147,7 @@ describe('Contact Page', () => {
 
     it('clears validation errors when user fixes them', async () => {
       const user = userEvent.setup();
-      render(<ContactPage />);
+      renderContactPage();
       
       const nameInput = screen.getByLabelText(/name/i);
       await user.type(nameInput, 'A');
@@ -147,7 +183,7 @@ describe('Contact Page', () => {
         json: async () => ({ message: 'Message sent successfully!' })
       } as Response);
 
-      render(<ContactPage />);
+      renderContactPage();
       
       await user.selectOptions(screen.getByLabelText(/type of inquiry/i), 'purchase');
       await user.type(screen.getByLabelText(/name/i), validFormData.name);
@@ -185,7 +221,7 @@ describe('Contact Page', () => {
         json: async () => ({ error: 'Server error occurred' })
       } as Response);
 
-      render(<ContactPage />);
+      renderContactPage();
       
       await user.selectOptions(screen.getByLabelText(/type of inquiry/i), 'general');
       await user.type(screen.getByLabelText(/name/i), validFormData.name);
@@ -211,7 +247,7 @@ describe('Contact Page', () => {
         } as Response), 100))
       );
 
-      render(<ContactPage />);
+      renderContactPage();
       
       await user.selectOptions(screen.getByLabelText(/type of inquiry/i), 'general');
       await user.type(screen.getByLabelText(/name/i), validFormData.name);
@@ -238,7 +274,7 @@ describe('Contact Page', () => {
       const recentRequests = [now - 30000, now - 20000, now - 10000]; // 3 requests in last minute
       localStorageMock.getItem.mockReturnValue(JSON.stringify(recentRequests));
 
-      render(<ContactPage />);
+      renderContactPage();
       
       await user.selectOptions(screen.getByLabelText(/type of inquiry/i), 'general');
       await user.type(screen.getByLabelText(/name/i), 'John Doe');
@@ -258,7 +294,7 @@ describe('Contact Page', () => {
   describe('Character Counter', () => {
     it('displays character count for message field', async () => {
       const user = userEvent.setup();
-      render(<ContactPage />);
+      renderContactPage();
       
       const messageInput = screen.getByLabelText(/message/i);
       expect(screen.getByText(/\(0\/2000 characters\)/i)).toBeInTheDocument();
@@ -269,18 +305,17 @@ describe('Contact Page', () => {
   });
 
   describe('Accessibility', () => {
-    it('has proper form labels and ARIA attributes', () => {
-      render(<ContactPage />);
-      
-      const nameInput = screen.getByLabelText(/name/i);
-      const emailInput = screen.getByLabelText(/email/i);
-      const subjectInput = screen.getByLabelText(/subject/i);
-      const messageInput = screen.getByLabelText(/message/i);
-      
-      expect(nameInput).toHaveAttribute('aria-describedby');
-      expect(emailInput).toHaveAttribute('aria-describedby');
-      expect(subjectInput).toHaveAttribute('aria-describedby');
-      expect(messageInput).toHaveAttribute('aria-describedby');
+    it('has proper form labels and ARIA attributes', async () => {
+      const user = userEvent.setup();
+      renderContactPage();
+
+      const nameInput = screen.getByLabelText(/^name \*$/i);
+      await user.type(nameInput, 'A');
+      await user.tab();
+
+      await waitFor(() => {
+        expect(nameInput).toHaveAttribute('aria-describedby');
+      });
     });
 
     it('uses role="alert" for status messages', async () => {
@@ -291,7 +326,7 @@ describe('Contact Page', () => {
         json: async () => ({ message: 'Success!' })
       } as Response);
 
-      render(<ContactPage />);
+      renderContactPage();
       
       await user.selectOptions(screen.getByLabelText(/type of inquiry/i), 'general');
       await user.type(screen.getByLabelText(/name/i), 'John Doe');
