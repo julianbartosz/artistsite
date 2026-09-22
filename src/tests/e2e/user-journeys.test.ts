@@ -97,7 +97,7 @@ test.describe('Critical User Journeys', () => {
     await page.goto('/shop');
     await page.waitForSelector('[data-testid="product-card-link"]', { timeout: 15000 });
     await page.getByRole('button', { name: /Filters & sort/i }).click();
-    const mobileSort = page.locator('#shop-sort-sheet');
+    const mobileSort = page.getByRole('dialog', { name: 'Shop filters' }).locator('#shop-sort-sheet');
     await expect(mobileSort).toBeVisible();
     await mobileSort.selectOption('newest');
     await expect(page).toHaveURL(/sort=newest/);
