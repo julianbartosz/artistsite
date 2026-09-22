@@ -1,8 +1,13 @@
+import { createHash } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { finalizePaidOrder } from '@/lib/orders';
 import { getConfig } from '@/lib/config';
 import { getStripe } from '@/lib/stripe';
+
+function hashMetaEmail(email: string): string {
+  return createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+}
 
 export async function POST(request: NextRequest) {
   const webhookSecret = await getConfig('STRIPE_WEBHOOK_SECRET');
@@ -80,6 +85,7 @@ async function sendMetaPurchaseEvent(session: Stripe.Checkout.Session, value: nu
 
   const eventTime = Math.floor(Date.now() / 1000);
   const email = session.customer_details?.email || session.metadata?.customerEmail;
+  const hashedEmail = email?.trim() ? hashMetaEmail(email) : null;
 
   await fetch(`https://graph.facebook.com/v20.0/${pixelId}/events?access_token=${encodeURIComponent(accessToken)}`, {
     method: 'POST',
@@ -90,7 +96,7 @@ async function sendMetaPurchaseEvent(session: Stripe.Checkout.Session, value: nu
         event_time: eventTime,
         event_id: session.id,
         action_source: 'website',
-        user_data: email ? { em: [email] } : {},
+        user_data: hashedEmail ? { em: [hashedEmail] } : {},
         custom_data: {
           currency: 'USD',
           value,

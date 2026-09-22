@@ -49,19 +49,19 @@ export class InventoryService {
     lowStockThreshold: number = 5,
     allowBackorders: boolean = false
   ): Promise<void> {
+    // Start at zero so recordStockMovement is the sole writer of stock levels.
     await prisma.productInventory.create({
       data: {
         productId,
-        currentStock: initialStock,
-        availableStock: initialStock,
+        currentStock: 0,
+        availableStock: 0,
         lowStockThreshold,
         allowBackorders,
-        stockStatus: this.calculateStockStatus(initialStock, lowStockThreshold),
+        stockStatus: this.calculateStockStatus(0, lowStockThreshold),
         isTrackingEnabled: true
       }
     });
 
-    // Create initial movement record
     if (initialStock > 0) {
       await this.recordStockMovement({
         productId,
@@ -265,7 +265,8 @@ export class InventoryService {
   }
 
   /**
-   * Fulfill stock reservation (convert to sale)
+   * Fulfill stock reservation (convert to sale).
+   * reservedStock is released here; current/available stock change only via recordStockMovement.
    */
   static async fulfillReservation(reservationId: string, orderId?: string): Promise<void> {
     const reservation = await prisma.stockReservation.findUnique({
@@ -275,17 +276,25 @@ export class InventoryService {
 
     if (!reservation || reservation.status !== 'active') return;
 
-    // Update reservation status
-    await prisma.stockReservation.update({
-      where: { id: reservationId },
-      data: { 
+    const claimed = await prisma.stockReservation.updateMany({
+      where: { id: reservationId, status: 'active' },
+      data: {
         status: 'fulfilled',
         fulfilledAt: new Date(),
         orderId: orderId || reservation.orderId
       }
     });
+    if (claimed.count === 0) return;
 
-    // Record stock movement
+    // Release the hold before the sale movement so availableStock = current - reserved stays correct.
+    await prisma.productInventory.update({
+      where: { id: reservation.inventoryId },
+      data: {
+        reservedStock: { decrement: reservation.quantity },
+        lastSold: new Date()
+      }
+    });
+
     await this.recordStockMovement({
       productId: reservation.productId,
       type: 'sale',
@@ -293,18 +302,6 @@ export class InventoryService {
       orderId: orderId || reservation.orderId || undefined,
       reason: 'Order fulfillment'
     });
-
-    // Update inventory (reserved stock becomes sold)
-    await prisma.productInventory.update({
-      where: { id: reservation.inventoryId },
-      data: {
-        currentStock: { decrement: reservation.quantity },
-        reservedStock: { decrement: reservation.quantity },
-        lastSold: new Date()
-      }
-    });
-
-    await this.updateStockStatus(reservation.productId);
   }
 
   /**
@@ -325,6 +322,7 @@ export class InventoryService {
 
   /**
    * Restore inventory after a refund.
+   * Stock levels change only via recordStockMovement (no second apply).
    */
   static async releaseStockForOrder(orderId: string): Promise<void> {
     const reservations = await prisma.stockReservation.findMany({
@@ -335,10 +333,11 @@ export class InventoryService {
     });
 
     for (const reservation of reservations) {
-      await prisma.stockReservation.update({
-        where: { id: reservation.id },
+      const claimed = await prisma.stockReservation.updateMany({
+        where: { id: reservation.id, status: 'fulfilled' },
         data: { status: 'cancelled' },
       });
+      if (claimed.count === 0) continue;
 
       await this.recordStockMovement({
         productId: reservation.productId,
@@ -347,16 +346,6 @@ export class InventoryService {
         orderId,
         reason: 'Order refunded',
       });
-
-      await prisma.productInventory.update({
-        where: { id: reservation.inventoryId },
-        data: {
-          currentStock: { increment: reservation.quantity },
-          availableStock: { increment: reservation.quantity },
-        },
-      });
-
-      await this.updateStockStatus(reservation.productId);
     }
   }
 

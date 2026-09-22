@@ -20,6 +20,14 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   try {
     const { slug } = await params;
     const session = await getServerSession(authOptions);
+    const viewer = session?.user
+      ? { id: session.user.id, email: session.user.email, isAdmin: Boolean(session.user.isAdmin) }
+      : undefined;
+    const post = await getPostBySlug(slug, false, viewer);
+    if (!post) {
+      return NextResponse.json({ error: 'Update not found', code: 'POST_NOT_FOUND' }, { status: 404 });
+    }
+
     const guestSessionId = session?.user?.id ? null : await resolveGuestSessionId();
     const engagement = await getPostEngagement(slug, {
       userId: session?.user?.id,

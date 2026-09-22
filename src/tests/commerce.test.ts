@@ -151,6 +151,42 @@ describe('inventory purchasability', () => {
   });
 });
 
+describe('refund and payment intent gates', () => {
+  it('accepts only live Stripe payment intent ids', () => {
+    const { isLiveStripePaymentIntent } = require('@/lib/orders');
+    expect(isLiveStripePaymentIntent('pi_3Abc')).toBe(true);
+    expect(isLiveStripePaymentIntent('e2e_payment_order1')).toBe(false);
+    expect(isLiveStripePaymentIntent(null)).toBe(false);
+  });
+
+  it('requires paid paymentStatus before refund eligibility', () => {
+    const { OrderManager } = require('@/lib/orders');
+    const base = {
+      id: 'o1',
+      orderNumber: 'ORD-1',
+      type: 'standard',
+      status: 'confirmed',
+      customerEmail: 'a@b.com',
+      items: [],
+      subtotal: 10,
+      shipping: 0,
+      tax: 0,
+      total: 10,
+      currency: 'USD',
+      shippingAddress: {
+        firstName: 'A', lastName: 'B', address1: '1', city: 'X', state: 'Y', postalCode: '1', country: 'US',
+      },
+      paymentStatus: 'pending',
+      timeline: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    expect(OrderManager.canRefundOrder(base)).toBe(false);
+    expect(OrderManager.canRefundOrder({ ...base, paymentStatus: 'paid' })).toBe(true);
+    expect(OrderManager.canRefundOrder({ ...base, paymentStatus: 'paid', status: 'pending' })).toBe(false);
+  });
+});
+
 describe('site theme utilities', () => {
   it('evaluates contrast for white text on primary buttons', () => {
     const { whiteTextContrastOnPrimary, contrastRatio } = require('@/lib/site-content-shared');

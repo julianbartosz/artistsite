@@ -159,8 +159,12 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
         ? `${window.location.pathname}${window.location.search}`
         : '/admin';
       router.replace(`/auth/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`);
+      return;
     }
-  }, [router, status]);
+    if (status === 'authenticated' && session && !session.user?.isAdmin) {
+      router.replace('/');
+    }
+  }, [router, session, status]);
 
   // Check authentication
   if (status === 'loading') {
@@ -171,7 +175,7 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
     );
   }
 
-  if (status === 'unauthenticated' || !session) {
+  if (status === 'unauthenticated' || !session || !session.user?.isAdmin) {
     return null;
   }
 

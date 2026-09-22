@@ -4,6 +4,7 @@ import { ApiError } from '@/lib/api-error-handler';
 import { requireUser } from '@/lib/auth';
 import { parsePostMedia } from '@/lib/admin-content';
 import { db } from '@/lib/db';
+import { getPostBySlug, viewerCanAccessPost } from '@/lib/markdown';
 
 const saveSchema = z.object({
   postSlug: z.string().min(1),
@@ -12,6 +13,11 @@ const saveSchema = z.object({
 export async function GET() {
   try {
     const session = await requireUser();
+    const viewer = {
+      id: session.user.id,
+      email: session.user.email,
+      isAdmin: Boolean(session.user.isAdmin),
+    };
     const saved = await db.savedUpdate.findMany({
       where: { userId: session.user.id },
       orderBy: { createdAt: 'desc' },
@@ -28,6 +34,7 @@ export async function GET() {
             excerpt: true,
             format: true,
             visibility: true,
+            isDraft: true,
             publishedAt: true,
             coverImage: true,
             featured: true,
@@ -35,34 +42,46 @@ export async function GET() {
             pullQuote: true,
             location: true,
             processStage: true,
+            audience: { select: { email: true, userId: true } },
           },
         })
       : [];
-    const postBySlug = new Map(posts.map((post) => [post.slug, post]));
+    const postBySlug = new Map(
+      posts
+        .filter((post) => viewerCanAccessPost(
+          { visibility: (post.visibility === 'private' ? 'private' : 'public'), isDraft: post.isDraft },
+          viewer,
+          {
+            audienceEmails: post.audience.map((entry) => entry.email),
+            audienceUserIds: post.audience.map((entry) => entry.userId).filter((id): id is string => Boolean(id)),
+          },
+        ))
+        .map((post) => [post.slug, post]),
+    );
+
+    const visibleSaved = saved.filter((entry) => postBySlug.has(entry.postSlug));
 
     return NextResponse.json({
-      saved: saved.map((entry) => entry.postSlug),
-      items: saved.map((entry) => {
-        const post = postBySlug.get(entry.postSlug);
+      saved: visibleSaved.map((entry) => entry.postSlug),
+      items: visibleSaved.map((entry) => {
+        const post = postBySlug.get(entry.postSlug)!;
         return {
           postSlug: entry.postSlug,
           savedAt: entry.createdAt.toISOString(),
-          post: post
-            ? {
-                slug: post.slug,
-                title: post.title,
-                excerpt: post.excerpt,
-                format: post.format || 'article',
-                visibility: post.visibility || 'public',
-                publishedAt: post.publishedAt.toISOString(),
-                coverImage: post.coverImage || undefined,
-                featured: post.featured,
-                media: parsePostMedia(post.media),
-                pullQuote: post.pullQuote || undefined,
-                location: post.location || undefined,
-                processStage: post.processStage || undefined,
-              }
-            : null,
+          post: {
+            slug: post.slug,
+            title: post.title,
+            excerpt: post.excerpt,
+            format: post.format || 'article',
+            visibility: post.visibility || 'public',
+            publishedAt: post.publishedAt.toISOString(),
+            coverImage: post.coverImage || undefined,
+            featured: post.featured,
+            media: parsePostMedia(post.media),
+            pullQuote: post.pullQuote || undefined,
+            location: post.location || undefined,
+            processStage: post.processStage || undefined,
+          },
         };
       }),
     });
@@ -79,6 +98,15 @@ export async function POST(request: NextRequest) {
   try {
     const session = await requireUser();
     const payload = saveSchema.parse(await request.json());
+    const viewer = {
+      id: session.user.id,
+      email: session.user.email,
+      isAdmin: Boolean(session.user.isAdmin),
+    };
+    const post = await getPostBySlug(payload.postSlug, false, viewer);
+    if (!post) {
+      throw new ApiError(404, 'Update not found', 'POST_NOT_FOUND');
+    }
 
     await db.savedUpdate.upsert({
       where: {

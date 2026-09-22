@@ -7,7 +7,6 @@ import { SHIPPING_CARRIERS, trackingUrl } from '@/lib/shipping';
 import { type ShippingAddress, shippingAddressIsPopulated } from '@/lib/shipping-address';
 import { InventoryService } from '@/lib/inventory';
 import { OrderEmailService } from '@/lib/email';
-import { incrementPromoUsage } from '@/lib/promo-codes';
 import { getStripe } from '@/lib/stripe';
 
 export { SHIPPING_CARRIERS, trackingUrl };
@@ -510,38 +509,69 @@ export async function markOrderPaid(
     shipping?: number | null;
     tax?: number | null;
     total?: number | null;
-  }
-): Promise<Order | null> {
+  },
+  options?: {
+    promoCode?: string | null;
+  },
+): Promise<{ order: Order; claimed: boolean } | null> {
   const existing = await getOrderById(orderId);
   if (!existing) return null;
 
-  if (existing.paymentStatus === 'paid' && existing.status === 'confirmed') {
-    return existing;
+  if (existing.paymentStatus === 'paid') {
+    return { order: existing, claimed: false };
   }
 
-  const updated = await db.order.update({
-    where: { id: orderId },
-    data: {
-      status: 'confirmed',
-      paymentStatus: 'paid',
-      paymentIntentId: paymentIntentId || existing.paymentIntentId,
-      paymentMethod: paymentMethod || existing.paymentMethod,
-      ...(paidTotals?.shipping !== undefined && paidTotals.shipping !== null ? { shipping: paidTotals.shipping } : {}),
-      ...(paidTotals?.tax !== undefined && paidTotals.tax !== null ? { tax: paidTotals.tax } : {}),
-      ...(paidTotals?.total !== undefined && paidTotals.total !== null ? { total: paidTotals.total } : {}),
-      timeline: {
-        create: OrderManager.createTimelineEntry(
-          'confirmed',
-          OrderManager.getStatusMessage('confirmed'),
-          'Payment confirmed by Stripe',
-          undefined
-        ),
+  const promoCode = options?.promoCode?.trim().toUpperCase() || null;
+
+  const claimed = await db.$transaction(async (tx) => {
+    const result = await tx.order.updateMany({
+      where: {
+        id: orderId,
+        paymentStatus: { not: 'paid' },
       },
-    },
-    include: orderInclude,
+      data: {
+        status: 'confirmed',
+        paymentStatus: 'paid',
+        paymentIntentId: paymentIntentId || existing.paymentIntentId,
+        paymentMethod: paymentMethod || existing.paymentMethod,
+        ...(paidTotals?.shipping !== undefined && paidTotals.shipping !== null ? { shipping: paidTotals.shipping } : {}),
+        ...(paidTotals?.tax !== undefined && paidTotals.tax !== null ? { tax: paidTotals.tax } : {}),
+        ...(paidTotals?.total !== undefined && paidTotals.total !== null ? { total: paidTotals.total } : {}),
+      },
+    });
+
+    if (result.count === 0) return false;
+
+    const timeline = OrderManager.createTimelineEntry(
+      'confirmed',
+      OrderManager.getStatusMessage('confirmed'),
+      'Payment confirmed by Stripe',
+      undefined
+    );
+    await tx.orderTimelineEntry.create({
+      data: {
+        id: timeline.id,
+        orderId,
+        status: timeline.status,
+        message: timeline.message,
+        details: timeline.details,
+        trackingNumber: timeline.trackingNumber,
+        timestamp: timeline.timestamp,
+      },
+    });
+
+    if (promoCode) {
+      await tx.promoCode.updateMany({
+        where: { code: promoCode },
+        data: { usageCount: { increment: 1 } },
+      });
+    }
+
+    return true;
   });
 
-  return toDomainOrder(updated);
+  const order = await getOrderById(orderId);
+  return order ? { order, claimed } : null;
 }
 
 function stripeShippingDetails(session: Stripe.Checkout.Session) {
@@ -596,47 +626,44 @@ export async function finalizePaidOrder(
     stripeSession?: Stripe.Checkout.Session | null;
   },
 ): Promise<Order | null> {
-  const existing = await getOrderById(orderId);
-  if (!existing) return null;
-
-  const wasAlreadyPaid = existing.paymentStatus === 'paid';
-
   if (opts.stripeSession) {
     await syncShippingAddressFromStripe(orderId, opts.stripeSession);
   }
 
-  const order = await markOrderPaid(
+  const result = await markOrderPaid(
     orderId,
     opts.paymentIntentId,
     opts.paymentMethod,
     opts.paidTotals,
+    { promoCode: opts.promoCode },
   );
-  if (!order) return null;
+  if (!result) return null;
 
-  if (!wasAlreadyPaid) {
-    const promoCode = opts.promoCode?.trim().toUpperCase();
-    if (promoCode) {
-      await incrementPromoUsage(promoCode);
-    }
-    await InventoryService.fulfillReservationsForOrder(orderId);
-    await OrderEmailService.sendStatusUpdate(order, 'confirmed');
+  // Reservations are CAS'd to fulfilled — safe to retry on already-paid races.
+  await InventoryService.fulfillReservationsForOrder(orderId);
+
+  if (result.claimed) {
+    await OrderEmailService.sendStatusUpdate(result.order, 'confirmed');
     await db.analyticsEvent.create({
       data: {
         eventName: 'post_purchase_sequence_triggered',
-        userId: order.customerId,
+        userId: result.order.customerId,
         properties: JSON.stringify({
-          order_id: order.id,
-          order_number: order.orderNumber,
-          order_value: order.total,
+          order_id: result.order.id,
+          order_number: result.order.orderNumber,
+          order_value: result.order.total,
         }),
         timestamp: new Date(),
       },
     }).catch(() => undefined);
-  } else {
-    await InventoryService.fulfillReservationsForOrder(orderId);
   }
 
-  return order;
+  return result.order;
+}
+
+/** Stripe PaymentIntent ids are `pi_…`; synthetic checkout uses `e2e_payment_…`. */
+export function isLiveStripePaymentIntent(paymentIntentId: string | null | undefined): boolean {
+  return Boolean(paymentIntentId && paymentIntentId.startsWith('pi_'));
 }
 
 export async function refundOrder(orderId: string): Promise<Order> {
@@ -644,7 +671,7 @@ export async function refundOrder(orderId: string): Promise<Order> {
   if (!existing) {
     throw new Error('Order not found');
   }
-  if (existing.status === 'refunded') {
+  if (existing.status === 'refunded' || existing.paymentStatus === 'refunded') {
     return existing;
   }
   if (!OrderManager.canRefundOrder(existing)) {
@@ -654,20 +681,63 @@ export async function refundOrder(orderId: string): Promise<Order> {
     throw new Error('This order has no Stripe payment on file');
   }
 
-  const stripe = await getStripe();
-  await stripe.refunds.create({ payment_intent: existing.paymentIntentId });
+  const paymentIntentId = existing.paymentIntentId;
+  const liveStripe = isLiveStripePaymentIntent(paymentIntentId);
+
+  if (liveStripe) {
+    const stripe = await getStripe();
+    await stripe.refunds.create(
+      { payment_intent: paymentIntentId },
+      { idempotencyKey: `refund-order-${orderId}` },
+    );
+  } else if (!paymentIntentId.startsWith('e2e_payment_')) {
+    throw new Error('Order payment intent is not refundable through Stripe');
+  }
 
   await InventoryService.releaseStockForOrder(orderId);
 
-  const order = await updateOrder(orderId, {
-    status: 'refunded',
-    message: OrderManager.getStatusMessage('refunded'),
-    details: `Stripe refund issued for payment ${existing.paymentIntentId}`,
+  const claimed = await db.order.updateMany({
+    where: {
+      id: orderId,
+      paymentStatus: 'paid',
+      status: { not: 'refunded' },
+    },
+    data: {
+      status: 'refunded',
+      paymentStatus: 'refunded',
+    },
   });
-  if (!order) {
-    throw new Error('Failed to update order after refund');
+
+  if (claimed.count === 0) {
+    const current = await getOrderById(orderId);
+    if (current && (current.status === 'refunded' || current.paymentStatus === 'refunded')) {
+      return current;
+    }
+    throw new Error(
+      liveStripe
+        ? 'Stripe refund succeeded but order could not be marked refunded — reconcile manually'
+        : 'Failed to update order after refund',
+    );
   }
 
+  await db.orderTimelineEntry.create({
+    data: {
+      orderId,
+      ...OrderManager.createTimelineEntry(
+        'refunded',
+        OrderManager.getStatusMessage('refunded'),
+        liveStripe
+          ? `Stripe refund issued for payment ${paymentIntentId}`
+          : `Test refund recorded for payment ${paymentIntentId}`,
+        undefined
+      ),
+    },
+  });
+
+  const order = await getOrderById(orderId);
+  if (!order) {
+    throw new Error('Failed to load order after refund');
+  }
   return order;
 }
 
@@ -787,6 +857,7 @@ export class OrderManager {
    * Check if order can be refunded
    */
   static canRefundOrder(order: Order): boolean {
-    return ['confirmed', 'processing', 'shipped', 'delivered'].includes(order.status);
+    return order.paymentStatus === 'paid'
+      && ['confirmed', 'processing', 'shipped', 'delivered'].includes(order.status);
   }
 }

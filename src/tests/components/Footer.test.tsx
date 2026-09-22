@@ -53,9 +53,33 @@ describe('Footer Component', () => {
   });
 
   it('creates and verifies collector feed tokens', async () => {
-    const token = await createCollectorFeedToken('user-123');
-    const userId = await verifyCollectorFeedToken(token);
-    expect(userId).toBe('user-123');
-    expect(await verifyCollectorFeedToken('invalid.token')).toBeNull();
+    const previous = process.env.NEXTAUTH_SECRET;
+    process.env.NEXTAUTH_SECRET = 'test-feed-secret';
+    try {
+      const token = await createCollectorFeedToken('user-123');
+      const userId = await verifyCollectorFeedToken(token);
+      expect(userId).toBe('user-123');
+      expect(await verifyCollectorFeedToken('invalid.token')).toBeNull();
+      expect(await verifyCollectorFeedToken(await createCollectorFeedToken('user-123', Date.now() - 1000))).toBeNull();
+    } finally {
+      if (previous === undefined) delete process.env.NEXTAUTH_SECRET;
+      else process.env.NEXTAUTH_SECRET = previous;
+    }
+  });
+
+  it('fails closed when collector feed secret is missing', async () => {
+    const previousAuth = process.env.NEXTAUTH_SECRET;
+    const previousAlt = process.env.AUTH_SECRET;
+    delete process.env.NEXTAUTH_SECRET;
+    delete process.env.AUTH_SECRET;
+    try {
+      await expect(createCollectorFeedToken('user-123')).rejects.toThrow(/NEXTAUTH_SECRET|AUTH_SECRET/);
+      expect(await verifyCollectorFeedToken('anything.here')).toBeNull();
+    } finally {
+      if (previousAuth === undefined) delete process.env.NEXTAUTH_SECRET;
+      else process.env.NEXTAUTH_SECRET = previousAuth;
+      if (previousAlt === undefined) delete process.env.AUTH_SECRET;
+      else process.env.AUTH_SECRET = previousAlt;
+    }
   });
 });
