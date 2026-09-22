@@ -1,0 +1,50 @@
+name: pr-agent-describe-track
+description: Record or query the PR head SHA last described by PR Agent.
+
+inputs:
+  command:
+    description: needs-merge-describe | record-head | self-test
+    required: true
+  pr_number:
+    required: false
+    default: ""
+  head_sha:
+    required: false
+    default: ""
+  script:
+    description: Caller-owned override. Empty uses the bundled script.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        COMMAND: ${{ inputs.command }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+        HEAD_SHA: ${{ inputs.head_sha }}
+        OVERRIDE: ${{ inputs.script }}
+      run: |
+        set -euo pipefail
+        script="${{ github.action_path }}/../../scripts/pr-agent-describe-track.sh"
+        if [[ -n "${OVERRIDE//[[:space:]]/}" ]]; then
+          if [[ -f "$OVERRIDE" ]]; then
+            script="$OVERRIDE"
+          else
+            echo "::warning title=pr-agent-describe-track::override missing at ${OVERRIDE}; using bundled script"
+          fi
+        fi
+        [[ -f "$script" ]] || { echo "pr-agent-describe-track: ${script} missing" >&2; exit 2; }
+        case "$COMMAND" in
+          self-test) bash "$script" --self-test ;;
+          record-head)
+            [[ -n "$PR_NUMBER" && -n "$HEAD_SHA" ]] || { echo "record-head needs pr_number and head_sha" >&2; exit 2; }
+            bash "$script" --record-head "$PR_NUMBER" "$HEAD_SHA"
+            ;;
+          needs-merge-describe)
+            [[ -n "$PR_NUMBER" && -n "$HEAD_SHA" ]] || { echo "needs-merge-describe needs pr_number and head_sha" >&2; exit 2; }
+            bash "$script" --needs-merge-describe "$PR_NUMBER" "$HEAD_SHA"
+            ;;
+          *) echo "unknown command ${COMMAND}" >&2; exit 2 ;;
+        esac

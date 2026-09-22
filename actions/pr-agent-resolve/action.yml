@@ -1,0 +1,58 @@
+name: pr-agent-resolve
+description: Resolve PR Agent auto flags, range, and same-repo from the caller event.
+
+inputs:
+  profile:
+    description: minimal | standard | full
+    required: true
+  describe_track_script:
+    description: >-
+      Optional caller override for merge-describe tracking. Empty or missing
+      falls back to the platform bundled scripts/pr-agent-describe-track.sh.
+    required: false
+    default: ""
+
+outputs:
+  auto_review:
+    value: ${{ steps.resolve.outputs.auto_review }}
+  auto_describe:
+    value: ${{ steps.resolve.outputs.auto_describe }}
+  auto_improve:
+    value: ${{ steps.resolve.outputs.auto_improve }}
+  annotate:
+    value: ${{ steps.resolve.outputs.annotate }}
+  oneshot_label:
+    value: ${{ steps.resolve.outputs.oneshot_label }}
+  run_pragent:
+    value: ${{ steps.resolve.outputs.run_pragent }}
+  base_sha:
+    value: ${{ steps.resolve.outputs.base_sha }}
+  head_sha:
+    value: ${{ steps.resolve.outputs.head_sha }}
+  author:
+    value: ${{ steps.resolve.outputs.author }}
+  number:
+    value: ${{ steps.resolve.outputs.number }}
+  same_repo:
+    value: ${{ steps.resolve.outputs.same_repo }}
+
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        PROFILE: ${{ inputs.profile }}
+        DESCRIBE_TRACK_SCRIPT: ${{ inputs.describe_track_script }}
+        EVENT_NAME: ${{ github.event_name }}
+        EVENT_ACTION: ${{ github.event.action }}
+        LABEL_NAME: ${{ github.event.label.name }}
+        COMMENT_BODY: ${{ github.event.comment.body }}
+        PR_BASE: ${{ github.event.pull_request.base.sha }}
+        PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+        HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        PR_MERGED: ${{ github.event.pull_request.merged }}
+        GH_TOKEN: ${{ github.token }}
+      run: bash "${{ github.action_path }}/resolve.sh"

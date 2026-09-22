@@ -1,0 +1,177 @@
+name: PR Agent
+
+# Full-profile PR Agent (vendored from subatomic-github-workflows platform contract).
+# Same-repo only; skip via label pr-agent:skip. Re-run via pr-agent:run|improve|describe.
+# No synchronize auto-rerun — merge-describe covers post-open pushes; labels for manual refresh.
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, labeled, closed]
+  issue_comment:
+  workflow_dispatch:
+
+concurrency:
+  group: pr-agent-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  pr-agent:
+    name: PR Agent
+    if: >-
+      ${{ github.event.sender.type != 'Bot' && (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'issue_comment' &&
+          github.event.issue.pull_request &&
+          contains(fromJSON('["MEMBER","OWNER","COLLABORATOR"]'), github.event.comment.author_association) &&
+          (
+            contains(github.event.comment.body, '/review') ||
+            contains(github.event.comment.body, '/describe') ||
+            contains(github.event.comment.body, '/improve') ||
+            contains(github.event.comment.body, '/ask') ||
+            contains(github.event.comment.body, '/help') ||
+            contains(github.event.comment.body, '/reflect')
+          )
+        ) ||
+        (
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          !contains(github.event.pull_request.labels.*.name, 'pr-agent:skip') &&
+          (
+            (
+              github.event.action == 'labeled' &&
+              (
+                github.event.label.name == 'pr-agent:run' ||
+                github.event.label.name == 'pr-agent:improve' ||
+                github.event.label.name == 'pr-agent:describe'
+              )
+            ) ||
+            (
+              contains(fromJSON('["opened","reopened","ready_for_review"]'), github.event.action) &&
+              !github.event.pull_request.draft
+            ) ||
+            (
+              github.event.action == 'closed' &&
+              github.event.pull_request.merged == true
+            )
+          )
+        )
+      ) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Resolve PR range and tool flags
+        id: pr
+        uses: ./actions/pr-agent-resolve
+        with:
+          profile: full
+
+      - name: Require OPENAI_API_KEY before Qodo
+        if: steps.pr.outputs.run_pragent == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${OPENAI_API_KEY}" ]]; then
+            echo "::error::OPENAI_API_KEY is empty. Add that repository Actions secret (not OPENAI_KEY) before invoking Qodo."
+            exit 1
+          fi
+
+      - name: PR Agent action step
+        id: pragent
+        if: steps.pr.outputs.run_pragent == 'true'
+        # Pinned to v0.39.0 — avoid mutable @main for supply-chain safety.
+        uses: qodo-ai/pr-agent@8e4d32e5497defd43c023a404f73560c62728961 # v0.39.0
+        env:
+          OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          github_action_config.auto_review: ${{ steps.pr.outputs.auto_review }}
+          github_action_config.auto_describe: ${{ steps.pr.outputs.auto_describe }}
+          github_action_config.auto_improve: ${{ steps.pr.outputs.auto_improve }}
+          github_action_config.pr_actions: '["opened", "reopened", "ready_for_review", "labeled", "closed"]'
+
+      - name: Record described PR head
+        if: >-
+          steps.pragent.outcome == 'success' &&
+          steps.pr.outputs.head_sha != '' &&
+          steps.pr.outputs.number != '' &&
+          (
+            steps.pr.outputs.auto_describe == 'true' ||
+            (
+              github.event_name == 'issue_comment' &&
+              contains(github.event.comment.body, '/describe')
+            )
+          )
+        uses: ./actions/pr-agent-describe-track
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          command: record-head
+          pr_number: ${{ steps.pr.outputs.number }}
+          head_sha: ${{ steps.pr.outputs.head_sha }}
+
+      - name: Drop one-shot trigger label
+        if: >-
+          steps.pragent.outcome == 'success' &&
+          steps.pr.outputs.oneshot_label != '' &&
+          steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          LABEL: ${{ steps.pr.outputs.oneshot_label }}
+        run: |
+          set -euo pipefail
+          gh pr edit "$PR_NUMBER" --remove-label "$LABEL"
+
+      - name: Checkout PR head for blame
+        if: >-
+          steps.pr.outputs.annotate == 'true' &&
+          steps.pr.outputs.head_sha != '' &&
+          steps.pr.outputs.same_repo == 'true'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ steps.pr.outputs.head_sha }}
+          fetch-depth: 0
+
+      - name: Fetch merge-base for blame
+        if: >-
+          steps.pr.outputs.annotate == 'true' &&
+          steps.pr.outputs.head_sha != '' &&
+          steps.pr.outputs.same_repo == 'true'
+        env:
+          BASE_SHA: ${{ steps.pr.outputs.base_sha }}
+        run: git fetch --no-tags origin "$BASE_SHA"
+
+      - name: Self-test prior authors
+        if: >-
+          steps.pr.outputs.annotate == 'true' &&
+          steps.pr.outputs.head_sha != '' &&
+          steps.pr.outputs.same_repo == 'true'
+        uses: ./actions/pr-agent-contacts
+        with:
+          command: self-test
+
+      - name: Annotate suggestions with prior authors
+        if: >-
+          steps.pr.outputs.annotate == 'true' &&
+          steps.pr.outputs.head_sha != '' &&
+          steps.pr.outputs.same_repo == 'true'
+        uses: ./actions/pr-agent-contacts
+        env:
+          BASE_SHA: ${{ steps.pr.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          PR_AUTHOR_LOGIN: ${{ steps.pr.outputs.author }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          command: annotate
