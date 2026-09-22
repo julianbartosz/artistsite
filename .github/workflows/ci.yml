@@ -110,6 +110,20 @@ jobs:
     timeout-minutes: 30
     needs: quality-gates
     if: github.event_name == 'pull_request'
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: artistsite_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d artistsite_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -125,6 +139,9 @@ jobs:
 
       - name: Generate Prisma client
         run: npx prisma generate
+
+      - name: Apply database migrations
+        run: npx prisma migrate deploy
 
       - name: Build application
         run: npm run build
@@ -142,15 +159,21 @@ jobs:
           npm start &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
-          for _ in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1 \
-              || curl -fsS http://127.0.0.1:3000/ >/dev/null 2>&1; then
+          ready=0
+          for _ in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:3000/ >/dev/null 2>&1; then
+              ready=1
               break
             fi
             sleep 2
           done
+          if [[ "$ready" -ne 1 ]]; then
+            echo "::error::Next.js server did not become ready for Lighthouse"
+            exit 1
+          fi
           lhci autorun
         env:
           LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
           NEXTAUTH_SECRET: ci-build-placeholder-not-for-production
           NEXTAUTH_URL: http://127.0.0.1:3000
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/artistsite_ci?schema=public
