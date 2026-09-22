@@ -13,6 +13,7 @@ Behavior matches the platform **full** profile: label triggers, merge-describe t
 | Trigger | Behavior |
 |---------|----------|
 | PR opened, reopened, or ready for review (non-draft, same-repo) | Auto review + describe + improve |
+| PR synchronize (push to open PR) | Auto review; describe when head differs from last described SHA |
 | Label `pr-agent:run` / `pr-agent:improve` / `pr-agent:describe` | One-shot re-run (label removed after success) |
 | PR merged | Merge-describe if head changed since last described SHA |
 | PR comment from member / owner / collaborator | Runs for `/review`, `/describe`, `/improve`, `/ask`, `/help`, `/reflect` |

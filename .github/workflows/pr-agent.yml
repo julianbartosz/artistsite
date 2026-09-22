@@ -2,11 +2,11 @@ name: PR Agent
 
 # Full-profile PR Agent (vendored from subatomic-github-workflows platform contract).
 # Same-repo only; skip via label pr-agent:skip. Re-run via pr-agent:run|improve|describe.
-# No synchronize auto-rerun — merge-describe covers post-open pushes; labels for manual refresh.
+# synchronize refreshes review (and describe when head differs from last described).
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review, labeled, closed]
+    types: [opened, reopened, ready_for_review, synchronize, labeled, closed]
   issue_comment:
   workflow_dispatch:
 
@@ -52,7 +52,7 @@ jobs:
               )
             ) ||
             (
-              contains(fromJSON('["opened","reopened","ready_for_review"]'), github.event.action) &&
+              contains(fromJSON('["opened","reopened","ready_for_review","synchronize"]'), github.event.action) &&
               !github.event.pull_request.draft
             ) ||
             (
@@ -98,7 +98,7 @@ jobs:
           github_action_config.auto_review: ${{ steps.pr.outputs.auto_review }}
           github_action_config.auto_describe: ${{ steps.pr.outputs.auto_describe }}
           github_action_config.auto_improve: ${{ steps.pr.outputs.auto_improve }}
-          github_action_config.pr_actions: '["opened", "reopened", "ready_for_review", "labeled", "closed"]'
+          github_action_config.pr_actions: '["opened", "reopened", "ready_for_review", "synchronize", "labeled", "closed"]'
 
       - name: Record described PR head
         if: >-

@@ -90,6 +90,25 @@ resolve() {
         annotate=true
         run_pragent=true
         ;;
+      synchronize)
+        # Push to an open PR: review + describe when head changed; skip improve spam.
+        if [[ "$profile" != "minimal" && -n "${number}" && -n "${PR_HEAD:-}" && -f "$track" ]]; then
+          if bash "$track" --needs-merge-describe "$number" "${PR_HEAD}"; then
+            auto_review=true
+            auto_describe=true
+            annotate=true
+            run_pragent=true
+          else
+            auto_review=true
+            annotate=true
+            run_pragent=true
+          fi
+        elif [[ "$profile" != "minimal" ]]; then
+          auto_review=true
+          annotate=true
+          run_pragent=true
+        fi
+        ;;
       labeled)
         if [[ "$profile" != "minimal" ]]; then
           run_pragent=true
@@ -216,6 +235,28 @@ _run_self_test() {
     PR_BASE=b PR_HEAD=h PR_AUTHOR=a PR_NUMBER=1 HEAD_REPO=Gen-AI-Partners/example \
     _check "full labeled run" true true
 
+  PROFILE=minimal EVENT_NAME=pull_request EVENT_ACTION=synchronize \
+    PR_BASE=b PR_HEAD=h PR_AUTHOR=a PR_NUMBER=1 HEAD_REPO=Gen-AI-Partners/example \
+    _check "minimal synchronize ignored" false false
+
+  local mock
+  mock="$(mktemp)"
+  printf '%s\n' '#!/bin/sh' 'exit 0' >"$mock"
+  chmod +x "$mock"
+  PROFILE=full EVENT_NAME=pull_request EVENT_ACTION=synchronize \
+    PR_BASE=b PR_HEAD="$(printf 'a%.0s' {1..40})" PR_AUTHOR=a PR_NUMBER=1 HEAD_REPO=Gen-AI-Partners/example \
+    DESCRIBE_TRACK_SCRIPT="$mock" \
+    _check "full synchronize when describe needed" true true
+  rm -f "$mock"
+
+  printf '%s\n' '#!/bin/sh' 'exit 1' >"$mock"
+  chmod +x "$mock"
+  PROFILE=full EVENT_NAME=pull_request EVENT_ACTION=synchronize \
+    PR_BASE=b PR_HEAD="$(printf 'b%.0s' {1..40})" PR_AUTHOR=a PR_NUMBER=1 HEAD_REPO=Gen-AI-Partners/example \
+    DESCRIBE_TRACK_SCRIPT="$mock" \
+    _check "full synchronize review without describe" true true
+  rm -f "$mock"
+
   PROFILE=full EVENT_NAME=pull_request EVENT_ACTION=labeled LABEL_NAME=unrelated \
     PR_BASE=b PR_HEAD=h PR_AUTHOR=a PR_NUMBER=1 HEAD_REPO=Gen-AI-Partners/example \
     _check "full unrelated label ignored" false false
@@ -231,7 +272,6 @@ _run_self_test() {
   PROFILE=standard EVENT_NAME=workflow_dispatch PR_HEAD='' PR_NUMBER='' \
     _check "workflow_dispatch runs" true false
 
-  local mock
   mock="$(mktemp)"
   printf '%s\n' '#!/bin/sh' 'exit 0' >"$mock"
   chmod +x "$mock"
