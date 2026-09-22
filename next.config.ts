@@ -175,7 +175,7 @@ const nextConfig: NextConfig = {
               chunks: 'async',
             },
             markdown: {
-              test: /[\\/]node_modules[\\/](mdx-bundler|@mdx-js|remark|rehype)[\\/]/,
+              test: /[\\/]node_modules[\\/](@mdx-js|remark|rehype)[\\/]/,
               name: 'markdown',
               priority: 10,
               chunks: 'async',

@@ -239,7 +239,7 @@ export function FilterSidebar({
 
   const activeFilterCount = getActiveFilterCount();
 
-  const filterPanel = (
+  const renderFilterPanel = (includeMobileSort: boolean) => (
     <>
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold text-gray-900">Filters</h3>
@@ -255,8 +255,8 @@ export function FilterSidebar({
         )}
       </div>
 
-      {sortOptions && sortOptions.length > 0 && onSortChange && (
-        <div className="mb-6 border-b border-gray-200 pb-6 lg:hidden">
+      {includeMobileSort && sortOptions && sortOptions.length > 0 && onSortChange && (
+        <div className="mb-6 border-b border-gray-200 pb-6">
           <label htmlFor="shop-sort-sheet" className="mb-2 block text-sm font-medium text-gray-900">
             Sort by
           </label>
@@ -429,7 +429,7 @@ export function FilterSidebar({
                 <XMarkIcon className="h-5 w-5" />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-6">{filterPanel}</div>
+            <div className="flex-1 overflow-y-auto p-6">{renderFilterPanel(true)}</div>
             <div className="border-t border-gray-200 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
               <button
                 type="button"
@@ -444,7 +444,7 @@ export function FilterSidebar({
       )}
 
       <div className={`hidden lg:block bg-white border border-gray-200 rounded-lg p-6 ${className}`}>
-        {filterPanel}
+        {renderFilterPanel(false)}
       </div>
     </>
   );

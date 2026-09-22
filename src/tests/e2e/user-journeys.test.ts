@@ -1,5 +1,18 @@
 // End-to-End User Journey Tests
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+async function addVisibleProductToCart(page: Page) {
+  await page.locator('[data-testid="add-to-cart"]:visible').first().click();
+}
+
+async function openCheckoutFromCart(page: Page) {
+  const proceed = page.getByTestId('proceed-to-checkout');
+  if (!(await proceed.isVisible())) {
+    await page.getByTestId('cart-icon').click();
+  }
+  await expect(proceed).toBeVisible();
+  await proceed.click();
+}
 
 test.describe('Critical User Journeys', () => {
   test.beforeEach(async ({ page }) => {
@@ -13,12 +26,11 @@ test.describe('Critical User Journeys', () => {
     await page.waitForSelector('[data-testid="product-card-link"]', { timeout: 15000 });
 
     await page.locator('[data-testid="product-card-link"]').first().click();
-    await page.waitForSelector('[data-testid="add-to-cart"]');
-    await page.click('[data-testid="add-to-cart"]');
+    await expect(page.locator('[data-testid="add-to-cart"]:visible').first()).toBeVisible();
+    await addVisibleProductToCart(page);
     await expect(page.locator('[data-testid="cart-count"]')).toContainText('1');
 
-    await page.click('[data-testid="cart-icon"]');
-    await page.click('[data-testid="proceed-to-checkout"]');
+    await openCheckoutFromCart(page);
     await expect(page).toHaveURL(/\/checkout/);
     await expect(page.getByTestId('proceed-to-checkout')).toHaveCount(0);
 
@@ -76,7 +88,7 @@ test.describe('Critical User Journeys', () => {
     await page.goto('/shop');
     await page.waitForSelector('[data-testid="product-card-link"]', { timeout: 15000 });
     await page.locator('[data-testid="product-card-link"]').first().click();
-    await page.click('[data-testid="add-to-cart"]');
+    await addVisibleProductToCart(page);
     await expect(page.locator('[data-testid="cart-count"]')).toContainText('1');
   });
 
@@ -85,8 +97,9 @@ test.describe('Critical User Journeys', () => {
     await page.goto('/shop');
     await page.waitForSelector('[data-testid="product-card-link"]', { timeout: 15000 });
     await page.getByRole('button', { name: /Filters & sort/i }).click();
-    await expect(page.getByLabel('Sort by')).toBeVisible();
-    await page.getByLabel('Sort by').selectOption('newest');
+    const mobileSort = page.getByRole('dialog', { name: 'Shop filters' }).locator('#shop-sort-sheet');
+    await expect(mobileSort).toBeVisible();
+    await mobileSort.selectOption('newest');
     await expect(page).toHaveURL(/sort=newest/);
   });
 
@@ -102,7 +115,7 @@ test.describe('Critical User Journeys', () => {
 
     await page.goto('/admin?tab=inbox');
     await expect(page.getByRole('tab', { name: 'Inbox', selected: true })).toBeVisible();
-    await expect(page.getByText('Hidden comments')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Hidden comments' })).toBeVisible();
   });
 
   test('Performance and accessibility', async ({ page }) => {

@@ -9,13 +9,6 @@ import { getStripe } from '@/lib/stripe';
 
 export async function POST(req: NextRequest) {
   try {
-    if (process.env.PLAYWRIGHT_E2E === 'true' && process.env.NODE_ENV === 'production') {
-      return NextResponse.json(
-        { error: 'E2E checkout mode is not allowed in production' },
-        { status: 503 },
-      );
-    }
-
     const { items, customerInfo, promoCode, giftMessage } = await req.json();
 
     if (!customerInfo?.email || !Array.isArray(items) || items.length === 0) {

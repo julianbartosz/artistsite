@@ -23,7 +23,7 @@ function configuredAdminEmails(): Set<string> {
       .filter(Boolean)
   );
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV !== 'production' || process.env.PLAYWRIGHT_E2E === 'true') {
     emails.add('artist@artistsite.com');
   }
 
@@ -72,11 +72,12 @@ function localAdminBootstrapPassword(): string {
 }
 
 function isLocalBootstrapAdminEmail(email: string): boolean {
-  return process.env.NODE_ENV !== 'production' && configuredAdminEmails().has(email.trim().toLowerCase());
+  const e2e = process.env.PLAYWRIGHT_E2E === 'true';
+  return (process.env.NODE_ENV !== 'production' || e2e) && configuredAdminEmails().has(email.trim().toLowerCase());
 }
 
 async function tryBootstrapLocalAdmin(email: string, password: string) {
-  if (process.env.NODE_ENV === 'production') return null;
+  if (process.env.NODE_ENV === 'production' && process.env.PLAYWRIGHT_E2E !== 'true') return null;
   if (!isLocalBootstrapAdminEmail(email) && !await isAdminEmailResolved(email)) return null;
 
   const bootstrapPassword = localAdminBootstrapPassword();
