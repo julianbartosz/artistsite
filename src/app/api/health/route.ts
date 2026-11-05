@@ -107,19 +107,20 @@ export async function GET(req: NextRequest) {
       },
     };
 
-    // Determine overall health status
-    const isHealthy = 
-      databaseStatus === 'healthy' &&
-      metrics.memory.percentage < 90 &&
-      metrics.performance.responseTime < 2000 &&
-      !externalServices.some(service => service.includes('unreachable'));
+    // Liveness for the studio and load balancers: only fail when the database cannot serve traffic.
+    // Memory pressure and optional integrations are reported as degraded without taking the site offline.
+    const databaseReady = databaseStatus === 'healthy';
+    const isDegraded =
+      !databaseReady
+      || metrics.performance.responseTime >= 2000
+      || externalServices.some((service) => service.includes('unreachable'));
 
     return NextResponse.json({
-      status: isHealthy ? 'healthy' : 'degraded',
+      status: !databaseReady ? 'unhealthy' : isDegraded ? 'degraded' : 'healthy',
       databaseHint,
       ...metrics,
     }, { 
-      status: isHealthy ? 200 : 503,
+      status: databaseReady ? 200 : 503,
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',

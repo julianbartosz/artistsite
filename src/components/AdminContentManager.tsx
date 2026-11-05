@@ -4,6 +4,7 @@ import React, { FormEvent, useEffect, useState } from 'react';
 import RichTextEditor from '@/components/RichTextEditor';
 import GalleryField from '@/components/admin/GalleryField';
 import MediaImageField from '@/components/admin/MediaImageField';
+import ProductPurchaseOptionsFields from '@/components/admin/ProductPurchaseOptionsFields';
 import type { PostMediaItem } from '@/lib/admin-content';
 import { POST_PROCESS_STAGES } from '@/lib/admin-content';
 
@@ -17,6 +18,14 @@ const blankProduct = {
   title: '', description: '', price: 0, currency: 'USD', category: 'paintings', medium: 'Mixed Media', dimensions: '', year: new Date().getFullYear(),
   availability: 'available', featured: false, images: { thumbnail: '', gallery: [] as string[] }, tags: [] as string[],
   shipping: { domestic: 0, international: 0 }, specifications: { framed: false, signed: true, certificate: true },
+  variants: undefined as undefined | { sizes?: unknown[]; framing?: unknown[]; materials?: unknown[] },
+  customizations: [] as unknown[],
+  commissionInfo: null as null | {
+    available: boolean;
+    estimatedDays: number;
+    priceRange: { min: number; max: number };
+    requiresConsultation: boolean;
+  },
 };
 
 const blankPost = {
@@ -182,7 +191,18 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <TextField label="Dimensions" value={productForm.dimensions} onChange={(value) => setProductForm({ ...productForm, dimensions: value })} />
             <TextField label="Year" type="number" value={productForm.year} onChange={(value) => setProductForm({ ...productForm, year: Number(value) })} />
-            <SelectField label="Availability" value={productForm.availability} options={['available', 'sold', 'reserved', 'commissioned']} onChange={(value) => setProductForm({ ...productForm, availability: value })} />
+            <SelectField
+              label="Availability"
+              value={productForm.availability}
+              options={['available', 'sold', 'reserved', 'commissioned']}
+              optionLabels={{
+                available: 'Available',
+                sold: 'Sold',
+                reserved: 'Reserved',
+                commissioned: 'Commission only',
+              }}
+              onChange={(value) => setProductForm({ ...productForm, availability: value })}
+            />
           </div>
           <MediaImageField
             label="Thumbnail"
@@ -209,6 +229,19 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
           </div>
           <TextField label="How many do you have?" type="number" value={productStock} onChange={(value) => setProductStock(Number(value) || 0)} />
           <CheckboxField label="Featured" checked={Boolean(productForm.featured)} onChange={(checked) => setProductForm({ ...productForm, featured: checked })} />
+          <ProductPurchaseOptionsFields
+            value={{
+              variants: productForm.variants,
+              customizations: productForm.customizations,
+              commissionInfo: productForm.commissionInfo,
+            }}
+            onChange={(next) => setProductForm({
+              ...productForm,
+              variants: next.variants,
+              customizations: next.customizations,
+              commissionInfo: next.commissionInfo,
+            })}
+          />
           <ActionRow saving={saving} onDelete={selectedProduct ? () => remove(`/api/admin/products/${selectedProduct.id}`) : undefined} />
         </form>
       </div>

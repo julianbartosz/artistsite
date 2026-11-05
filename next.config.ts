@@ -57,35 +57,19 @@ const nextConfig: NextConfig = {
     ];
   },
 
-  // Enhanced caching and ISR
+  // Config headers override route-handler headers, so API caching stays per-route and
+  // /_next/static keeps Next's own policy (hashed + immutable in prod, no-store in dev).
+  // /images files are replaced in place, so they must revalidate.
   async headers() {
-    const staticCacheHeaders =
-      process.env.NODE_ENV === 'production'
-        ? [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }]
-        : [{ key: 'Cache-Control', value: 'no-store, must-revalidate' }];
-
     return [
-      {
-        source: '/api/:path*',
-        headers: [
-          {
-            key: 'Cache-Control',
-            value: 'public, max-age=60, stale-while-revalidate=300',
-          },
-        ],
-      },
       {
         source: '/images/:path*',
         headers: [
           {
             key: 'Cache-Control',
-            value: 'public, max-age=31536000, immutable',
+            value: 'public, max-age=86400, stale-while-revalidate=604800',
           },
         ],
-      },
-      {
-        source: '/_next/static/:path*',
-        headers: staticCacheHeaders,
       },
     ];
   },

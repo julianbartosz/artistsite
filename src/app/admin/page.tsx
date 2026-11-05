@@ -4,7 +4,7 @@ import AdminDashboard from './AdminDashboard';
 import { getSiteContent, themeCssVariables } from '@/lib/site-content';
 
 export const metadata: Metadata = {
-  title: 'Admin Dashboard - Content Management',
+  title: 'Studio',
   description: 'Manage updates, portfolio items, and site content',
   robots: {
     index: false,

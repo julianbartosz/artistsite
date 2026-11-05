@@ -110,9 +110,19 @@ export function normalizeVariant(variant: RawProductVariant): ProductVariant {
   };
 }
 
+function normalizeVariantGroup(variants?: RawProductVariant[]): ProductVariant[] | undefined {
+  if (!variants?.length) return undefined;
+  return variants.map(normalizeVariant);
+}
+
 export function normalizeProduct(product: ProductInput): Product {
   const gallery = product.images.gallery.map(image => image.trim()).filter(Boolean);
   const thumbnail = product.images.thumbnail.trim() || gallery[0] || PRODUCT_IMAGE_FALLBACK;
+  const sizes = normalizeVariantGroup(product.variants?.sizes);
+  const framing = normalizeVariantGroup(product.variants?.framing);
+  const materials = normalizeVariantGroup(product.variants?.materials);
+  const hasVariants = Boolean(sizes || framing || materials);
+  const customizations = product.customizations?.length ? product.customizations : undefined;
 
   return {
     ...product,
@@ -121,14 +131,19 @@ export function normalizeProduct(product: ProductInput): Product {
       thumbnail,
       gallery: gallery.length > 0 ? gallery : [thumbnail],
     },
-    variants: product.variants
-      ? {
-          sizes: product.variants.sizes?.map(normalizeVariant),
-          framing: product.variants.framing?.map(normalizeVariant),
-          materials: product.variants.materials?.map(normalizeVariant),
-        }
-      : undefined,
+    variants: hasVariants ? { sizes, framing, materials } : undefined,
+    customizations,
   } as Product;
+}
+
+/** True when the product exposes size/frame/material or customization choices. */
+export function productHasPurchaseOptions(product: Product): boolean {
+  return Boolean(
+    product.variants?.sizes?.length
+    || product.variants?.framing?.length
+    || product.variants?.materials?.length
+    || product.customizations?.length,
+  );
 }
 
 export function productImageSrc(

@@ -19,7 +19,14 @@ export function safeCallbackUrl(raw: string | null | undefined): string {
     return '/account';
   }
 
-  return decoded;
+  const base = 'http://callback.local';
+  const parsed = new URL(decoded, base);
+  if (parsed.origin !== base) {
+    return '/account';
+  }
+
+  // next-auth reloads instead of navigating when the redirect URL carries a fragment.
+  return `${parsed.pathname}${parsed.search}`;
 }
 
 export function destinationAfterSignIn(requested: string, isAdmin: boolean): string {
@@ -92,7 +99,7 @@ export default function SignInForm({ callbackUrlParam }: { callbackUrlParam: str
         </h2>
         <p className="mt-2 text-center text-sm text-gray-600">
           Or{' '}
-          <Link href="/auth/signup" className="font-medium text-gray-900 hover:text-gray-700">
+          <Link href={`/auth/signup?callbackUrl=${encodeURIComponent(requestedCallbackUrl)}`} className="font-medium text-gray-900 hover:text-gray-700">
             create a new account
           </Link>
         </p>

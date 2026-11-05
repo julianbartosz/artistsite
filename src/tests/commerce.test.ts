@@ -4,9 +4,12 @@ import {
   calculateVariantPrice,
   productImageSrc,
   normalizeProduct,
+  productHasPurchaseOptions,
   PRODUCT_IMAGE_FALLBACK,
   type Product,
 } from '@/lib/commerce';
+import { resolvePublicAssetUrl } from '@/lib/public-asset';
+import { normalizeProductPayload } from '@/lib/admin-content';
 import { pickVariantUrl } from '@/lib/image-variant-url';
 import { createCartRecoveryToken, verifyCartRecoveryToken } from '@/lib/cart-recovery';
 import {
@@ -14,10 +17,16 @@ import {
   activeFilterChips,
   removeFilterChip,
   activeFilterCount,
+  displayFilterLabel,
 } from '@/lib/search-params';
 import { applyCommissionIntake } from '@/lib/commission-intake';
 import {
   DEFAULT_CONTACT_PAGE,
+  DEFAULT_HOME_PAGE,
+  DEFAULT_SHOP_PAGE,
+  QUIET_SHOP_CATALOG_LIMIT,
+  SITE_CONTENT_DEFAULTS,
+  applySiteLookbook,
   whiteTextContrastOnPrimary,
   contrastRatio,
   themeCssVariables,
@@ -84,11 +93,81 @@ describe('Commerce Library', () => {
       })).toBe('/uploads/images/abc123-thumb.webp');
     });
   });
+
+  describe('normalizeProduct purchase options', () => {
+    it('drops empty customization and variant groups', () => {
+      const normalized = normalizeProduct({
+        ...sampleProduct,
+        customizations: [],
+        variants: { sizes: [], framing: [], materials: [] },
+      });
+      expect(normalized.customizations).toBeUndefined();
+      expect(normalized.variants).toBeUndefined();
+      expect(productHasPurchaseOptions(normalized)).toBe(false);
+    });
+
+    it('keeps real framing options', () => {
+      const normalized = normalizeProduct({
+        ...sampleProduct,
+        variants: {
+          framing: [{ id: 'frame-1', name: 'White', priceModifier: 120, available: true }],
+        },
+      });
+      expect(normalized.variants?.framing).toHaveLength(1);
+      expect(productHasPurchaseOptions(normalized)).toBe(true);
+    });
+  });
+});
+
+describe('normalizeProductPayload purchase options', () => {
+  it('persists framing options and clears empty commission blocks', () => {
+    const payload = normalizeProductPayload({
+      title: 'Studio Print',
+      description: 'Test',
+      price: 120,
+      currency: 'USD',
+      category: 'prints',
+      medium: 'Ink',
+      dimensions: '16x20',
+      year: 2024,
+      availability: 'available',
+      featured: false,
+      images: { thumbnail: '/images/shop/placeholder-7.jpg', gallery: [] },
+      tags: [],
+      shipping: { domestic: 10, international: 25 },
+      specifications: { framed: false, signed: true, certificate: true },
+      variants: {
+        framing: [{ id: 'frame-1', name: 'White', priceModifier: 60, available: true }],
+      },
+      customizations: [],
+      commissionInfo: { available: false, estimatedDays: 30, priceRange: { min: 0, max: 0 }, requiresConsultation: false },
+    });
+    expect(payload.variants?.framing).toHaveLength(1);
+    expect(payload.customizations).toEqual([]);
+    expect(payload.commissionInfo).toBeNull();
+  });
 });
 
 describe('image variant urls', () => {
   it('maps upload urls to webp variants', () => {
     expect(pickVariantUrl('/uploads/images/photo.jpg', 'md')).toBe('/uploads/images/photo-md.webp');
+  });
+});
+
+describe('resolvePublicAssetUrl', () => {
+  it('falls back for missing local public files', () => {
+    expect(resolvePublicAssetUrl('/images/portfolio/does-not-exist.jpg')).toBe(PRODUCT_IMAGE_FALLBACK);
+  });
+
+  it('keeps existing local public files', () => {
+    expect(resolvePublicAssetUrl('/images/fallback-artwork.svg')).toBe('/images/fallback-artwork.svg');
+    expect(resolvePublicAssetUrl('/images/portfolio/golden-hour-thumb.jpg')).toBe(
+      '/images/portfolio/golden-hour-thumb.jpg',
+    );
+  });
+
+  it('passes remote urls through unchanged', () => {
+    expect(resolvePublicAssetUrl('https://cdn.example.com/art.jpg')).toBe('https://cdn.example.com/art.jpg');
   });
 });
 
@@ -115,6 +194,16 @@ describe('search params helpers', () => {
   it('builds stable keys regardless of param order', () => {
     expect(stableSearchParamsKey(new URLSearchParams('sort=price&page=2'))).toBe('page=2&sort=price');
     expect(stableSearchParamsKey(new URLSearchParams('page=2&sort=price'))).toBe('page=2&sort=price');
+  });
+
+  it.each([
+    ['light-studies', 'Light Studies'],
+    ['night-series', 'Night Series'],
+    ['abstract', 'Abstract'],
+    ['mixed_media', 'Mixed Media'],
+    ['Oil on canvas', 'Oil On Canvas'],
+  ])('displayFilterLabel(%s) → %s', (input, expected) => {
+    expect(displayFilterLabel(input)).toBe(expected);
   });
 
   it('lists and removes active filter chips', () => {
@@ -242,5 +331,28 @@ describe('site theme utilities', () => {
       cardStyle: 'bold',
     });
     expect(bold['--shadow-card']).toContain('4px');
+  });
+
+  it.each([
+    ['gallery-wall', 'gallery', false, false],
+    ['compact-studio', 'studio', false, false],
+    ['warm-print', 'studio', true, true],
+    ['night-opening', 'bold', false, true],
+  ] as const)('applySiteLookbook(%s) sets cardStyle=%s and shop chrome', (id, cardStyle, recentlyViewed, purchaseInfo) => {
+    const next = applySiteLookbook(SITE_CONTENT_DEFAULTS, id);
+    expect(next.identity.theme.cardStyle).toBe(cardStyle);
+    expect(next.shop.showRecentlyViewed).toBe(recentlyViewed);
+    expect(next.shop.showPurchaseInfo).toBe(purchaseInfo);
+    expect(next.home.newsletter.showSection).toBe(id === 'warm-print' || id === 'night-opening');
+  });
+
+  it('keeps lean homepage defaults for new sites', () => {
+    expect(DEFAULT_HOME_PAGE.newsletter.showSection).toBe(true);
+    expect(DEFAULT_HOME_PAGE.blog.showSection).toBe(false);
+    expect(DEFAULT_HOME_PAGE.about.showSection).toBe(false);
+    expect(DEFAULT_HOME_PAGE.hero.showSecondaryCtas).toBe(false);
+    expect(DEFAULT_HOME_PAGE.hero.portraitImage).toBe('/images/artist-portrait.jpg');
+    expect(DEFAULT_SHOP_PAGE.showRecommendations).toBe(false);
+    expect(QUIET_SHOP_CATALOG_LIMIT).toBe(12);
   });
 });

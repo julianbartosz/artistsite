@@ -1,7 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { Product, CartItemVariant, formatPrice, calculateVariantPrice } from '@/lib/commerce';
+import {
+  Product,
+  CartItemVariant,
+  formatPrice,
+  calculateVariantPrice,
+  productHasPurchaseOptions,
+} from '@/lib/commerce';
 import { useCart } from './CartContext';
 import ProductVariantSelector from './ProductVariantSelector';
 import CustomCommissionRequest from './CustomCommissionRequest';
@@ -12,6 +18,8 @@ interface AddToCartButtonProps {
   purchasable?: boolean;
   className?: string;
   showVariants?: boolean;
+  /** full = shipping + badges (PDP). compact = purchase/commission actions only (quick look). */
+  details?: 'full' | 'compact';
   size?: 'sm' | 'md' | 'lg';
 }
 
@@ -20,6 +28,7 @@ export default function AddToCartButton({
   purchasable = true,
   className = '', 
   showVariants = true,
+  details = 'full',
   size = 'md' 
 }: AddToCartButtonProps) {
   const { addItem, openCart, state } = useCart();
@@ -34,6 +43,17 @@ export default function AddToCartButton({
   const isAvailable = product.availability === 'available' && purchasable;
   const isCommissionOnly = product.availability === 'commissioned';
   const isSoldOut = product.availability === 'sold' || product.availability === 'reserved' || (product.availability === 'available' && !purchasable);
+  const commissionAvailable = Boolean(product.commissionInfo?.available) || isCommissionOnly;
+  const showOptionSelector = showVariants && (
+    details === 'full'
+      ? productHasPurchaseOptions(product)
+      : Boolean(
+          product.variants?.sizes?.length
+          || product.variants?.framing?.length
+          || product.variants?.materials?.length
+          || product.customizations?.some((item) => item.type === 'select' || item.required),
+        )
+  );
 
   // Helper function to generate item key - moved before usage
   const generateItemKey = (productId: string, variant?: CartItemVariant): string => {
@@ -180,20 +200,37 @@ export default function AddToCartButton({
     );
   }
 
+  const commissionLabel = isCommissionOnly ? 'Request Commission' : 'Commission a similar piece';
+  const commissionHelper = product.commissionInfo
+    ? `Similar pieces from ${formatPrice(product.commissionInfo.priceRange.min)} · about ${product.commissionInfo.estimatedDays} days`
+    : null;
+  const statusLabel = product.availability === 'sold'
+    ? 'Sold'
+    : product.availability === 'reserved'
+      ? 'Reserved'
+      : 'Unavailable';
+
   return (
-    <div className="space-y-6">
-      {/* Product Variants */}
-      {showVariants && (product.variants || product.customizations) && (
+    <div className={details === 'compact' ? 'space-y-4' : 'space-y-6'}>
+      {showOptionSelector && (
         <ProductVariantSelector
           product={product}
           onVariantChange={handleVariantChange}
           onPriceChange={() => {}}
+          density={details === 'compact' ? 'compact' : 'full'}
         />
       )}
 
-      {/* Action Buttons */}
       <div className="space-y-3">
-        {/* Regular Purchase Button */}
+        {isSoldOut && (
+          <p
+            className={`w-full rounded-lg bg-gray-100 text-center font-medium text-gray-600 ${buttonSizes[size]}`}
+            role="status"
+          >
+            {statusLabel}
+          </p>
+        )}
+
         {isAvailable && (
           <button
             onClick={handleAddToCart}
@@ -223,79 +260,61 @@ export default function AddToCartButton({
           </button>
         )}
 
-        {/* Commission Request Button */}
-        {(isCommissionOnly || product.commissionInfo?.available) && (
-          <button
-            onClick={() => setShowCommissionForm(true)}
-            className={`w-full font-medium rounded-lg transition-all duration-200 btn-primary-outline ${buttonSizes[size]} ${className}`}
-          >
-            {isCommissionOnly ? 'Request Commission' : 'Commission Similar Piece'}
-          </button>
-        )}
-
-        {/* Sold Out Message */}
-        {isSoldOut && (
-          <div className="text-center">
-            <div className={`w-full font-medium rounded-lg bg-gray-100 text-gray-500 cursor-not-allowed ${buttonSizes[size]}`}>
-              {product.availability === 'sold' ? 'Sold' : 'Reserved'}
-            </div>
-            {product.commissionInfo?.available && (
-              <button
-                onClick={() => setShowCommissionForm(true)}
-                className="mt-2 text-primary hover:opacity-80 text-sm underline"
-              >
-                Commission a similar piece
-              </button>
+        {commissionAvailable && (
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setShowCommissionForm(true)}
+              className={`w-full font-medium rounded-lg transition-all duration-200 ${buttonSizes[size]} ${className} ${
+                isCommissionOnly || isSoldOut
+                  ? 'btn-primary shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 motion-reduce:transform-none'
+                  : 'btn-primary-outline'
+              }`}
+            >
+              {commissionLabel}
+            </button>
+            {commissionHelper && (
+              <p className="text-center text-xs text-gray-600">{commissionHelper}</p>
             )}
           </div>
         )}
       </div>
 
-      {/* Additional Info */}
-      <div className="text-sm text-gray-600 space-y-2">
-        {/* Stock Info */}
-        {product.edition && (
-          <div className="flex justify-between items-center">
-            <span>Limited Edition:</span>
-            <span className="font-medium">
-              {product.edition.remaining} of {product.edition.total} remaining
-            </span>
-          </div>
-        )}
-
-        {/* Commission Info */}
-        {product.commissionInfo?.available && !isCommissionOnly && (
-          <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-            <p className="text-blue-800 text-sm">
-              <strong>Commission Available:</strong> Similar pieces starting at {formatPrice(product.commissionInfo.priceRange.min)}
-            </p>
-            <p className="text-blue-700 text-xs mt-1">
-              Estimated completion: {product.commissionInfo.estimatedDays} days
-            </p>
-          </div>
-        )}
-
-        {/* Shipping Info */}
-        <div className="flex justify-between items-center text-xs">
-          <span>Shipping:</span>
-          <span>
-            Domestic ${product.shipping.domestic} • International ${product.shipping.international}
-          </span>
-        </div>
-
-        {/* Specifications */}
-        <div className="flex flex-wrap gap-2 text-xs">
-          {product.specifications.signed && (
-            <span className="px-2 py-1 bg-green-100 text-green-800 rounded">✓ Signed</span>
+      {(product.edition || details === 'full') && (
+        <div className="space-y-2 text-sm text-gray-600">
+          {product.edition && (
+            <div className="flex items-center justify-between">
+              <span>Limited Edition:</span>
+              <span className="font-medium">
+                {product.edition.remaining} of {product.edition.total} remaining
+              </span>
+            </div>
           )}
-          {product.specifications.certificate && (
-            <span className="px-2 py-1 bg-green-100 text-green-800 rounded">✓ Certificate</span>
-          )}
-          {product.specifications.framed && (
-            <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded">✓ Framed</span>
+
+          {details === 'full' && (
+            <>
+              <div className="flex items-center justify-between text-xs">
+                <span>Shipping:</span>
+                <span>
+                  Domestic ${product.shipping.domestic} • International ${product.shipping.international}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap gap-2 text-xs">
+                {product.specifications.signed && (
+                  <span className="rounded bg-green-100 px-2 py-1 text-green-800">✓ Signed</span>
+                )}
+                {product.specifications.certificate && (
+                  <span className="rounded bg-green-100 px-2 py-1 text-green-800">✓ Certificate</span>
+                )}
+                {product.specifications.framed && (
+                  <span className="rounded bg-blue-100 px-2 py-1 text-blue-800">✓ Framed</span>
+                )}
+              </div>
+            </>
           )}
         </div>
-      </div>
+      )}
     </div>
   );
 }

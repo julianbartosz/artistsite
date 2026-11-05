@@ -181,23 +181,27 @@ export default function ProductPageClient({
 
             {/* Price and Availability */}
             <div className="border-t border-b border-gray-200 py-6">
-              <div className="flex items-center justify-between mb-4">
+              <div className="mb-4">
                 <span className="text-3xl font-bold text-gray-900">
                   {formatPrice(product.price, product.currency)}
                 </span>
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                  isAvailable 
-                    ? 'bg-green-100 text-green-800' 
-                    : 'bg-red-100 text-red-800'
-                }`}>
-                  {product.availability === 'available' ? 'Available' : 
-                   product.availability === 'sold' ? 'Sold' : 'Reserved'}
-                </span>
               </div>
 
-              {/* Stock Status */}
-              <div className="mb-4">
-                <StockIndicator productId={product.id} showDetails className="mb-2" />
+              <div className="mb-4 flex flex-wrap items-center gap-3">
+                <StockIndicator
+                  productId={product.id}
+                  showDetails
+                  missingInventoryLabel={isAvailable ? 'Available' : undefined}
+                />
+                {product.availability !== 'available' && (
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                    product.availability === 'sold'
+                      ? 'bg-red-100 text-red-800'
+                      : 'bg-amber-100 text-amber-800'
+                  }`}>
+                    {product.availability === 'sold' ? 'Sold' : 'Reserved'}
+                  </span>
+                )}
               </div>
               
               {isLimitedEdition && (

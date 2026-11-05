@@ -156,9 +156,9 @@ export default async function RootLayout({
           <AnalyticsProvider>
             <CartProvider>
               <ErrorBoundary showDetails={process.env.NODE_ENV === 'development'}>
-                <>
-                  {isPreview && <PreviewBanner />}
-                  {cmsPreviewActive && !isPreview && <CmsPreviewBanner />}
+                <div className="contents">
+                  {isPreview ? <PreviewBanner /> : null}
+                  {cmsPreviewActive && !isPreview ? <CmsPreviewBanner /> : null}
                   <SiteShell
                     previewOffsetClass={(isPreview || cmsPreviewActive) ? 'pt-12' : ''}
                     adminTools={<AdminPwaRegister />}
@@ -174,7 +174,7 @@ export default async function RootLayout({
                   >
                     {children}
                   </SiteShell>
-                </>
+                </div>
                 
                 {/* Performance and SEO Monitoring (development only) - Temporarily disabled for build */}
                 {/* <PerformanceMonitor />

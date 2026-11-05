@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { sanitizeRichHtml } from '@/lib/content-sanitize';
-import { PRODUCT_IMAGE_FALLBACK } from '@/lib/commerce';
+import { normalizeProduct, PRODUCT_IMAGE_FALLBACK } from '@/lib/commerce';
+import { resolvePublicAssetUrl } from '@/lib/public-asset';
 
 const ARTWORK_IMAGE_FALLBACK = PRODUCT_IMAGE_FALLBACK;
 
@@ -406,15 +407,27 @@ export function normalizeAdCampaignPayload(payload: z.infer<typeof adCampaignPay
 }
 
 export function sanitizeArtworkPayload(payload: z.infer<typeof artworkPayloadSchema>) {
+  const main = resolvePublicAssetUrl(
+    payload.images.main || payload.images.thumbnail,
+    ARTWORK_IMAGE_FALLBACK,
+  );
+  const thumbnail = resolvePublicAssetUrl(
+    payload.images.thumbnail || payload.images.main,
+    main,
+  );
+  const gallery = (payload.images.gallery || [])
+    .map((image) => resolvePublicAssetUrl(image, main))
+    .filter((image, index, list) => Boolean(image) && list.indexOf(image) === index);
+
   return {
     ...payload,
     slug: slugify(payload.slug || payload.title),
     content: sanitizeRichHtml(payload.content),
     price: payload.price || null,
     images: {
-      main: payload.images.main || payload.images.thumbnail || ARTWORK_IMAGE_FALLBACK,
-      thumbnail: payload.images.thumbnail || payload.images.main || ARTWORK_IMAGE_FALLBACK,
-      gallery: payload.images.gallery,
+      main,
+      thumbnail,
+      gallery: gallery.length > 0 ? gallery : [main],
     },
   };
 }
@@ -423,15 +436,28 @@ export function normalizeProductPayload(payload: z.infer<typeof productPayloadSc
   const slug = slugify(payload.slug || payload.title);
   const gallery = payload.images.gallery.map(image => image.trim()).filter(Boolean);
   const thumbnail = payload.images.thumbnail.trim() || gallery[0] || PRODUCT_IMAGE_FALLBACK;
-
-  return {
-    ...payload,
+  const normalized = normalizeProduct({
+    ...(payload as any),
     id: payload.id || slug,
     slug,
     images: {
       thumbnail,
       gallery: gallery.length > 0 ? gallery : [thumbnail],
     },
+  });
+  const commissionInfo = payload.commissionInfo && typeof payload.commissionInfo === 'object'
+    && (payload.commissionInfo as { available?: boolean }).available
+    ? payload.commissionInfo
+    : null;
+
+  return {
+    ...payload,
+    id: payload.id || slug,
+    slug,
+    images: normalized.images,
+    variants: normalized.variants ?? null,
+    customizations: normalized.customizations ?? [],
+    commissionInfo,
     relatedProducts: payload.relatedProducts || [],
   };
 }

@@ -306,11 +306,11 @@ function CheckoutPageContent() {
 
   if (!state.isLoaded || recoveryLoading) {
     return (
-      <main className="min-h-screen bg-neutral-50 py-12">
+      <div className="min-h-screen bg-neutral-50 py-12">
         <div className="mx-auto max-w-3xl px-4 text-center text-neutral-600">
           {recoveryLoading ? 'Restoring your cart…' : 'Loading checkout…'}
         </div>
-      </main>
+      </div>
     );
   }
 

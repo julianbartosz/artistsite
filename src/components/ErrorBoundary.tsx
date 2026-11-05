@@ -100,10 +100,10 @@ export class ErrorBoundary extends Component<Props, State> {
       : this.props.children;
 
     return (
-      <>
+      <div className="contents">
         <PathnameReset onChange={this.handlePathnameChange} />
         {fallback}
-      </>
+      </div>
     );
   }
 

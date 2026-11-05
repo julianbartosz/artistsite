@@ -82,6 +82,7 @@ export default defineConfig({
           env: {
             ...process.env,
             PLAYWRIGHT_E2E: 'true',
+            NEXTAUTH_URL: 'http://127.0.0.1:3100',
           },
         },
       }),

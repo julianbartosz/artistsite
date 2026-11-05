@@ -64,25 +64,31 @@ export function ShopProductCard({ product }: ProductCardProps) {
         <p className="text-sm text-gray-600">{product.medium}</p>
         <p className="text-sm text-gray-500 mb-2">{product.dimensions}</p>
         <p className="hidden md:block text-gray-700 text-sm mb-3 line-clamp-2 flex-1">{product.description}</p>
+      </Link>
 
-        <div className="flex justify-between items-center mt-auto pt-2">
+      <div className="px-4 sm:px-6 pb-4 sm:pb-6 mt-auto">
+        <div className="flex justify-between items-center gap-3">
           <span className="text-xl font-bold text-gray-900">
             {formatPrice(product.price, product.currency)}
           </span>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              setQuickLookOpen(true);
-            }}
-            className="text-sm font-medium text-primary hover:opacity-80"
-          >
-            Quick look
-          </button>
+          <div className="flex items-center gap-3">
+            <Link
+              href={`/contact?subject=${encodeURIComponent(`Inquiry about ${product.title}`)}`}
+              className="text-sm font-medium text-gray-700 hover:text-gray-900"
+            >
+              Ask
+            </Link>
+            <button
+              type="button"
+              onClick={() => setQuickLookOpen(true)}
+              className="text-sm font-medium text-primary hover:opacity-80"
+            >
+              Quick look
+            </button>
+          </div>
         </div>
 
-        <div className="mt-2 pointer-events-none">
+        <div className="mt-2">
           <StockIndicator productId={product.id} />
         </div>
 
@@ -91,7 +97,7 @@ export function ShopProductCard({ product }: ProductCardProps) {
             Only {product.edition!.remaining} of {product.edition!.total} remaining
           </p>
         )}
-      </Link>
+      </div>
     </article>
     <ProductQuickLook product={product} open={quickLookOpen} onClose={() => setQuickLookOpen(false)} />
     </>

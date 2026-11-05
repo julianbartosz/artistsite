@@ -506,7 +506,7 @@ export const homePageSchema = z.object({
     height: heroHeightSchema.default('compact'),
     imagePlacement: heroImagePlacementSchema.default('inline'),
     primaryCta: heroCtaKeySchema.default('shop'),
-    showSecondaryCtas: z.boolean().default(true),
+    showSecondaryCtas: z.boolean().default(false),
   }),
   featured: z.object({
     title: z.string().min(1),
@@ -526,14 +526,14 @@ export const homePageSchema = z.object({
     paragraph2: z.string(),
     cta: z.string().min(1),
     studioImage: optionalImage,
-    showSection: z.boolean().default(true),
+    showSection: z.boolean().default(false),
   }),
   blog: z.object({
     title: z.string().min(1),
     description: z.string(),
     cta: z.string().min(1),
     emptyMessage: z.string(),
-    showSection: z.boolean().default(true),
+    showSection: z.boolean().default(false),
   }),
   newsletter: z.object({
     title: z.string().min(1),
@@ -634,10 +634,17 @@ export const shopPageSchema = listingPageSchema.extend({
     gridColumns: portfolioGridColumnsSchema.default('3'),
     showFilters: z.boolean().default(true),
   }).default({ gridColumns: '3', showFilters: true }),
-  searchPlaceholder: z.string().default('Search artworks, categories, or artists...'),
-  showRecentlyViewed: z.boolean().default(true),
-  showRecommendations: z.boolean().default(true),
-  showPurchaseInfo: z.boolean().default(true),
+  searchPlaceholder: z.preprocess(
+    (value) => (
+      value === 'Search artworks, categories, or artists...'
+        ? 'Search artworks by title, medium, or category…'
+        : value
+    ),
+    z.string().default('Search artworks by title, medium, or category…'),
+  ),
+  showRecentlyViewed: z.boolean().default(false),
+  showRecommendations: z.boolean().default(false),
+  showPurchaseInfo: z.boolean().default(false),
   checkoutTrustCopy: z.string().default('Your payment information is processed securely by Stripe. We never store your payment details.'),
   checkoutPageTitle: z.string().default('Checkout'),
   checkoutPageSubtitle: z.string().default('Complete your purchase securely'),
@@ -682,9 +689,9 @@ export const orderProgressPostModeSchema = z.enum(['off', 'draft', 'publish']);
 export const blogPageSchema = listingPageSchema.extend({
   subscribeLabel: z.string().default('Subscribe for Updates'),
   showSubscribe: z.boolean().default(true),
-  showRss: z.boolean().default(true),
+  showRss: z.boolean().default(false),
   feedLayout: updatesFeedLayoutSchema.default('timeline'),
-  showFormatFilters: z.boolean().default(true),
+  showFormatFilters: z.boolean().default(false),
   journalLabel: z.string().default('Journal'),
   studioLabel: z.string().default('Studio'),
   showPrivateSection: z.boolean().default(true),
@@ -723,6 +730,45 @@ export type ListingPageContent = z.infer<typeof listingPageSchema>;
 export type PortfolioPageContent = z.infer<typeof portfolioPageSchema>;
 export type ShopPageContent = z.infer<typeof shopPageSchema>;
 export type BlogPageContent = z.infer<typeof blogPageSchema>;
+
+export type PostEngagementState = {
+  likeCount: number;
+  commentCount: number;
+  liked: boolean;
+  saved: boolean;
+};
+
+export type EngagementComment = {
+  id: string;
+  body: string;
+  authorName: string;
+  createdAt: string;
+  canRemove: boolean;
+};
+
+const UPDATES_FEED_COPY_KEYS = [
+  'journalLabel',
+  'studioLabel',
+  'privateSectionTitle',
+  'quickLookLabel',
+  'saveUpdateLabel',
+  'askArtistLabel',
+  'featuredLabel',
+  'showFeedDate',
+  'showFeedAuthor',
+  'showFeedTags',
+  'showComments',
+  'showLikes',
+  'commentsLabel',
+  'likeLabel',
+] as const satisfies ReadonlyArray<keyof BlogPageContent>;
+
+/** Updates page settings the feed, quick look, and post engagement read on the client. */
+export type UpdatesFeedCopy = Pick<BlogPageContent, (typeof UPDATES_FEED_COPY_KEYS)[number]>;
+
+export function updatesFeedCopy(blog: BlogPageContent): UpdatesFeedCopy {
+  return Object.fromEntries(UPDATES_FEED_COPY_KEYS.map((key) => [key, blog[key]])) as UpdatesFeedCopy;
+}
 
 export type SiteContentByPage = {
   identity: SiteIdentityContent;
@@ -838,6 +884,9 @@ export const DEFAULT_SITE_IDENTITY: SiteIdentityContent = {
   },
 };
 
+/** Catalog size at/under which shop filter chrome stays quiet (categories + availability only). */
+export const QUIET_SHOP_CATALOG_LIMIT = 12;
+
 export const DEFAULT_HOME_PAGE: HomePageContent = {
   layoutTemplate: 'classic',
   sectionOrder: [...HOME_SECTION_KEYS],
@@ -852,7 +901,7 @@ export const DEFAULT_HOME_PAGE: HomePageContent = {
     height: 'compact',
     imagePlacement: 'inline',
     primaryCta: 'shop',
-    showSecondaryCtas: true,
+    showSecondaryCtas: false,
   },
   featured: {
     title: 'Featured Works',
@@ -872,14 +921,14 @@ export const DEFAULT_HOME_PAGE: HomePageContent = {
     paragraph2: 'Working primarily with oils, acrylics, and mixed media, I layer colors and textures to create pieces that hover between abstraction and representation, inviting viewers to discover their own connections to the urban landscape.',
     cta: 'Get in Touch',
     studioImage: '/images/artist-studio.jpg',
-    showSection: true,
+    showSection: false,
   },
   blog: {
     title: 'Latest updates',
     description: 'Studio notes, photos, short videos, and journal posts from the making of the work.',
     cta: 'See all updates →',
     emptyMessage: 'Updates coming soon...',
-    showSection: true,
+    showSection: false,
   },
   newsletter: {
     title: 'Stay Connected',
@@ -1026,7 +1075,7 @@ export const DEFAULT_SHOP_PAGE: ShopPageContent = {
   subtitle: 'Discover original paintings, drawings, prints, and collections. Each piece is carefully crafted and comes with a certificate of authenticity.',
   hero: { height: 'compact' },
   layout: { gridColumns: '3', showFilters: true },
-  searchPlaceholder: 'Search artworks, categories, or artists...',
+  searchPlaceholder: 'Search artworks by title, medium, or category…',
   checkoutTrustCopy: 'Your payment information is processed securely by Stripe. We never store your payment details.',
   checkoutPageTitle: 'Checkout',
   checkoutPageSubtitle: 'Complete your purchase securely',
@@ -1044,9 +1093,9 @@ export const DEFAULT_SHOP_PAGE: ShopPageContent = {
     </ul>
   `.trim(),
   productDetailLayout: 'standard',
-  showRecentlyViewed: true,
-  showRecommendations: true,
-  showPurchaseInfo: true,
+  showRecentlyViewed: false,
+  showRecommendations: false,
+  showPurchaseInfo: false,
   purchaseInfo: {
     title: 'Purchase Information',
     authenticityTitle: 'Authenticity',
@@ -1065,9 +1114,9 @@ export const DEFAULT_BLOG_PAGE: BlogPageContent = {
   hero: { height: 'compact' },
   subscribeLabel: 'Subscribe for Updates',
   showSubscribe: true,
-  showRss: true,
+  showRss: false,
   feedLayout: 'timeline',
-  showFormatFilters: true,
+  showFormatFilters: false,
   journalLabel: 'Journal',
   studioLabel: 'Studio',
   showPrivateSection: true,
@@ -1097,6 +1146,190 @@ export const DEFAULT_BLOG_PAGE: BlogPageContent = {
   collectorDigestSubject: 'New collector studio updates',
   collectorDigestIntro: 'New private studio notes shared with you:',
 };
+
+/** One-tap studio looks: theme + home density without a page builder. */
+export type SiteLookbookId = 'gallery-wall' | 'night-opening' | 'warm-print' | 'compact-studio';
+
+export type SiteLookbook = {
+  id: SiteLookbookId;
+  label: string;
+  description: string;
+  theme: {
+    primaryColor: string;
+    accentColor: string;
+    fontPreset: FontPreset;
+    cardStyle: CardStyle;
+    spacingDensity: SpacingDensity;
+  };
+  home: {
+    layoutTemplate: HomeLayoutTemplate;
+    heroHeight: 'compact' | 'full';
+    showSecondaryCtas: boolean;
+    showFeatured: boolean;
+    showAbout: boolean;
+    showBlog: boolean;
+    showNewsletter: boolean;
+  };
+  shop: {
+    showFilters: boolean;
+    showRecentlyViewed: boolean;
+    showRecommendations: boolean;
+    showPurchaseInfo: boolean;
+  };
+};
+
+export const SITE_LOOKBOOKS: readonly SiteLookbook[] = [
+  {
+    id: 'gallery-wall',
+    label: 'Gallery wall',
+    description: 'Light, quiet, art-first — compact home with featured works only',
+    theme: {
+      primaryColor: '#111827',
+      accentColor: '#6b7280',
+      fontPreset: 'modern',
+      cardStyle: 'gallery',
+      spacingDensity: 'compact',
+    },
+    home: {
+      layoutTemplate: 'gallery-first',
+      heroHeight: 'compact',
+      showSecondaryCtas: false,
+      showFeatured: true,
+      showAbout: false,
+      showBlog: false,
+      showNewsletter: false,
+    },
+    shop: {
+      showFilters: true,
+      showRecentlyViewed: false,
+      showRecommendations: false,
+      showPurchaseInfo: false,
+    },
+  },
+  {
+    id: 'night-opening',
+    label: 'Night opening',
+    description: 'Dark primary, bold cards — hero + story + newsletter',
+    theme: {
+      primaryColor: '#0f172a',
+      accentColor: '#38bdf8',
+      fontPreset: 'system',
+      cardStyle: 'bold',
+      spacingDensity: 'comfortable',
+    },
+    home: {
+      layoutTemplate: 'story-first',
+      heroHeight: 'full',
+      showSecondaryCtas: true,
+      showFeatured: true,
+      showAbout: true,
+      showBlog: false,
+      showNewsletter: true,
+    },
+    shop: {
+      showFilters: true,
+      showRecentlyViewed: false,
+      showRecommendations: true,
+      showPurchaseInfo: true,
+    },
+  },
+  {
+    id: 'warm-print',
+    label: 'Warm print shop',
+    description: 'Warm tones, classic type — shop-friendly with purchase info',
+    theme: {
+      primaryColor: '#78350f',
+      accentColor: '#b45309',
+      fontPreset: 'serif',
+      cardStyle: 'studio',
+      spacingDensity: 'comfortable',
+    },
+    home: {
+      layoutTemplate: 'classic',
+      heroHeight: 'compact',
+      showSecondaryCtas: true,
+      showFeatured: true,
+      showAbout: true,
+      showBlog: true,
+      showNewsletter: true,
+    },
+    shop: {
+      showFilters: true,
+      showRecentlyViewed: true,
+      showRecommendations: true,
+      showPurchaseInfo: true,
+    },
+  },
+  {
+    id: 'compact-studio',
+    label: 'Compact studio',
+    description: 'Minimal scroll — hero and featured only',
+    theme: {
+      primaryColor: '#365314',
+      accentColor: '#4d7c0f',
+      fontPreset: 'system',
+      cardStyle: 'studio',
+      spacingDensity: 'compact',
+    },
+    home: {
+      layoutTemplate: 'classic',
+      heroHeight: 'compact',
+      showSecondaryCtas: false,
+      showFeatured: true,
+      showAbout: false,
+      showBlog: false,
+      showNewsletter: false,
+    },
+    shop: {
+      showFilters: false,
+      showRecentlyViewed: false,
+      showRecommendations: false,
+      showPurchaseInfo: false,
+    },
+  },
+] as const;
+
+export function applySiteLookbook(
+  content: SiteContentByPage,
+  lookbookId: SiteLookbookId,
+): SiteContentByPage {
+  const lookbook = SITE_LOOKBOOKS.find((entry) => entry.id === lookbookId);
+  if (!lookbook) return content;
+
+  return {
+    ...content,
+    identity: {
+      ...content.identity,
+      theme: {
+        ...content.identity.theme,
+        ...lookbook.theme,
+      },
+    },
+    home: {
+      ...content.home,
+      layoutTemplate: lookbook.home.layoutTemplate,
+      hero: {
+        ...content.home.hero,
+        height: lookbook.home.heroHeight,
+        showSecondaryCtas: lookbook.home.showSecondaryCtas,
+      },
+      featured: { ...content.home.featured, showSection: lookbook.home.showFeatured },
+      about: { ...content.home.about, showSection: lookbook.home.showAbout },
+      blog: { ...content.home.blog, showSection: lookbook.home.showBlog },
+      newsletter: { ...content.home.newsletter, showSection: lookbook.home.showNewsletter },
+    },
+    shop: {
+      ...content.shop,
+      layout: {
+        ...content.shop.layout,
+        showFilters: lookbook.shop.showFilters,
+      },
+      showRecentlyViewed: lookbook.shop.showRecentlyViewed,
+      showRecommendations: lookbook.shop.showRecommendations,
+      showPurchaseInfo: lookbook.shop.showPurchaseInfo,
+    },
+  };
+}
 
 export const SITE_CONTENT_DEFAULTS = {
   identity: DEFAULT_SITE_IDENTITY,

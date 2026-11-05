@@ -5,12 +5,27 @@ import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
 
 export const dynamic = 'force-dynamic';
 
-export default async function PortfolioPage() {
+type PortfolioSearch = {
+  category?: string | string[];
+};
+
+function firstParam(value?: string | string[]): string {
+  return Array.isArray(value) ? value[0] || '' : value || '';
+}
+
+export default async function PortfolioPage({
+  searchParams,
+}: {
+  searchParams: Promise<PortfolioSearch>;
+}) {
+  const params = await searchParams;
   const [artworks, pageContent] = await Promise.all([
     getAllArtworks(),
     getSiteContent('portfolio'),
   ]);
   const categories = getUniqueCategories(artworks);
+  const requestedCategory = firstParam(params.category);
+  const selectedCategory = categories.includes(requestedCategory) ? requestedCategory : 'all';
   const heroPadding = listingHeroPaddingClass(pageContent.hero.height);
 
   return (
@@ -26,7 +41,12 @@ export default async function PortfolioPage() {
       </section>
 
       <div className="max-w-7xl mx-auto px-6 py-10 md:py-12">
-        <PortfolioGallery artworks={artworks} categories={categories} layout={pageContent.layout} />
+        <PortfolioGallery
+          artworks={artworks}
+          categories={categories}
+          selectedCategory={selectedCategory}
+          layout={pageContent.layout}
+        />
       </div>
     </div>
   );

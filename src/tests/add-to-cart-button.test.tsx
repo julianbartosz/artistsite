@@ -74,9 +74,44 @@ describe('AddToCartButton', () => {
     const unavailableProduct = { ...mockProduct, availability: 'sold' as const };
     render(<AddToCartButton product={unavailableProduct} />);
     
-    // For sold products, the component shows a disabled div, not a button
-    expect(screen.getByText('Sold')).toBeInTheDocument();
+    // For sold products, the component shows a status, not a purchase button
+    expect(screen.getByRole('status')).toHaveTextContent('Sold');
     expect(screen.queryByRole('button', { name: /add to cart/i })).not.toBeInTheDocument();
+  });
+
+  it('shows a single commission CTA for sold commissionable products', () => {
+    const soldCommissionable: Product = {
+      ...mockProduct,
+      availability: 'sold',
+      commissionInfo: {
+        available: true,
+        estimatedDays: 60,
+        priceRange: { min: 1500, max: 3500 },
+        requiresConsultation: true,
+      },
+    };
+    render(<AddToCartButton product={soldCommissionable} />);
+
+    expect(screen.getByRole('status')).toHaveTextContent('Sold');
+    expect(screen.getAllByRole('button', { name: /commission a similar piece/i })).toHaveLength(1);
+    expect(screen.getByText(/similar pieces from \$1,500\.00/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /add to cart/i })).not.toBeInTheDocument();
+  });
+
+  it('hides shipping details in compact mode', () => {
+    render(<AddToCartButton product={mockProduct} details="compact" />);
+    expect(screen.queryByText(/shipping:/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /add to cart/i })).toBeInTheDocument();
+  });
+
+  it('ignores empty customization arrays when deciding to show options', () => {
+    const emptyOptionsProduct: Product = {
+      ...mockProduct,
+      customizations: [],
+      variants: { sizes: [], framing: [], materials: [] },
+    };
+    render(<AddToCartButton product={emptyOptionsProduct} />);
+    expect(screen.queryByText(/total price/i)).not.toBeInTheDocument();
   });
 
   it('adds product to cart when clicked', async () => {

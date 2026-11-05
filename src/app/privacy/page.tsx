@@ -14,9 +14,9 @@ export default async function PrivacyPage() {
   const content = sanitizeRichHtml(await getConfig('LEGAL_PRIVACY_HTML') || DEFAULT_PRIVACY_HTML);
 
   return (
-    <main className="mx-auto max-w-4xl px-6 py-12">
+    <div className="mx-auto max-w-4xl px-6 py-12">
       <h1 className="mb-8 text-4xl font-bold text-gray-900">Privacy Policy</h1>
       <div className="prose prose-gray max-w-none" dangerouslySetInnerHTML={{ __html: content }} />
-    </main>
+    </div>
   );
 }

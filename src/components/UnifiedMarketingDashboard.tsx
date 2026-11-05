@@ -255,11 +255,11 @@ function OverviewTab({ overview, onReload }: { overview: MarketingOverview | nul
               </div>
             </div>
             <div className="flex justify-between items-center">
-              <span className="inline-flex items-center gap-2"><Target className="h-4 w-4" aria-hidden="true" />Paid Ads</span>
+              <span className="inline-flex items-center gap-2"><Target className="h-4 w-4" aria-hidden="true" />Ad spend log</span>
               <div className="text-right">
                 <div className="font-semibold">{overview.campaignPerformance?.ads?.conversions || 0} conversions</div>
                 <div className="text-sm text-gray-500">
-                  {(overview.campaignPerformance?.ads?.roas || 0).toFixed(1)}x ROAS
+                  {(overview.campaignPerformance?.ads?.roas || 0).toFixed(1)}x recorded ROAS
                 </div>
               </div>
             </div>
@@ -397,8 +397,12 @@ function CampaignsTab() {
       if (data.campaign?.publishAssist) {
         setShareAssist(data.campaign.publishAssist);
         setMessage('Use the publish assist panel to complete this social post.');
+      } else if (type === 'email') {
+        setMessage('Email campaign sent.');
+      } else if (type === 'ad') {
+        setMessage('Ad log marked active. Record results after you run the campaign in the ads manager.');
       } else {
-        setMessage(type === 'email' ? 'Email campaign sent.' : 'Campaign status updated.');
+        setMessage('Campaign status updated.');
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Failed to run campaign');
@@ -488,12 +492,14 @@ function CampaignsTab() {
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-xl font-semibold">Create Campaign</h2>
-            <p className="text-sm text-gray-600">Create email, social, or ad records without touching code.</p>
+            <p className="text-sm text-gray-600">
+              Email sends through your SMTP/Mailchimp settings. Social opens a copy-and-post assist (or auto-publishes when configured). Ad entries are a spend log only — they do not buy ads on Google or Meta.
+            </p>
           </div>
           <select value={campaignType} onChange={(event) => setCampaignType(event.target.value as any)} className="rounded-md border border-gray-300 px-3 py-2">
             <option value="email">Email</option>
-            <option value="social">Social</option>
-            <option value="ad">Ad</option>
+            <option value="social">Social post</option>
+            <option value="ad">Ad spend log</option>
           </select>
         </div>
 
@@ -588,13 +594,16 @@ function CampaignsTab() {
         />
 
         <CampaignSection
-          title="Paid Advertising"
+          title="Ad spend log"
           icon={Megaphone}
           campaigns={campaigns.ads}
           onRun={(campaign) => runCampaign(campaign.id, campaign.type)}
           onDelete={(campaign) => deleteCampaign(campaign.id, campaign.type)}
           onSaveActuals={saveAdActuals}
         />
+        <p className="text-xs text-gray-500 lg:col-span-3">
+          Ad spend log records budget and results you enter by hand. Use “Open ads manager” links to run campaigns on the platform itself.
+        </p>
       </div>
     </div>
   );

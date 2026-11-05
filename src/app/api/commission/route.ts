@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withApiErrorHandler } from '@/lib/api-error-handler';
 import { sendTemplateEmail } from '@/lib/email';
 import { getConfig } from '@/lib/config';
+import { linkContactSubmissionToInbox } from '@/lib/studio-inbox';
 
 interface CommissionRequestData {
   type: 'similar' | 'custom' | 'consultation';
@@ -82,14 +83,32 @@ async function handleCommissionRequest(req: NextRequest) {
   try {
     await sendCommissionRequestEmails(data, requestId);
 
-    // Log the request for monitoring
-    console.log('Commission request received:', {
-      requestId,
-      customerEmail: data.customerInfo.email,
-      type: data.type,
-      budget: data.budget,
-      timestamp: new Date().toISOString()
-    });
+    const inboxBody = [
+      `Commission request ${requestId}`,
+      `Type: ${data.type}`,
+      data.productId ? `Related product: ${data.productId}` : null,
+      `Medium: ${data.medium}`,
+      `Dimensions: ${data.dimensions}`,
+      `Timeline: ${data.timeline}`,
+      `Budget: $${data.budget?.min ?? 0} - $${data.budget?.max ?? 0}`,
+      `Preferred contact: ${data.customerInfo.preferredContact}`,
+      data.customerInfo.phone ? `Phone: ${data.customerInfo.phone}` : null,
+      '',
+      data.description,
+      data.specialRequests ? `\nSpecial requests:\n${data.specialRequests}` : null,
+    ].filter((line) => line !== null).join('\n');
+
+    try {
+      await linkContactSubmissionToInbox({
+        name: data.customerInfo.name,
+        email: data.customerInfo.email,
+        subject: `Commission request ${requestId}`,
+        message: inboxBody,
+        inquiryType: 'commission',
+      });
+    } catch (inboxError) {
+      console.error('Failed to persist commission request to studio inbox:', inboxError);
+    }
 
     return NextResponse.json({
       success: true,

@@ -4,8 +4,9 @@ import { Metadata } from 'next';
 import { getServerSession } from 'next-auth';
 import { getAllPosts, getPrivatePostsForViewer, BlogPost } from '@/lib/markdown';
 import { authOptions } from '@/lib/auth';
-import { getSiteContent, UPDATES_PATH, updatesPostPath } from '@/lib/site-content';
-import PostMedia from '@/components/PostMedia';
+import { getSiteContent, UPDATES_PATH, updatesFeedCopy, updatesTagPath } from '@/lib/site-content';
+import { getEngagementStates, readGuestSessionId } from '@/lib/update-engagement';
+import UpdatesFeedClient from '@/components/UpdatesFeedClient';
 
 interface BlogTagPageProps {
   params: Promise<{ tag: string }>;
@@ -48,8 +49,14 @@ export default async function BlogTagPage({ params }: BlogTagPageProps) {
     getAllPosts(),
     blog.showPrivateSection ? getPrivatePostsForViewer(viewer) : Promise.resolve([]),
   ]);
-  const tagged = [...publicPosts, ...privatePosts].filter((post) => tagMatches(post, normalizedTag));
+  const tagged = [...publicPosts, ...privatePosts]
+    .filter((post) => tagMatches(post, normalizedTag))
+    .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
   const displayTag = decodeURIComponent(tag).trim();
+  const engagement = await getEngagementStates(
+    tagged.map((post) => post.slug),
+    { userId: session?.user?.id, sessionId: await readGuestSessionId() },
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -67,42 +74,20 @@ export default async function BlogTagPage({ params }: BlogTagPageProps) {
         </div>
       </section>
 
-      <div className="max-w-4xl mx-auto px-6 py-12">
+      <div className={`${blog.feedLayout === 'grid' ? 'max-w-6xl' : 'max-w-4xl'} mx-auto px-6 py-12`}>
         {tagged.length === 0 ? (
           <div className="rounded-lg border border-gray-200 bg-white p-8 text-center text-gray-600">
             No published updates use this tag yet.
           </div>
         ) : (
-          <div className="space-y-8">
-            {tagged.map((post) => (
-              <article key={post.slug} className="border-b border-gray-200 pb-8 last:border-b-0">
-                {post.media.length > 0 && (
-                  <div className="mb-4">
-                    <PostMedia items={post.media} title={post.title} />
-                  </div>
-                )}
-                <header className="mb-4">
-                  <h2 className="mb-2 text-2xl font-semibold">
-                    <Link href={updatesPostPath(post.slug)} className="hover:text-gray-700 transition-colors">
-                      {post.format === 'short' ? (post.excerpt || post.title) : post.title}
-                    </Link>
-                  </h2>
-                  <div className="flex items-center gap-4 text-sm text-gray-500">
-                    <time dateTime={post.publishedAt}>{new Date(post.publishedAt).toLocaleDateString()}</time>
-                    {post.author && <span>by {post.author}</span>}
-                  </div>
-                </header>
-                {post.format !== 'short' && post.excerpt && <p className="mb-4 leading-relaxed text-gray-700">{post.excerpt}</p>}
-                <Link
-                  href={updatesPostPath(post.slug)}
-                  className="inline-flex items-center font-medium text-gray-900 hover:text-gray-700 group"
-                >
-                  View update
-                  <span className="ml-1 transition-transform group-hover:translate-x-1">-&gt;</span>
-                </Link>
-              </article>
-            ))}
-          </div>
+          <UpdatesFeedClient
+            posts={tagged}
+            layout={blog.feedLayout === 'grid' ? 'grid' : 'timeline'}
+            copy={updatesFeedCopy(blog)}
+            signedIn={Boolean(session?.user?.id)}
+            signInCallbackUrl={updatesTagPath(displayTag)}
+            engagement={engagement}
+          />
         )}
       </div>
     </div>
