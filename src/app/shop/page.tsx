@@ -11,7 +11,7 @@ import ProductRecommendations from '@/components/ProductRecommendations';
 import RecentlyViewed from '@/components/RecentlyViewed';
 import { stableSearchParamsKey, activeFilterCount, activeFilterChips, removeFilterChip } from '@/lib/search-params';
 import { ShopProductCard } from '@/components/ProductCard';
-import { DEFAULT_SHOP_PAGE, gridColumnsClass, listingHeroPaddingClass, shopPageSchema, type ShopPageContent } from '@/lib/site-content-shared';
+import { DEFAULT_SHOP_PAGE, QUIET_SHOP_CATALOG_LIMIT, gridColumnsClass, listingHeroPaddingClass, shopPageSchema, type ShopPageContent } from '@/lib/site-content-shared';
 import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
 import { AdjustmentsHorizontalIcon } from '@heroicons/react/24/outline';
 
@@ -121,6 +121,8 @@ function ShopPageContent() {
   const showFilters = pageContent.layout?.showFilters ?? true;
   const filterCount = showFilters ? activeFilterCount(searchParams) : 0;
   const filterChips = showFilters ? activeFilterChips(searchParams) : [];
+  const quietCatalog = (searchResults?.totalResults ?? 0) > 0
+    && (searchResults?.totalResults ?? 0) <= QUIET_SHOP_CATALOG_LIMIT;
 
   const handleRemoveFilterChip = (chipId: string) => {
     const next = removeFilterChip(searchParams, chipId);
@@ -206,11 +208,12 @@ function ShopPageContent() {
               sortOptions={SORT_OPTIONS}
               currentSort={currentSort}
               onSortChange={handleSortChange}
+              quietMode={quietCatalog}
             />
           </aside>
           )}
 
-          <main className="flex-1">
+          <div className="flex-1">
             {searchResults && (
               <div className="hidden lg:flex lg:items-center lg:justify-between mb-8">
                 <div className="mb-4 sm:mb-0">
@@ -325,7 +328,7 @@ function ShopPageContent() {
                 )}
               </>
             )}
-          </main>
+          </div>
         </div>
 
         {!query && pageContent.showRecommendations && (

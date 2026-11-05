@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import Link from 'next/link';
 import PostMedia from '@/components/PostMedia';
 import { updatesPostPath } from '@/lib/site-content-shared';
@@ -27,12 +27,9 @@ type UpdateQuickLookProps = {
   journalLabel: string;
   studioLabel: string;
   quickLookLabel?: string;
-  signedIn?: boolean;
-  onAskArtist?: (post: UpdateQuickLookPost) => void;
-  onToggleSave?: (post: UpdateQuickLookPost) => void;
-  saved?: boolean;
-  saveLabel?: string;
-  askLabel?: string;
+  featuredLabel?: string;
+  privateLabel?: string;
+  actions?: ReactNode;
 };
 
 export default function UpdateQuickLook({
@@ -42,15 +39,15 @@ export default function UpdateQuickLook({
   journalLabel,
   studioLabel,
   quickLookLabel = 'Quick look',
-  signedIn = false,
-  onAskArtist,
-  onToggleSave,
-  saved = false,
-  saveLabel = 'Save',
-  askLabel = 'Ask the artist',
+  featuredLabel = 'Featured',
+  privateLabel = 'For collectors',
+  actions,
 }: UpdateQuickLookProps) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
     if (!open) return undefined;
+    closeRef.current?.focus();
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') onClose();
     }
@@ -83,13 +80,13 @@ export default function UpdateQuickLook({
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-              {isShort ? studioLabel : journalLabel}
-              {post.visibility === 'private' && ' · Collectors'}
-              {post.featured && ' · Featured'}
+              {[isShort ? studioLabel : journalLabel, post.visibility === 'private' ? privateLabel : null, post.featured ? featuredLabel : null]
+                .filter(Boolean)
+                .join(' · ')}
             </p>
             <h2 className="text-lg font-semibold text-gray-900">{headline}</h2>
           </div>
-          <button type="button" onClick={onClose} className="rounded-md px-2 py-1 text-sm text-gray-600 hover:bg-gray-100">Close</button>
+          <button ref={closeRef} type="button" onClick={onClose} className="rounded-md px-2 py-1 text-sm text-gray-600 hover:bg-gray-100">Close</button>
         </div>
 
         <div className="p-4 sm:p-6 space-y-4">
@@ -100,20 +97,11 @@ export default function UpdateQuickLook({
           {post.media.length > 0 && <PostMedia items={post.media} title={post.title} layout="detail" />}
           {!isShort && post.excerpt && <p className="text-gray-700">{post.excerpt}</p>}
 
-          <div className="flex flex-wrap gap-3 pt-2">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+            {actions}
             <Link href={updatesPostPath(post.slug)} className="btn-primary inline-flex rounded-md px-4 py-2 text-sm">
               View full post
             </Link>
-            {signedIn && onToggleSave && (
-              <button type="button" onClick={() => onToggleSave(post)} className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                {saved ? 'Saved' : saveLabel}
-              </button>
-            )}
-            {signedIn && onAskArtist && (
-              <button type="button" onClick={() => onAskArtist(post)} className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                {askLabel}
-              </button>
-            )}
           </div>
         </div>
       </div>

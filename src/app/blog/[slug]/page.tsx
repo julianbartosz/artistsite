@@ -5,13 +5,13 @@ import { draftMode } from 'next/headers';
 import { getServerSession } from 'next-auth';
 import { MDXContent } from '@/components/MDXContent';
 import PostMedia from '@/components/PostMedia';
-import PostPermalinkActions from '@/components/PostPermalinkActions';
 import PostEngagement from '@/components/PostEngagement';
 import { generateBlogMetadata } from '@/lib/seo';
 import { StructuredData, generateArticleSchema, generateBreadcrumbSchema } from '@/components/StructuredData';
 import { authOptions } from '@/lib/auth';
-import { getSiteContent, UPDATES_PATH, updatesPostPath, updatesTagPath } from '@/lib/site-content';
+import { getSiteContent, UPDATES_PATH, updatesFeedCopy, updatesPostPath, updatesTagPath } from '@/lib/site-content';
 import { recordBlogPostView } from '@/lib/post-view-analytics';
+import { getPostEngagement, readGuestSessionId } from '@/lib/update-engagement';
 
 interface BlogPostProps {
   params: Promise<{ slug: string }>;
@@ -60,6 +60,10 @@ export default async function BlogPost({ params }: BlogPostProps) {
   ]);
 
   const isShort = post.format === 'short';
+  const { comments, ...engagementState } = await getPostEngagement(slug, {
+    userId: session?.user?.id,
+    sessionId: await readGuestSessionId(),
+  });
 
   return (
     <>
@@ -156,27 +160,17 @@ export default async function BlogPost({ params }: BlogPostProps) {
             </div>
           )}
 
-          <div className="mt-10 border-t border-gray-200 pt-8">
-            <PostPermalinkActions
-              slug={post.slug}
-              title={post.title}
-              askArtistLabel={blog.askArtistLabel}
-              saveUpdateLabel={blog.saveUpdateLabel}
-              signedIn={Boolean(session?.user?.id)}
-              signInCallbackUrl={updatesPostPath(slug)}
-            />
-          </div>
-
-          <PostEngagement
+          {!post.isDraft && <PostEngagement
+            variant="full"
             slug={post.slug}
+            title={isShort ? (post.excerpt || post.title) : post.title}
+            copy={updatesFeedCopy(blog)}
             signedIn={Boolean(session?.user?.id)}
             signInCallbackUrl={updatesPostPath(slug)}
-            showComments={blog.showComments}
-            showLikes={blog.showLikes}
-            commentsLabel={blog.commentsLabel}
-            likeLabel={blog.likeLabel}
+            initialState={engagementState}
+            initialComments={comments}
             isAdmin={Boolean(session?.user?.isAdmin)}
-          />
+          />}
 
           <footer className="mt-12 pt-8 border-t border-gray-200">
             <Link

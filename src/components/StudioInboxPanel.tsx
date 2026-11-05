@@ -305,7 +305,7 @@ function HiddenCommentsPanel() {
     const response = await fetch(`/api/admin/comments/${encodeURIComponent(commentId)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ visible: true }),
+      body: JSON.stringify({ status: 'visible' }),
     });
     const data = await response.json();
     if (!response.ok) {
@@ -319,7 +319,7 @@ function HiddenCommentsPanel() {
   return (
     <section className="mt-6 rounded-lg border bg-white p-5">
       <h3 className="text-lg font-semibold text-gray-900">Hidden comments</h3>
-      <p className="mt-1 text-sm text-gray-600">Comments you hid from public updates appear here.</p>
+      <p className="mt-1 text-sm text-gray-600">Comments you hid from public updates appear here. Comments their authors deleted are not restorable.</p>
       {message && <p className="mt-3 text-sm text-blue-800">{message}</p>}
       {loading ? (
         <p className="mt-4 text-sm text-gray-500">Loading...</p>
@@ -329,7 +329,10 @@ function HiddenCommentsPanel() {
         <ul className="mt-4 divide-y">
           {comments.map((comment) => (
             <li key={comment.id} className="py-3 text-sm">
-              <p className="font-medium text-gray-900">{comment.authorName} on {comment.postSlug}</p>
+              <p className="font-medium text-gray-900">
+                {comment.authorName} on{' '}
+                <Link href={updatesPostPath(comment.postSlug)} className="text-primary hover:opacity-80">{comment.postSlug}</Link>
+              </p>
               <p className="mt-1 text-gray-700">{comment.body}</p>
               <button type="button" onClick={() => void restoreComment(comment.id)} className="mt-2 rounded border px-2 py-1 text-xs">
                 Restore

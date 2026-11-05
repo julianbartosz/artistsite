@@ -17,7 +17,7 @@ interface SearchSuggestion {
 }
 
 export function SearchBar({ 
-  placeholder = "Search artworks, categories, or artists...",
+  placeholder = "Search artworks by title, medium, or category…",
   className = "",
   onSearch,
   showSuggestions = true

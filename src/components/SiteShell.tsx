@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { Children, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 
 type SiteShellProps = {
@@ -30,20 +30,31 @@ export default function SiteShell({ header, footer, adminTools, children, previe
     void clearPublicServiceWorkers();
   }, [isAdminRoute]);
 
+  // Next may pass opaque/array children from the app router; toArray assigns stable keys.
+  const page = Children.toArray(children);
+  // Preview banners are public-only; do not reserve top padding inside Studio.
+  const shellOffsetClass = isAdminRoute ? '' : previewOffsetClass;
+
   if (isAdminRoute) {
     return (
-      <div className={previewOffsetClass}>
-        {adminTools}
-        <main>{children}</main>
+      <div className={shellOffsetClass}>
+        <div key="admin-tools" className="contents">
+          {adminTools}
+        </div>
+        <main key="admin-main">{page}</main>
       </div>
     );
   }
 
   return (
-    <div className={previewOffsetClass}>
-      {header}
-      <main>{children}</main>
-      {footer}
+    <div className={shellOffsetClass}>
+      <div key="site-header" className="contents">
+        {header}
+      </div>
+      <main key="site-main">{page}</main>
+      <div key="site-footer" className="contents">
+        {footer}
+      </div>
     </div>
   );
 }

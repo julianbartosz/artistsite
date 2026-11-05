@@ -66,22 +66,30 @@ function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
             {featuredArtworks.length > 0 ? (
               <div className={`${gridColumnsClass(home.featured.columns)} mb-10`}>
                 {featuredArtworks.map((artwork) => (
-                  <Link key={artwork.slug} href={`/portfolio/${artwork.slug}`} className="group block card-surface bg-white overflow-hidden p-3">
-                    <div className="relative aspect-square overflow-hidden bg-gray-100 mb-4">
+                  <Link key={artwork.slug} href={`/portfolio/${artwork.slug}`} className="group block">
+                    <div className="relative mb-3 aspect-square overflow-hidden bg-gray-100">
                       <Image
                         src={artwork.images.thumbnail}
                         alt={artwork.title}
                         fill
-                        className="object-cover group-hover:scale-105 transition-transform duration-300"
+                        className="object-cover transition-transform duration-300 group-hover:scale-105 motion-reduce:transform-none"
                         sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                        unoptimized={artwork.images.thumbnail.endsWith('.svg')}
                       />
+                      {!artwork.available && (
+                        <span className="absolute right-3 top-3 bg-white/95 px-2 py-1 text-xs font-medium text-gray-900">
+                          Sold
+                        </span>
+                      )}
                     </div>
-                    <h3 className="text-xl font-semibold text-gray-900 mb-2 group-hover:text-gray-700 transition-colors">
+                    <h3 className="text-xl font-semibold text-gray-900 transition-colors group-hover:text-gray-700">
                       {artwork.title}
                     </h3>
-                    <p className="text-gray-600 text-sm mb-2">{artwork.medium}</p>
+                    <p className="mt-1 text-sm text-gray-600">
+                      {[artwork.medium, artwork.year].filter(Boolean).join(' · ')}
+                    </p>
                     {home.featured.showDescriptions && (
-                      <p className="text-gray-700">{artwork.description}</p>
+                      <p className="mt-2 text-gray-700 line-clamp-2">{artwork.description}</p>
                     )}
                   </Link>
                 ))}

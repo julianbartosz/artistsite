@@ -70,7 +70,7 @@ export function CartDrawer() {
                 <Link
                   href="/shop"
                   onClick={closeCart}
-                  className="inline-flex min-h-11 items-center bg-gray-900 text-white px-6 py-2 rounded-lg hover:bg-gray-800 transition-colors"
+                  className="inline-flex min-h-11 items-center btn-primary px-6 py-2 rounded-lg transition-colors"
                 >
                   Continue Shopping
                 </Link>
@@ -106,7 +106,7 @@ export function CartDrawer() {
                   href="/checkout"
                   onClick={closeCart}
                   data-testid="proceed-to-checkout"
-                  className="w-full min-h-11 inline-flex items-center justify-center bg-gray-900 text-white py-3 px-4 rounded-lg hover:bg-gray-800 transition-colors font-medium"
+                  className="w-full min-h-11 inline-flex items-center justify-center btn-primary py-3 px-4 rounded-lg transition-colors font-medium"
                 >
                   Proceed to Checkout
                 </Link>

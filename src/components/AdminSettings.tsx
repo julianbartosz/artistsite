@@ -3,7 +3,7 @@
 import React, { FormEvent, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { isSiteCustomizationComplete } from '@/lib/setup-readiness';
-import type { SiteContentByPage } from '@/lib/site-content-shared';
+import { SITE_CONTENT_KEYS, type SiteContentByPage } from '@/lib/site-content-shared';
 
 type SettingRecord = {
   key: string;
@@ -12,7 +12,23 @@ type SettingRecord = {
   secret: boolean;
 };
 
-const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: Array<{ key: string; label: string; type?: string; help?: string }> }> = [
+type SettingFieldOption = { value: string; label: string };
+
+type SettingField = {
+  key: string;
+  label: string;
+  type?: string;
+  help?: string;
+  options?: SettingFieldOption[];
+  defaultValue?: string;
+};
+
+const BOOL_OPTIONS: SettingFieldOption[] = [
+  { value: 'false', label: 'No' },
+  { value: 'true', label: 'Yes' },
+];
+
+const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: SettingField[] }> = [
   {
     title: 'Access',
     description: 'Control who can manage the site. Keep at least one working admin email here or in ADMIN_EMAILS.',
@@ -24,8 +40,8 @@ const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: Array<{
     title: 'Site Identity',
     description: 'Public URLs and artist contact routing used across the site.',
     keys: [
-      { key: 'NEXT_PUBLIC_SITE_URL', label: 'Public site URL' },
-      { key: 'NEXT_PUBLIC_BASE_URL', label: 'Application base URL' },
+      { key: 'NEXT_PUBLIC_SITE_URL', label: 'Public site URL', help: 'The address collectors use, such as https://yourstudio.com' },
+      { key: 'NEXT_PUBLIC_BASE_URL', label: 'Application base URL', help: 'Usually the same as your public site URL.' },
       { key: 'CONTACT_EMAIL', label: 'Contact recipient email' },
       { key: 'ARTIST_EMAIL', label: 'Artist email' },
       { key: 'SUPPORT_EMAIL', label: 'Support email' },
@@ -38,15 +54,33 @@ const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: Array<{
       { key: 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY', label: 'Stripe publishable key' },
       { key: 'STRIPE_SECRET_KEY', label: 'Stripe secret key', type: 'password' },
       { key: 'STRIPE_WEBHOOK_SECRET', label: 'Stripe webhook secret', type: 'password' },
-      { key: 'STRIPE_AUTOMATIC_TAX_ENABLED', label: 'Stripe automatic tax enabled', help: 'Use true or false.' },
+      {
+        key: 'STRIPE_AUTOMATIC_TAX_ENABLED',
+        label: 'Calculate tax automatically with Stripe',
+        options: BOOL_OPTIONS,
+        defaultValue: 'false',
+      },
     ],
   },
   {
     title: 'Email Delivery',
     description: 'SMTP sends contact and order-status emails. Use log mode until SMTP is ready.',
     keys: [
-      { key: 'EMAIL_DELIVERY_MODE', label: 'Email delivery mode', help: 'smtp or log' },
-      { key: 'WELCOME_EMAIL_ENABLED', label: 'Welcome email enabled', help: 'Use true or false.' },
+      {
+        key: 'EMAIL_DELIVERY_MODE',
+        label: 'Email delivery mode',
+        options: [
+          { value: 'log', label: 'Log only (safe for testing)' },
+          { value: 'smtp', label: 'Send with SMTP' },
+        ],
+        defaultValue: 'log',
+      },
+      {
+        key: 'WELCOME_EMAIL_ENABLED',
+        label: 'Send welcome email to new collectors',
+        options: BOOL_OPTIONS,
+        defaultValue: 'false',
+      },
       { key: 'SMTP_HOST', label: 'SMTP host' },
       { key: 'SMTP_PORT', label: 'SMTP port' },
       { key: 'SMTP_USER', label: 'SMTP user' },
@@ -58,7 +92,15 @@ const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: Array<{
     title: 'Newsletter',
     description: 'Mailchimp receives public newsletter signups. Use log mode while setting up.',
     keys: [
-      { key: 'NEWSLETTER_DELIVERY_MODE', label: 'Newsletter delivery mode', help: 'mailchimp or log' },
+      {
+        key: 'NEWSLETTER_DELIVERY_MODE',
+        label: 'Newsletter delivery mode',
+        options: [
+          { value: 'log', label: 'Log only (safe for testing)' },
+          { value: 'mailchimp', label: 'Send to Mailchimp' },
+        ],
+        defaultValue: 'log',
+      },
       { key: 'MAILCHIMP_API_KEY', label: 'Mailchimp API key', type: 'password' },
       { key: 'MAILCHIMP_LIST_ID', label: 'Mailchimp list ID' },
       { key: 'MAILCHIMP_SERVER_PREFIX', label: 'Mailchimp server prefix' },
@@ -77,9 +119,28 @@ const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: Array<{
       { key: 'FACEBOOK_CONVERSION_API_TOKEN', label: 'Facebook conversion API token', type: 'password' },
       { key: 'PINTEREST_ACCESS_TOKEN', label: 'Pinterest access token', type: 'password' },
       { key: 'PINTEREST_BOARD_ID', label: 'Pinterest board ID' },
-      { key: 'SOCIAL_PROVIDER', label: 'Social publishing provider', help: 'assist, meta, or ayrshare. Ayrshare is recommended for multi-platform publishing.' },
+      {
+        key: 'SOCIAL_PROVIDER',
+        label: 'Social publishing provider',
+        options: [
+          { value: 'assist', label: 'Assist (copy drafts for you)' },
+          { value: 'meta', label: 'Meta (Facebook / Instagram)' },
+          { value: 'ayrshare', label: 'Ayrshare (multi-platform)' },
+        ],
+        defaultValue: 'assist',
+        help: 'Ayrshare is recommended when you publish to several networks.',
+      },
       { key: 'AYRSHARE_API_KEY', label: 'Ayrshare API key', type: 'password' },
-      { key: 'SOCIAL_PUBLISH_MODE', label: 'Social publish mode', help: 'assist or auto. Assist is safest and works without platform credentials.' },
+      {
+        key: 'SOCIAL_PUBLISH_MODE',
+        label: 'Social publish mode',
+        options: [
+          { value: 'assist', label: 'Assist — review before posting' },
+          { value: 'auto', label: 'Auto — publish on schedule' },
+        ],
+        defaultValue: 'assist',
+        help: 'Assist is safest and works without platform credentials.',
+      },
       { key: 'MARKETING_EMAIL_UNIT_COST', label: 'Estimated cost per email', help: 'Optional dollar amount used for ROI estimates. Leave blank or 0 for actual spend only.' },
       { key: 'MARKETING_SOCIAL_POST_COST', label: 'Estimated cost per social post', help: 'Optional dollar amount used for ROI estimates. Leave blank or 0 for actual spend only.' },
       { key: 'SOCIAL_INSTAGRAM_URL', label: 'Instagram profile URL' },
@@ -92,7 +153,16 @@ const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: Array<{
     title: 'Shipping',
     description: 'Manual carrier tracking always works. Add a provider key only when you want in-site rates and labels.',
     keys: [
-      { key: 'SHIPPING_PROVIDER', label: 'Shipping provider', help: 'manual or easypost. Manual remains the fallback.' },
+      {
+        key: 'SHIPPING_PROVIDER',
+        label: 'Shipping provider',
+        options: [
+          { value: 'manual', label: 'Manual tracking' },
+          { value: 'easypost', label: 'EasyPost labels & rates' },
+        ],
+        defaultValue: 'manual',
+        help: 'Manual remains the fallback if EasyPost is unavailable.',
+      },
       { key: 'EASYPOST_API_KEY', label: 'EasyPost API key', type: 'password' },
       { key: 'SHIP_FROM_NAME', label: 'Ship-from name' },
       { key: 'SHIP_FROM_COMPANY', label: 'Ship-from company' },
@@ -111,10 +181,15 @@ const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: Array<{
   },
   {
     title: 'Automation',
-    description: 'Scheduled emails, cart recovery, and social posts. Save a cron secret, then use Run automations now or schedule your host to call the cron URL hourly.',
+    description: 'Cart recovery and scheduled marketing jobs. Optional until you want hands-off follow-up.',
     keys: [
-      { key: 'CRON_SECRET', label: 'Automation secret', type: 'password', help: 'Used to authorize scheduled automation runs. Click Run automations now after saving.' },
-      { key: 'CART_ABANDONMENT_ENABLED', label: 'Cart recovery enabled', help: 'Use true or false.' },
+      { key: 'CRON_SECRET', label: 'Automation secret', type: 'password', help: 'Protects scheduled runs. Save this, then use Run automations now above.' },
+      {
+        key: 'CART_ABANDONMENT_ENABLED',
+        label: 'Send cart recovery emails',
+        options: BOOL_OPTIONS,
+        defaultValue: 'false',
+      },
       { key: 'CART_RECOVERY_PROMO_CODE', label: 'Cart recovery promo code', help: 'Optional existing promo code to include in recovery emails.' },
     ],
   },
@@ -147,9 +222,28 @@ function focusSettingFieldFromHash(): void {
 
   requestAnimationFrame(() => {
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    const input = el.querySelector('input, textarea') as HTMLElement | null;
+    const input = el.querySelector('input, textarea, select') as HTMLElement | null;
     input?.focus({ preventScroll: true });
   });
+}
+
+function fieldDraftValue(field: SettingField, draft: Record<string, string>): string {
+  const current = draft[field.key];
+  if (current != null && current !== '') return current;
+  return field.defaultValue || '';
+}
+
+function applySettingFieldDefaults(values: Record<string, string>): Record<string, string> {
+  const next = { ...values };
+  for (const group of SETTINGS_GROUPS) {
+    for (const field of group.keys) {
+      if (!field.defaultValue) continue;
+      if (next[field.key] == null || next[field.key] === '') {
+        next[field.key] = field.defaultValue;
+      }
+    }
+  }
+  return next;
 }
 
 function integrationStatuses(settings: Record<string, SettingRecord>, draft: Record<string, string>) {
@@ -205,7 +299,9 @@ export default function AdminSettings() {
       if (!response.ok) throw new Error(data.error || 'Failed to load settings');
       const records = Object.fromEntries((data.settings || []).map((item: SettingRecord) => [item.key, item]));
       setSettings(records);
-      setDraft(Object.fromEntries((data.settings || []).map((item: SettingRecord) => [item.key, item.value || ''])));
+      setDraft(applySettingFieldDefaults(
+        Object.fromEntries((data.settings || []).map((item: SettingRecord) => [item.key, item.value || ''])),
+      ));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Failed to load settings');
     } finally {
@@ -218,16 +314,19 @@ export default function AdminSettings() {
     setSaving(true);
     setMessage(null);
     try {
+      const settingsPayload = applySettingFieldDefaults(draft);
       const response = await fetch('/api/admin/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings: draft }),
+        body: JSON.stringify({ settings: settingsPayload }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to save settings');
       const records = Object.fromEntries((data.settings || []).map((item: SettingRecord) => [item.key, item]));
       setSettings(records);
-      setDraft(Object.fromEntries((data.settings || []).map((item: SettingRecord) => [item.key, item.value || ''])));
+      setDraft(applySettingFieldDefaults(
+        Object.fromEntries((data.settings || []).map((item: SettingRecord) => [item.key, item.value || ''])),
+      ));
       setMessage('Settings saved. Secret values are hidden after saving.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Failed to save settings');
@@ -264,7 +363,11 @@ export default function AdminSettings() {
     const siteUrlOk = Boolean(draft.NEXT_PUBLIC_SITE_URL?.trim() || draft.NEXT_PUBLIC_BASE_URL?.trim());
     const contactOk = Boolean(draft.CONTACT_EMAIL?.trim() || draft.ARTIST_EMAIL?.trim());
 
-    const siteCustomized = siteContent ? isSiteCustomizationComplete(siteContent) : false;
+    const siteContentSaved = Object.values(SITE_CONTENT_KEYS).some(
+      (key) => settings[key]?.status === 'configured',
+    );
+    const siteCustomized = siteContentSaved
+      || (siteContent ? isSiteCustomizationComplete(siteContent) : false);
 
     return [
       { label: 'Set your public site URL', complete: siteUrlOk, href: adminSettingFieldHref('NEXT_PUBLIC_SITE_URL') },
@@ -275,7 +378,7 @@ export default function AdminSettings() {
       { label: 'Set up shipping (manual or EasyPost)', complete: shippingOk, href: adminSettingFieldHref('SHIPPING_PROVIDER') },
       { label: 'Connect newsletter delivery', complete: newsletterOk, href: adminSettingFieldHref('NEWSLETTER_DELIVERY_MODE') },
     ];
-  }, [statuses, draft, siteContent]);
+  }, [statuses, draft, siteContent, settings]);
   const setupCompleteCount = setupSteps.filter((step) => step.complete).length;
   const showSetupWizard = setupCompleteCount < setupSteps.length;
 
@@ -337,12 +440,12 @@ export default function AdminSettings() {
       </section>
 
       <section className="rounded-lg border bg-white p-6">
-        <h2 className="text-lg font-semibold text-gray-900">Automation status</h2>
+        <h2 className="text-lg font-semibold text-gray-900">Studio automations</h2>
         <p className="mt-1 text-sm text-gray-600">
-          Last run: {draft.CRON_LAST_RUN_AT ? new Date(draft.CRON_LAST_RUN_AT).toLocaleString() : 'Not recorded yet'}
+          Run cart recovery and scheduled marketing jobs from here. Optional until you want hands-off follow-up.
         </p>
         <p className="mt-2 text-sm text-gray-600">
-          Cron URL: <code className="rounded bg-gray-100 px-1">{typeof window !== 'undefined' ? `${window.location.origin}/api/cron/marketing` : '/api/cron/marketing'}</code>
+          Last run: {draft.CRON_LAST_RUN_AT ? new Date(draft.CRON_LAST_RUN_AT).toLocaleString() : 'Not recorded yet'}
         </p>
         <button
           type="button"
@@ -352,6 +455,15 @@ export default function AdminSettings() {
         >
           {runningAutomation ? 'Running...' : 'Run automations now'}
         </button>
+        <details className="mt-4 text-sm text-gray-600">
+          <summary className="cursor-pointer font-medium text-gray-800">Advanced scheduling</summary>
+          <p className="mt-2">
+            Hosts can call this URL hourly with your automation secret. Most artists can ignore this and use the button above.
+          </p>
+          <code className="mt-2 block overflow-x-auto rounded bg-gray-100 px-2 py-1 text-xs">
+            {typeof window !== 'undefined' ? `${window.location.origin}/api/cron/marketing` : '/api/cron/marketing'}
+          </code>
+        </details>
       </section>
 
       {SETTINGS_GROUPS.map((group) => {
@@ -370,7 +482,19 @@ export default function AdminSettings() {
                         </span>
                       )}
                     </div>
-                    {field.type === 'multiline' ? (
+                    {field.options ? (
+                      <select
+                        value={fieldDraftValue(field, draft)}
+                        onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))}
+                        className="block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900"
+                      >
+                        {field.options.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : field.type === 'multiline' ? (
                       <textarea
                         value={draft[field.key] || ''}
                         onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))}

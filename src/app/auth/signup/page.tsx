@@ -1,11 +1,18 @@
 'use client';
-import { useState } from 'react';
+import { use, useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { mergeGuestWishlistIntoAccount } from '@/components/WishlistButton';
+import { safeCallbackUrl } from '@/app/auth/signin/SignInForm';
 
-export default function SignUpPage() {
+export default function SignUpPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ callbackUrl?: string | string[] }>;
+}) {
+  const { callbackUrl: callbackParam } = use(searchParams);
+  const callbackUrl = safeCallbackUrl(Array.isArray(callbackParam) ? callbackParam[0] : callbackParam);
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -71,7 +78,7 @@ export default function SignUpPage() {
         setError('Account created but sign-in failed. Please try signing in manually.');
       } else {
         await mergeGuestWishlistIntoAccount();
-        router.push('/account');
+        router.push(callbackUrl);
         router.refresh();
       }
     } catch (error) {
@@ -82,7 +89,7 @@ export default function SignUpPage() {
   };
 
   const handleGoogleSignUp = () => {
-    signIn('google', { callbackUrl: '/account' });
+    signIn('google', { callbackUrl });
   };
 
   return (
@@ -93,7 +100,7 @@ export default function SignUpPage() {
         </h2>
         <p className="mt-2 text-center text-sm text-gray-600">
           Or{' '}
-          <Link href="/auth/signin" className="form-link">
+          <Link href={`/auth/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`} className="form-link">
             sign in to your existing account
           </Link>
         </p>

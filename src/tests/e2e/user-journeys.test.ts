@@ -77,6 +77,28 @@ test.describe('Critical User Journeys', () => {
     await page.click('[data-testid="filter-all"]');
     const portfolioItems = page.locator('[data-testid="portfolio-item"]');
     await expect(portfolioItems.first()).toBeVisible();
+
+    const firstImage = portfolioItems.first().locator('img').first();
+    await expect(firstImage).toBeVisible();
+    const src = await firstImage.getAttribute('src');
+    expect(src || '').not.toContain('fallback-artwork.svg');
+    await expect(portfolioItems.first().getByText('Available')).toHaveCount(0);
+
+    const categoryFilter = page.getByLabel('Portfolio categories');
+    await expect(categoryFilter).toBeVisible();
+    const filterTag = await categoryFilter.evaluate((el) => el.tagName);
+    if (filterTag === 'SELECT') {
+      await categoryFilter.selectOption({ label: 'Light Studies' });
+      await expect(categoryFilter).toHaveValue('light-studies');
+    } else {
+      await categoryFilter.getByRole('link', { name: 'Light Studies' }).click();
+      await expect(categoryFilter.getByRole('link', { name: 'Light Studies' })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+    }
+    await expect(page).toHaveURL(/category=light-studies/);
+    await expect(page.locator('[data-testid="portfolio-item"]').first()).toBeVisible();
   });
 
   test('Mobile responsiveness', async ({ page }) => {
@@ -112,10 +134,17 @@ test.describe('Critical User Journeys', () => {
     await expect(page.getByRole('tab', { name: 'Orders', selected: true })).toBeVisible();
     await expect(page.locator('#admin-panel-orders')).toBeVisible();
     await expect(page.getByPlaceholder('Order number or customer email')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Studio' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'View site' }).first()).toHaveAttribute('href', '/');
+
+    await page.getByRole('link', { name: 'View site' }).first().click();
+    await expect(page).toHaveURL('/', { timeout: 15000 });
+    await expect(page.getByRole('link', { name: 'Studio' })).toBeVisible();
 
     await page.goto('/admin?tab=inbox');
     await expect(page.getByRole('tab', { name: 'Inbox', selected: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Hidden comments' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
   });
 
   test('Performance and accessibility', async ({ page }) => {

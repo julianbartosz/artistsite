@@ -18,6 +18,8 @@ interface FilterSidebarProps {
   sortOptions?: Array<{ value: SortOption; label: string }>;
   currentSort?: SortOption;
   onSortChange?: (sort: SortOption) => void;
+  /** Small catalogs: keep category + availability; hide dense e-commerce filters. */
+  quietMode?: boolean;
 }
 
 interface FilterSection {
@@ -51,6 +53,7 @@ export function FilterSidebar({
   sortOptions,
   currentSort,
   onSortChange,
+  quietMode = false,
 }: FilterSidebarProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -295,6 +298,7 @@ export function FilterSidebar({
       </FilterSection>
       )}
 
+      {!quietMode && (
       <FilterSection
         title="Price Range"
         isOpen={sections.find(s => s.id === 'price')?.isOpen || false}
@@ -318,6 +322,7 @@ export function FilterSidebar({
           ))}
         </div>
       </FilterSection>
+      )}
 
       <FilterSection
         title="Availability"
@@ -335,7 +340,7 @@ export function FilterSidebar({
         </label>
       </FilterSection>
 
-      {mediums.length > 0 && (
+      {!quietMode && mediums.length > 0 && (
       <FilterSection
         title="Medium"
         isOpen={sections.find(s => s.id === 'medium')?.isOpen || false}
@@ -357,6 +362,7 @@ export function FilterSidebar({
       </FilterSection>
       )}
 
+      {!quietMode && (
       <FilterSection
         title="Size"
         isOpen={sections.find(s => s.id === 'dimensions')?.isOpen || false}
@@ -376,6 +382,7 @@ export function FilterSidebar({
           ))}
         </div>
       </FilterSection>
+      )}
     </>
   );
 

@@ -19,6 +19,8 @@ import {
   SITE_CONTENT_DEFAULTS,
   SITE_CONTENT_PAGES,
   SITE_CONTENT_PREVIEW_HREF,
+  SITE_LOOKBOOKS,
+  applySiteLookbook,
   headerDisplayName,
   visibleNavItems,
   type HomeSectionKey,
@@ -322,8 +324,18 @@ export default function AdminSiteContent() {
   const [message, setMessage] = useState<string | null>(null);
   const [previewToken, setPreviewToken] = useState(0);
   const [artworkOptions, setArtworkOptions] = useState<ArtworkOption[]>([]);
+  const [previewOpen, setPreviewOpen] = useState(true);
   const savedBaselineRef = useRef<string>('');
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const media = window.matchMedia('(min-width: 1024px)');
+    const sync = () => setPreviewOpen(media.matches);
+    sync();
+    media.addEventListener('change', sync);
+    return () => media.removeEventListener('change', sync);
+  }, []);
 
   const isDirty = content ? JSON.stringify(content) !== savedBaselineRef.current : false;
 
@@ -560,6 +572,7 @@ export default function AdminSiteContent() {
         ))}
       </div>
 
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2 xl:items-start">
       <form onSubmit={handleSubmit} className="rounded-lg border bg-white p-6 space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -643,6 +656,23 @@ export default function AdminSiteContent() {
                 onRevert={revertAppearance}
               />
               <div className="mt-6 space-y-4 border-t border-gray-200 pt-6">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Studio lookbooks</p>
+                  <p className="mt-1 text-xs text-gray-600">Apply a complete look — colors, type, cards, homepage blocks, and shop chrome — then tweak anything.</p>
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {SITE_LOOKBOOKS.map((lookbook) => (
+                      <button
+                        key={lookbook.id}
+                        type="button"
+                        onClick={() => setContent(applySiteLookbook(content, lookbook.id))}
+                        className="rounded-md border border-gray-200 p-3 text-left text-xs hover:border-gray-400"
+                      >
+                        <p className="font-medium text-gray-900">{lookbook.label}</p>
+                        <p className="mt-1 text-gray-600">{lookbook.description}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <p className="text-sm font-medium text-gray-900">Page structure</p>
                 <SelectField
                   label="Homepage layout"
@@ -767,7 +797,7 @@ export default function AdminSiteContent() {
           <div className="space-y-4">
             <p className="text-sm text-gray-600">Homepage layout and colors are in Branding → Site appearance. Edit copy and sections here.</p>
             <EditorSection title="Homepage blocks" defaultOpen>
-              <p className="text-sm text-gray-600">Choose which blocks appear on your homepage and in what order. The top banner always stays first. Hide individual blocks in their panels below.</p>
+              <p className="text-sm text-gray-600">Choose which blocks appear on your homepage and in what order. Homepage layout (Gallery first / Story first) can place artwork or about above the banner. Hide individual blocks in their panels below.</p>
               <div className="space-y-3">
                 {content.home.sectionOrder.map((sectionKey, index) => (
                   <div key={sectionKey} className="flex items-center justify-between rounded-md border border-gray-200 p-3">
@@ -1212,8 +1242,8 @@ export default function AdminSiteContent() {
             <CheckboxField label="Show publish date on timeline posts" checked={content.blog.showFeedDate} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showFeedDate: value } })} />
             <CheckboxField label="Show author on timeline posts" checked={content.blog.showFeedAuthor} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showFeedAuthor: value } })} />
             <CheckboxField label="Show tags on timeline posts" checked={content.blog.showFeedTags} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showFeedTags: value } })} />
-            <CheckboxField label="Show comments on updates" checked={content.blog.showComments} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showComments: value } })} />
-            <CheckboxField label="Show likes on updates" checked={content.blog.showLikes} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showLikes: value } })} />
+            <CheckboxField label="Show comments on updates" checked={content.blog.showComments} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showComments: value } })} help="Signed-in visitors comment on the post page; the feed shows the count. Hide comments from the post page and restore them in Inbox." />
+            <CheckboxField label="Show likes on updates" checked={content.blog.showLikes} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showLikes: value } })} help="Anyone can like, no account needed. Turning this off hides counts and stops new likes." />
             <TextField label="Comments section label" value={content.blog.commentsLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, commentsLabel: value } })} />
             <TextField label="Like button label" value={content.blog.likeLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, likeLabel: value } })} />
             <SelectField
@@ -1251,25 +1281,36 @@ export default function AdminSiteContent() {
         </div>
       </form>
 
-      <div className="rounded-lg border bg-white overflow-hidden">
-        <div className="border-b px-4 py-3 flex items-center justify-between">
+      <div className="rounded-lg border bg-white overflow-hidden xl:sticky xl:top-4">
+        <div className="border-b px-4 py-3 flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 className="text-sm font-semibold text-gray-900">Live preview</h3>
             <p className="text-xs text-gray-500">Updates as you edit — save to publish changes.</p>
           </div>
           <div className="flex items-center gap-3">
             {isDirty && <span className="text-xs font-medium text-amber-700">Unsaved changes</span>}
+            <button
+              type="button"
+              onClick={() => setPreviewOpen((open) => !open)}
+              className="text-sm font-medium text-gray-700 hover:text-gray-900"
+              aria-expanded={previewOpen}
+            >
+              {previewOpen ? 'Hide preview' : 'Show preview'}
+            </button>
             <a href={`${previewHref}?cmsPreview=1&preview=${previewToken}`} target="_blank" rel="noreferrer" className="text-sm font-medium text-primary hover:opacity-80">
               Open full page
             </a>
           </div>
         </div>
-        <iframe
-          key={`${activePage}-${previewToken}`}
-          title={`Preview ${activeTab.label}`}
-          src={`${previewHref}?cmsPreview=1&preview=${previewToken}`}
-          className="w-full h-[720px] bg-white"
-        />
+        {previewOpen && (
+          <iframe
+            key={`${activePage}-${previewToken}`}
+            title={`Preview ${activeTab.label}`}
+            src={`${previewHref}?cmsPreview=1&preview=${previewToken}`}
+            className="w-full h-[min(70vh,720px)] bg-white"
+          />
+        )}
+      </div>
       </div>
     </div>
   );

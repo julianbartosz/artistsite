@@ -2,9 +2,10 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { Metadata } from 'next';
 import { getServerSession } from 'next-auth';
-import { getAllPosts, getPrivatePostsForViewer, type BlogPost } from '@/lib/markdown';
+import { getAllPosts, getPrivatePostsForViewer } from '@/lib/markdown';
 import { authOptions } from '@/lib/auth';
-import { getSiteContent, listingHeroPaddingClass, UPDATES_PATH, updatesPostPath, updatesTagPath } from '@/lib/site-content';
+import { getSiteContent, listingHeroPaddingClass, UPDATES_PATH, updatesFeedCopy } from '@/lib/site-content';
+import { getEngagementStates, readGuestSessionId } from '@/lib/update-engagement';
 import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
 import UpdatesFeedClient from '@/components/UpdatesFeedClient';
 
@@ -117,30 +118,21 @@ async function UpdatesFeed({
     );
   }
 
-  if (layout === 'grid' || layout === 'timeline') {
-    return (
-      <UpdatesFeedClient
-        posts={posts}
-        layout={layout}
-        journalLabel={blog.journalLabel}
-        studioLabel={blog.studioLabel}
-        signedIn={signedIn}
-        quickLookLabel={blog.quickLookLabel}
-        saveUpdateLabel={blog.saveUpdateLabel}
-        askArtistLabel={blog.askArtistLabel}
-        featuredLabel={blog.featuredLabel}
-        showFeedDate={blog.showFeedDate}
-        showFeedAuthor={blog.showFeedAuthor}
-        showFeedTags={blog.showFeedTags}
-        showComments={blog.showComments}
-        showLikes={blog.showLikes}
-        commentsLabel={blog.commentsLabel}
-        likeLabel={blog.likeLabel}
-      />
-    );
-  }
+  const engagement = await getEngagementStates(
+    posts.map((post) => post.slug),
+    { userId: session?.user?.id, sessionId: await readGuestSessionId() },
+  );
 
-  return null;
+  return (
+    <UpdatesFeedClient
+      posts={posts}
+      layout={layout}
+      copy={updatesFeedCopy(blog)}
+      signedIn={signedIn}
+      signInCallbackUrl={updatesHref({ view, kind })}
+      engagement={engagement}
+    />
+  );
 }
 
 export default async function BlogPage({ searchParams }: { searchParams: Promise<UpdatesSearch> }) {

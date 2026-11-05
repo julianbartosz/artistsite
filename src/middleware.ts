@@ -15,7 +15,8 @@ const ADMIN_API_RULES: readonly AdminApiRule[] = [
   { prefix: '/api/admin' },
   { prefix: '/api/marketing' },
   { prefix: '/api/security' },
-  { prefix: '/api/inventory' },
+  // Storefront StockIndicator uses GET ?productId=; route handler still requireAdmin for bulk/dashboard.
+  { prefix: '/api/inventory', methods: ['POST'] },
   { prefix: '/api/upload' },
   { prefix: '/api/analytics/customers' },
   { prefix: '/api/analytics/performance', methods: ['GET'] },

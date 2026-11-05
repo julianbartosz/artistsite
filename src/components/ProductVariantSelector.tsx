@@ -9,6 +9,8 @@ interface ProductVariantSelectorProps {
   onPriceChange: (totalPrice: number) => void;
   initialVariant?: CartItemVariant;
   initialCustomizations?: Record<string, string>;
+  /** compact hides optional free-text fields so quick look stays short; required/select options remain. */
+  density?: 'full' | 'compact';
 }
 
 export default function ProductVariantSelector({
@@ -16,7 +18,8 @@ export default function ProductVariantSelector({
   onVariantChange,
   onPriceChange,
   initialVariant,
-  initialCustomizations = {}
+  initialCustomizations = {},
+  density = 'full',
 }: ProductVariantSelectorProps) {
   const [selectedVariant, setSelectedVariant] = useState<CartItemVariant>(initialVariant || {});
   const [customizations, setCustomizations] = useState<Record<string, string>>(initialCustomizations);
@@ -254,12 +257,18 @@ export default function ProductVariantSelector({
       }
 
       {/* Custom Configurations */}
-      {product.customizations && product.customizations.length > 0 && (
-        <div>
-          <h4 className="text-lg font-medium text-gray-900 mb-4">Customization Options</h4>
-          {product.customizations.map(renderCustomization)}
-        </div>
-      )}
+      {(() => {
+        const customizationsToShow = (product.customizations || []).filter((customization) => (
+          density === 'full' || customization.type === 'select' || customization.required
+        ));
+        if (customizationsToShow.length === 0) return null;
+        return (
+          <div>
+            <h4 className="text-lg font-medium text-gray-900 mb-4">Customization Options</h4>
+            {customizationsToShow.map(renderCustomization)}
+          </div>
+        );
+      })()}
 
       {/* Price Display */}
       <div className="bg-gray-50 p-4 rounded-lg">

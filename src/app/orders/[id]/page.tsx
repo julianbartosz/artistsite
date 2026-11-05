@@ -20,8 +20,8 @@ export default async function OrderStatusPage({
   const accessToken = Array.isArray(t) ? t[0] : t;
 
   return (
-    <main className="min-h-screen bg-gray-50 py-12">
+    <div className="min-h-screen bg-gray-50 py-12">
       <OrderTracking orderId={id} accessToken={accessToken} />
-    </main>
+    </div>
   );
 }

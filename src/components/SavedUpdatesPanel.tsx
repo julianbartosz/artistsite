@@ -132,9 +132,11 @@ export default function SavedUpdatesPanel({
         journalLabel={journalLabel}
         studioLabel={studioLabel}
         quickLookLabel={quickLookLabel}
-        signedIn
-        saved
-        onToggleSave={(post) => void removeSaved(post.slug)}
+        actions={activePost && (
+          <button type="button" onClick={() => void removeSaved(activePost.slug)} className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
+            Remove from saved
+          </button>
+        )}
       />
     </>
   );

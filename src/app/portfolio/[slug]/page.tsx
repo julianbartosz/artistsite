@@ -3,6 +3,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { getArtworkBySlug } from '@/lib/portfolio';
 import { getSiteContent } from '@/lib/site-content';
+import { displayFilterLabel } from '@/lib/search-params';
 import { MDXContent } from '@/components/MDXContent';
 import { generatePortfolioMetadata } from '@/lib/seo';
 import { StructuredData, generateVisualArtworkSchema, generateBreadcrumbSchema } from '@/components/StructuredData';
@@ -124,14 +125,15 @@ export default async function ArtworkDetail({ params }: ArtworkDetailProps) {
       </header>
 
       {artwork.category && artwork.category.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-x-4 gap-y-2" aria-label="Categories">
           {artwork.category.map((category: string) => (
-            <span
+            <Link
               key={category}
-              className="px-3 py-1 bg-gray-100 text-gray-700 text-sm rounded-full capitalize"
+              href={`/portfolio?category=${encodeURIComponent(category)}`}
+              className="text-sm text-gray-600 underline-offset-4 transition-colors hover:text-gray-900 hover:underline"
             >
-              {category.replace('-', ' ')}
-            </span>
+              {displayFilterLabel(category)}
+            </Link>
           ))}
         </div>
       )}
