@@ -22,7 +22,7 @@ export function ShopProductCard({ product }: ProductCardProps) {
     <>
     <article
       data-testid="product-card"
-      className="group h-full card-surface bg-white overflow-hidden hover:shadow-lg transition-shadow flex flex-col"
+      className="group h-full card-surface bg-surface overflow-hidden hover:shadow-lg transition-shadow flex flex-col"
     >
       <div className="relative aspect-square bg-gray-100 flex-shrink-0">
         <Link href={productHref} data-testid="product-card-link" className="absolute inset-0 z-10 block">
@@ -73,7 +73,7 @@ export function ShopProductCard({ product }: ProductCardProps) {
           </span>
           <div className="flex items-center gap-3">
             <Link
-              href={`/contact?subject=${encodeURIComponent(`Inquiry about ${product.title}`)}`}
+              href={`/contact?subject=${encodeURIComponent(`Inquiry about ${product.title}`)}&inquiryType=purchase`}
               className="text-sm font-medium text-gray-700 hover:text-gray-900"
             >
               Ask
@@ -89,7 +89,25 @@ export function ShopProductCard({ product }: ProductCardProps) {
         </div>
 
         <div className="mt-2">
-          <StockIndicator productId={product.id} />
+          {product.availability === 'available' ? (
+            <StockIndicator productId={product.id} missingInventoryLabel="Available" />
+          ) : (
+            <span
+              className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
+                product.availability === 'sold'
+                  ? 'bg-red-50 text-red-700'
+                  : product.availability === 'commissioned'
+                    ? 'bg-blue-50 text-blue-800'
+                    : 'bg-amber-50 text-amber-800'
+              }`}
+            >
+              {product.availability === 'sold'
+                ? 'Sold'
+                : product.availability === 'commissioned'
+                  ? 'Commission'
+                  : 'Reserved'}
+            </span>
+          )}
         </div>
 
         {isLimitedEdition && (

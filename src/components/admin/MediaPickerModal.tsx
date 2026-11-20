@@ -8,9 +8,12 @@ type MediaPickerModalProps = {
   open: boolean;
   onClose: () => void;
   onSelect: (url: string) => void;
+  title?: string;
+  /** Shown above the media library, e.g. portfolio pieces. */
+  suggested?: { heading: string; items: Array<{ url: string; label: string }> };
 };
 
-export default function MediaPickerModal({ open, onClose, onSelect }: MediaPickerModalProps) {
+export default function MediaPickerModal({ open, onClose, onSelect, title = 'Insert image', suggested }: MediaPickerModalProps) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [libraryLoading, setLibraryLoading] = useState(false);
@@ -50,12 +53,36 @@ export default function MediaPickerModal({ open, onClose, onSelect }: MediaPicke
   if (!loaded && !libraryLoading) void loadLibrary();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="Choose image">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label={title}>
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-4 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">Insert image</h3>
+          <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
           <button type="button" onClick={onClose} className="text-sm text-gray-600 hover:text-gray-900">Close</button>
         </div>
+
+        {suggested && suggested.items.length > 0 && (
+          <div className="mb-5">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">{suggested.heading}</p>
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+              {suggested.items.map((item) => (
+                <button
+                  key={item.url}
+                  type="button"
+                  onClick={() => {
+                    onSelect(item.url);
+                    onClose();
+                  }}
+                  className="group relative aspect-square overflow-hidden rounded border border-gray-200 hover:border-gray-400"
+                  title={item.label}
+                >
+                  <img src={item.url} alt="" className="h-full w-full object-cover" />
+                  <span className="absolute inset-x-0 bottom-0 truncate bg-black/55 px-1.5 py-0.5 text-left text-[11px] text-white">{item.label}</span>
+                </button>
+              ))}
+            </div>
+            <p className="mb-2 mt-5 text-xs font-medium uppercase tracking-wide text-gray-500">Media library</p>
+          </div>
+        )}
 
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <label className="inline-flex cursor-pointer items-center rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">

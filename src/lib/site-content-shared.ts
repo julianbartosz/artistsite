@@ -17,20 +17,31 @@ const optionalImage = z.string().default('');
 export const heroCtaKeySchema = z.enum(['shop', 'portfolio', 'contact']);
 export const heroHeightSchema = z.enum(['compact', 'full']);
 export const heroImagePlacementSchema = z.enum(['inline', 'badge', 'background']);
-export const fontPresetSchema = z.enum(['system', 'serif', 'modern']);
+export const FONT_PRESET_VALUES = ['system', 'serif', 'editorial'] as const;
+/** `modern` was a near-duplicate of `system` and is folded into it for stored themes. */
+export const fontPresetSchema = z.preprocess(
+  (value) => (value === 'modern' ? 'system' : value),
+  z.enum(FONT_PRESET_VALUES),
+);
 export const cardStyleSchema = z.enum(['gallery', 'studio', 'bold']);
 export const spacingDensitySchema = z.enum(['comfortable', 'compact']);
+export const pageToneSchema = z.enum(['soft', 'white', 'warm']);
 export const productDetailLayoutSchema = z.enum(['standard', 'gallery-focus']);
 export const featuredSelectionModeSchema = z.enum(['featured_flag', 'latest', 'manual']);
 export const portfolioGridColumnsSchema = z.enum(['2', '3', '4']);
+export const portfolioImageFitSchema = z.enum(['cover', 'contain']);
+export const portfolioThumbAspectSchema = z.enum(['square', 'portrait', 'landscape']);
 export const homeLayoutTemplateSchema = z.enum(['classic', 'gallery-first', 'story-first']);
 
 export type FontPreset = z.infer<typeof fontPresetSchema>;
 export type CardStyle = z.infer<typeof cardStyleSchema>;
 export type SpacingDensity = z.infer<typeof spacingDensitySchema>;
+export type PageTone = z.infer<typeof pageToneSchema>;
 export type ProductDetailLayout = z.infer<typeof productDetailLayoutSchema>;
 export type FeaturedSelectionMode = z.infer<typeof featuredSelectionModeSchema>;
 export type PortfolioGridColumns = z.infer<typeof portfolioGridColumnsSchema>;
+export type PortfolioImageFit = z.infer<typeof portfolioImageFitSchema>;
+export type PortfolioThumbAspect = z.infer<typeof portfolioThumbAspectSchema>;
 export type HomeLayoutTemplate = z.infer<typeof homeLayoutTemplateSchema>;
 
 export const HOME_SECTION_KEYS = ['featured', 'about', 'blog', 'newsletter'] as const;
@@ -39,10 +50,60 @@ export type HomeSectionKey = (typeof HOME_SECTION_KEYS)[number];
 export const BIO_SECTION_KEYS = ['statement', 'background', 'achievements', 'studio', 'collections', 'cta'] as const;
 export type BioSectionKey = (typeof BIO_SECTION_KEYS)[number];
 
-export const FONT_PRESET_FAMILIES: Record<FontPreset, string> = {
-  system: 'var(--font-geist-sans), Arial, Helvetica, sans-serif',
-  serif: 'Georgia, "Times New Roman", Times, serif',
-  modern: '"Helvetica Neue", Helvetica, Arial, sans-serif',
+const SANS_STACK = 'var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif';
+const SERIF_STACK = 'var(--font-source-serif), Georgia, "Times New Roman", serif';
+const DISPLAY_SERIF_STACK = 'var(--font-fraunces), Georgia, "Times New Roman", serif';
+
+/** Curated heading/body pairings; families are self-hosted via next/font in the root layout. */
+export const FONT_PRESETS: Record<FontPreset, { label: string; description: string; body: string; heading: string }> = {
+  system: {
+    label: 'Clean',
+    description: 'Modern sans-serif throughout',
+    body: SANS_STACK,
+    heading: SANS_STACK,
+  },
+  serif: {
+    label: 'Classic',
+    description: 'Book serif for headings and text',
+    body: SERIF_STACK,
+    heading: SERIF_STACK,
+  },
+  editorial: {
+    label: 'Editorial',
+    description: 'Soft display serif headings, clean text',
+    body: SANS_STACK,
+    heading: DISPLAY_SERIF_STACK,
+  },
+};
+
+export const PAGE_TONES: Record<PageTone, {
+  label: string;
+  description: string;
+  page: string;
+  muted: string;
+  sunken: string;
+}> = {
+  soft: {
+    label: 'Soft gray',
+    description: 'White pages with quiet gray bands',
+    page: '#ffffff',
+    muted: '#f9fafb',
+    sunken: '#f3f4f6',
+  },
+  white: {
+    label: 'Gallery white',
+    description: 'All white — the art carries the color',
+    page: '#ffffff',
+    muted: '#ffffff',
+    sunken: '#f5f5f5',
+  },
+  warm: {
+    label: 'Warm paper',
+    description: 'Cream paper tones, like a print studio',
+    page: '#fbf8f3',
+    muted: '#f4eee4',
+    sunken: '#ebe2d3',
+  },
 };
 
 function isHomeSectionKey(value: unknown): value is HomeSectionKey {
@@ -101,38 +162,159 @@ export function contrastRatio(foregroundHex: string, backgroundHex: string): num
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-/** WCAG contrast for white button text on the primary brand color. */
-export function whiteTextContrastOnPrimary(primaryHex: string): 'pass' | 'warn' | 'fail' {
-  const ratio = contrastRatio('#ffffff', primaryHex);
-  if (ratio >= 4.5) return 'pass';
-  if (ratio >= 3) return 'warn';
-  return 'fail';
+/** WCAG AA for normal-size text. */
+export const MIN_TEXT_CONTRAST = 4.5;
+
+function rgbToHex(r: number, g: number, b: number): string {
+  const clamp = (channel: number) => Math.min(255, Math.max(0, Math.round(channel)));
+  return `#${((1 << 24) + (clamp(r) << 16) + (clamp(g) << 8) + clamp(b)).toString(16).slice(1)}`;
 }
 
-const CARD_STYLE_VARIABLES: Record<CardStyle, Record<string, string>> = {
+function hexToHsl(hex: string): { h: number; s: number; l: number } {
+  const { r, g, b } = hexToRgb(hex);
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const l = (max + min) / 2;
+  if (max === min) return { h: 0, s: 0, l };
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h: number;
+  if (max === rn) h = (gn - bn) / d + (gn < bn ? 6 : 0);
+  else if (max === gn) h = (bn - rn) / d + 2;
+  else h = (rn - gn) / d + 4;
+  return { h: h / 6, s, l };
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  if (s === 0) return rgbToHex(l * 255, l * 255, l * 255);
+  const hueToChannel = (p: number, q: number, t: number) => {
+    let tn = t;
+    if (tn < 0) tn += 1;
+    if (tn > 1) tn -= 1;
+    if (tn < 1 / 6) return p + (q - p) * 6 * tn;
+    if (tn < 1 / 2) return q;
+    if (tn < 2 / 3) return p + (q - p) * (2 / 3 - tn) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  return rgbToHex(
+    hueToChannel(p, q, h + 1 / 3) * 255,
+    hueToChannel(p, q, h) * 255,
+    hueToChannel(p, q, h - 1 / 3) * 255,
+  );
+}
+
+/**
+ * Darkens a color (keeping hue and saturation) just until it reaches the target
+ * contrast against a light background. Returns the input when it already passes.
+ */
+export function ensureContrast(hex: string, background: string, minRatio = MIN_TEXT_CONTRAST): string {
+  const normalized = normalizeHexColor(hex, '#000000').toLowerCase();
+  if (contrastRatio(normalized, background) >= minRatio) return normalized;
+  const { h, s, l } = hexToHsl(normalized);
+  for (let lightness = l; lightness > 0; lightness -= 0.01) {
+    const candidate = hslToHex(h, s, lightness);
+    if (contrastRatio(candidate, background) >= minRatio) return candidate;
+  }
+  return '#000000';
+}
+
+export type ThemeContrastIssue = {
+  role: 'primary' | 'accent';
+  ratio: number;
+  suggestion: string;
+};
+
+/**
+ * Primary carries white button and footer text; accent is headline text on the page
+ * surface. Both should meet AA; the editor flags misses and offers the deepened color.
+ */
+export function themeContrastIssues(theme: Pick<SiteTheme, 'primaryColor' | 'accentColor' | 'pageTone'>): ThemeContrastIssue[] {
+  const page = PAGE_TONES[theme.pageTone ?? 'soft'].page;
+  const issues: ThemeContrastIssue[] = [];
+  const primaryRatio = contrastRatio('#ffffff', theme.primaryColor);
+  if (primaryRatio < MIN_TEXT_CONTRAST) {
+    issues.push({ role: 'primary', ratio: primaryRatio, suggestion: ensureContrast(theme.primaryColor, '#ffffff') });
+  }
+  const accentRatio = contrastRatio(theme.accentColor, page);
+  if (accentRatio < MIN_TEXT_CONTRAST) {
+    issues.push({ role: 'accent', ratio: accentRatio, suggestion: ensureContrast(theme.accentColor, page) });
+  }
+  return issues;
+}
+
+/** Returns the theme with both brand colors deepened to meet contrast. */
+export function withReadableBrandColors<T extends Pick<SiteTheme, 'primaryColor' | 'accentColor' | 'pageTone'>>(theme: T): T {
+  const page = PAGE_TONES[theme.pageTone ?? 'soft'].page;
+  return {
+    ...theme,
+    primaryColor: ensureContrast(theme.primaryColor, '#ffffff'),
+    accentColor: ensureContrast(theme.accentColor, page),
+  };
+}
+
+/**
+ * Suggests brand colors from artwork swatches: the deepest color carries buttons and the
+ * footer; the most vivid of the rest that is already near-readable becomes the highlight
+ * (pale colors darken into mud). Both are then deepened just enough to pass contrast.
+ */
+export function suggestBrandColorsFromSwatches(
+  swatches: string[],
+  pageTone: PageTone = 'soft',
+): { primaryColor: string; accentColor: string } | null {
+  const colors = normalizeSwatches(swatches);
+  if (colors.length === 0) return null;
+  const primary = [...colors].sort((left, right) => relativeLuminance(left) - relativeLuminance(right))[0];
+  const page = PAGE_TONES[pageTone].page;
+  const rest = colors.filter((color) => color !== primary);
+  const nearReadable = rest.filter((color) => contrastRatio(color, page) >= 3);
+  const pool = nearReadable.length > 0 ? nearReadable : rest;
+  const accent = pool.length > 0
+    ? pool.reduce((best, color) => (hexToHsl(color).s > hexToHsl(best).s ? color : best))
+    : primary;
+  const readable = withReadableBrandColors({ primaryColor: primary, accentColor: accent, pageTone });
+  return { primaryColor: readable.primaryColor, accentColor: readable.accentColor };
+}
+
+/** One radius vocabulary for cards, buttons, and fields so the site reads as one shape. */
+export const SHAPE_VARIABLES: Record<CardStyle, Record<string, string>> = {
   gallery: {
     '--radius-card': '0px',
+    '--radius-button': '0px',
+    '--radius-input': '0px',
     '--shadow-card': 'none',
     '--card-border-width': '0px',
     '--card-border-color': 'transparent',
   },
   studio: {
     '--radius-card': '0.5rem',
+    '--radius-button': '0.5rem',
+    '--radius-input': '0.375rem',
     '--shadow-card': '0 1px 2px 0 rgb(0 0 0 / 0.05)',
     '--card-border-width': '1px',
     '--card-border-color': 'rgb(229 231 235)',
   },
   bold: {
     '--radius-card': '0.75rem',
+    '--radius-button': '9999px',
+    '--radius-input': '0.75rem',
     '--shadow-card': '0 4px 6px -1px rgb(0 0 0 / 0.1)',
     '--card-border-width': '2px',
     '--card-border-color': 'rgb(209 213 219)',
   },
 };
 
+/** Neutral product defaults — artists brand via looks, palettes, or Match an artwork. */
+export const DEFAULT_THEME_PRIMARY = '#111827';
+export const DEFAULT_THEME_ACCENT = '#374151';
+
 /** Darken a #RRGGBB color by a 0–255 RGB delta (negative values lighten). */
 export function adjustHexRgb(hex: string, delta: number): string {
-  const normalized = normalizeHexColor(hex, '#111827');
+  const normalized = normalizeHexColor(hex, DEFAULT_THEME_PRIMARY);
   const parsed = parseInt(normalized.slice(1), 16);
   const clamp = (channel: number) => Math.min(255, Math.max(0, channel));
   const r = clamp(((parsed >> 16) & 0xff) + delta);
@@ -140,6 +322,8 @@ export function adjustHexRgb(hex: string, delta: number): string {
   const b = clamp((parsed & 0xff) + delta);
   return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
 }
+
+export const DEFAULT_THEME_PRIMARY_HOVER = adjustHexRgb(DEFAULT_THEME_PRIMARY, -20);
 
 function isBioSectionKey(value: unknown): value is BioSectionKey {
   return typeof value === 'string' && (BIO_SECTION_KEYS as readonly string[]).includes(value);
@@ -183,22 +367,42 @@ export function normalizeHomeSectionOrder(value: unknown): HomeSectionKey[] {
   return order;
 }
 
+/** Space-separated channels so Tailwind opacity modifiers (`bg-primary/10`) can compose them. */
+function rgbChannels(hex: string): string {
+  const { r, g, b } = hexToRgb(hex);
+  return `${r} ${g} ${b}`;
+}
+
 export function themeCssVariables(theme: {
   primaryColor: string;
   accentColor: string;
   fontPreset: FontPreset;
   cardStyle?: CardStyle;
   spacingDensity?: SpacingDensity;
+  pageTone?: PageTone;
 }): Record<string, string> {
-  const cardStyle = theme.cardStyle ?? 'studio';
-  const spacingDensity = theme.spacingDensity ?? 'comfortable';
+  const primary = normalizeHexColor(theme.primaryColor, DEFAULT_THEME_PRIMARY);
+  const accent = normalizeHexColor(theme.accentColor, DEFAULT_THEME_ACCENT);
+  const primaryHover = adjustHexRgb(primary, -20);
+  const fonts = FONT_PRESETS[theme.fontPreset] ?? FONT_PRESETS.system;
+  const tone = PAGE_TONES[theme.pageTone ?? 'soft'];
   return {
-    '--color-primary': theme.primaryColor,
-    '--color-primary-hover': adjustHexRgb(theme.primaryColor, -20),
-    '--color-accent': theme.accentColor,
-    '--font-site': FONT_PRESET_FAMILIES[theme.fontPreset],
-    ...CARD_STYLE_VARIABLES[cardStyle],
-    ...SPACING_DENSITY_VARIABLES[spacingDensity],
+    '--color-primary': primary,
+    '--color-primary-rgb': rgbChannels(primary),
+    '--color-primary-hover': primaryHover,
+    '--color-primary-hover-rgb': rgbChannels(primaryHover),
+    '--color-accent': accent,
+    '--color-accent-rgb': rgbChannels(accent),
+    '--font-site': fonts.body,
+    '--font-heading': fonts.heading,
+    '--surface-page': tone.page,
+    '--surface-page-rgb': rgbChannels(tone.page),
+    '--surface-muted': tone.muted,
+    '--surface-muted-rgb': rgbChannels(tone.muted),
+    '--surface-sunken': tone.sunken,
+    '--surface-sunken-rgb': rgbChannels(tone.sunken),
+    ...SHAPE_VARIABLES[theme.cardStyle ?? 'studio'],
+    ...SPACING_DENSITY_VARIABLES[theme.spacingDensity ?? 'comfortable'],
   };
 }
 
@@ -444,12 +648,39 @@ const SPACING_DENSITY_VARIABLES: Record<SpacingDensity, Record<string, string>> 
   },
 };
 
+export const ARTWORK_PALETTE_MAX_SWATCHES = 6;
+
+function normalizeSwatches(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const swatches: string[] = [];
+  for (const entry of value) {
+    const hex = normalizeHexColor(entry, '').toLowerCase();
+    if (!hex || seen.has(hex)) continue;
+    seen.add(hex);
+    swatches.push(hex);
+    if (swatches.length === ARTWORK_PALETTE_MAX_SWATCHES) break;
+  }
+  return swatches;
+}
+
+/** Colors sampled from one of the artist's images, kept so they can return to them. */
+export const artworkPaletteSchema = z.object({
+  image: z.string().default(''),
+  swatches: z.preprocess(normalizeSwatches, z.array(z.string())).default([]),
+});
+
+export type ArtworkPalette = z.infer<typeof artworkPaletteSchema>;
+export const EMPTY_ARTWORK_PALETTE: ArtworkPalette = { image: '', swatches: [] };
+
 export const siteThemeSchema = z.object({
-  primaryColor: z.preprocess((value) => normalizeHexColor(value, '#111827'), z.string()),
-  accentColor: z.preprocess((value) => normalizeHexColor(value, '#374151'), z.string()),
+  primaryColor: z.preprocess((value) => normalizeHexColor(value, DEFAULT_THEME_PRIMARY), z.string()),
+  accentColor: z.preprocess((value) => normalizeHexColor(value, DEFAULT_THEME_ACCENT), z.string()),
   fontPreset: fontPresetSchema.default('system'),
   cardStyle: cardStyleSchema.default('studio'),
   spacingDensity: spacingDensitySchema.default('comfortable'),
+  pageTone: pageToneSchema.default('soft'),
+  artworkPalette: artworkPaletteSchema.default(EMPTY_ARTWORK_PALETTE),
 });
 
 export const siteFooterSchema = z.object({
@@ -466,20 +697,25 @@ export const siteFooterSchema = z.object({
 export type SiteTheme = z.infer<typeof siteThemeSchema>;
 export type SiteFooterContent = z.infer<typeof siteFooterSchema>;
 
+export const DEFAULT_SITE_THEME: SiteTheme = {
+  primaryColor: DEFAULT_THEME_PRIMARY,
+  accentColor: DEFAULT_THEME_ACCENT,
+  fontPreset: 'system',
+  cardStyle: 'studio',
+  spacingDensity: 'comfortable',
+  pageTone: 'soft',
+  artworkPalette: EMPTY_ARTWORK_PALETTE,
+};
+
 export const siteIdentitySchema = z.object({
   siteName: z.string().min(1),
   headerName: z.string().default(''),
+  logoImage: optionalImage,
   tagline: z.string(),
   footerTagline: z.string(),
   copyrightName: z.string().min(1),
   navigation: z.preprocess(normalizeNavigation, z.array(navItemSchema)).default(DEFAULT_NAVIGATION),
-  theme: siteThemeSchema.default({
-    primaryColor: '#111827',
-    accentColor: '#374151',
-    fontPreset: 'system',
-    cardStyle: 'studio',
-    spacingDensity: 'comfortable',
-  }),
+  theme: siteThemeSchema.default(DEFAULT_SITE_THEME),
   footer: siteFooterSchema.default({
     quickLinksHeading: 'Quick Links',
     legalHeading: 'Legal',
@@ -545,26 +781,44 @@ export const homePageSchema = z.object({
   }),
 });
 
+/** Exact legacy CMS strings that leaked Studio instructions onto public pages. */
+const LEGACY_INSTRUCTIONAL_BIO_SUBTITLES = new Set([
+  'A short introduction to you and your work. Add a photo when you are ready.',
+]);
+const LEGACY_INSTRUCTIONAL_PORTFOLIO_SUBTITLES = new Set([
+  'Selected works. Add categories and choose how images display from Site Content → Portfolio.',
+]);
+
+function clearLegacyInstructionalCopy(value: unknown, legacy: Set<string>): unknown {
+  if (typeof value !== 'string') return value;
+  return legacy.has(value.trim()) ? '' : value;
+}
+
 export const bioPageSchema = z.object({
   sectionOrder: z.preprocess(normalizeBioSectionOrder, z.array(z.enum(BIO_SECTION_KEYS))).default([...BIO_SECTION_KEYS]),
   hero: z.object({
     title: z.string().min(1),
-    subtitle: z.string(),
+    subtitle: z.preprocess(
+      (value) => clearLegacyInstructionalCopy(value, LEGACY_INSTRUCTIONAL_BIO_SUBTITLES),
+      z.string().default(''),
+    ),
     portraitImage: optionalImage,
+    portraitImageAlt: z.string().default(''),
     ctaPortfolio: z.string().default('View Portfolio'),
     ctaContact: z.string().default('Get in Touch'),
   }),
   statementTitle: z.string().min(1).default('Artist Statement'),
-  backgroundTitle: z.string().min(1).default('Background'),
-  achievementsTitle: z.string().min(1).default('Achievements'),
-  studioTitle: z.string().min(1).default('Studio Practice'),
-  collectionsTitle: z.string().min(1).default('Collections & Press'),
+  backgroundTitle: z.string().min(1).default('Your path'),
+  achievementsTitle: z.string().min(1).default('Shows & recognition'),
+  studioTitle: z.string().min(1).default('How I work'),
+  collectionsTitle: z.string().min(1).default('Collections & press'),
   artistStatementHtml: z.string(),
   backgroundHtml: z.string(),
   achievementsHtml: z.string(),
   studioPracticeHtml: z.string(),
   collectionsHtml: z.string(),
   studioImage: optionalImage,
+  studioImageAlt: z.string().default(''),
   cta: z.object({
     title: z.string().min(1),
     subtitle: z.string(),
@@ -573,10 +827,10 @@ export const bioPageSchema = z.object({
     contactLabel: z.string().default('Contact'),
   }),
   showStatement: z.boolean().default(true),
-  showBackground: z.boolean().default(true),
-  showAchievements: z.boolean().default(true),
-  showStudio: z.boolean().default(true),
-  showCollections: z.boolean().default(true),
+  showBackground: z.boolean().default(false),
+  showAchievements: z.boolean().default(false),
+  showStudio: z.boolean().default(false),
+  showCollections: z.boolean().default(false),
   showCta: z.boolean().default(true),
 });
 
@@ -620,12 +874,187 @@ export const listingPageSchema = z.object({
   hero: pageListingHeroSchema.default({ height: 'compact' }),
 });
 
+const portfolioCategorySchema = z.object({
+  key: z.string().min(1),
+  label: z.string().min(1),
+  visible: z.boolean().default(true),
+});
+
+export type PortfolioCategory = z.infer<typeof portfolioCategorySchema>;
+
+/** Lowercase kebab key for portfolio taxonomy — no regex, stable for freeform labels. */
+export function normalizePortfolioCategoryKey(value: string): string {
+  const lower = value.trim().toLowerCase();
+  const chars: string[] = [];
+  let pendingHyphen = false;
+  for (const char of lower) {
+    const isAlphaNum = (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9');
+    if (isAlphaNum) {
+      if (pendingHyphen && chars.length > 0) chars.push('-');
+      chars.push(char);
+      pendingHyphen = false;
+    } else if (chars.length > 0) {
+      pendingHyphen = true;
+    }
+  }
+  return chars.join('') || 'category';
+}
+
+export function normalizePortfolioCategories(value: unknown): PortfolioCategory[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const result: PortfolioCategory[] = [];
+
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const record = item as Record<string, unknown>;
+    const rawKey = typeof record.key === 'string' ? record.key : '';
+    const rawLabel = typeof record.label === 'string' ? record.label : '';
+    const key = normalizePortfolioCategoryKey(rawKey || rawLabel);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const label = rawLabel.trim() || key;
+    result.push({
+      key,
+      label,
+      visible: typeof record.visible === 'boolean' ? record.visible : true,
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Ordered filter chips: configured visible categories first (even before artworks exist).
+ * Unlisted artwork tags append only when includeUnlisted is true (Studio toggle),
+ * so day-one artists can curate filters instead of inheriting every freeform tag.
+ */
+export function resolvePortfolioFilterCategories(
+  artworkCategoryKeys: string[],
+  configured: PortfolioCategory[],
+  options?: { includeUnlisted?: boolean },
+): Array<{ key: string; label: string }> {
+  const artworkByKey = new Map<string, string>();
+  for (const category of artworkCategoryKeys) {
+    const trimmed = category.trim();
+    if (!trimmed) continue;
+    const key = normalizePortfolioCategoryKey(trimmed);
+    if (!artworkByKey.has(key)) artworkByKey.set(key, trimmed);
+  }
+
+  const result: Array<{ key: string; label: string }> = [];
+  const used = new Set<string>();
+
+  for (const item of configured) {
+    if (!item.visible) continue;
+    const key = normalizePortfolioCategoryKey(item.key);
+    used.add(key);
+    result.push({
+      key: artworkByKey.get(key) ?? item.key,
+      label: item.label,
+    });
+  }
+
+  if (options?.includeUnlisted !== true) return result;
+
+  const leftovers = [...artworkByKey.entries()]
+    .filter(([key]) => !used.has(key))
+    .sort((a, b) => a[1].localeCompare(b[1], undefined, { sensitivity: 'base' }))
+    .map(([, original]) => ({
+      key: original,
+      label: humanizeCategoryLabel(original),
+    }));
+
+  return [...result, ...leftovers];
+}
+
+/** Merge artwork tags into the configured category list without duplicating keys. */
+export function mergePortfolioCategoriesFromTags(
+  configured: PortfolioCategory[],
+  artworkCategoryKeys: string[],
+): PortfolioCategory[] {
+  const next = [...configured];
+  const seen = new Set(configured.map((item) => normalizePortfolioCategoryKey(item.key)));
+
+  const sorted = [...artworkCategoryKeys]
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
+  for (const tag of sorted) {
+    const key = normalizePortfolioCategoryKey(tag);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    next.push({
+      key,
+      label: humanizeCategoryLabel(tag),
+      visible: true,
+    });
+  }
+
+  return next;
+}
+
+/** Common first-day category starters — labels only; keys derive from normalizePortfolioCategoryKey. */
+export const PORTFOLIO_CATEGORY_STARTERS = [
+  'Paintings',
+  'Works on paper',
+  'Sculpture',
+  'Photography',
+  'Digital',
+  'Commissions',
+] as const;
+
+function humanizeCategoryLabel(value: string): string {
+  const parts: string[] = [];
+  let current = '';
+  for (const char of value) {
+    if (char === '-' || char === '_' || char === ' ') {
+      if (current) {
+        parts.push(current);
+        current = '';
+      }
+      continue;
+    }
+    current += char;
+  }
+  if (current) parts.push(current);
+  return parts
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ') || value;
+}
+
+const DEFAULT_PORTFOLIO_LAYOUT = {
+  gridColumns: '3' as const,
+  showFilters: true,
+  masonry: false,
+  imageFit: 'cover' as const,
+  thumbAspect: 'square' as const,
+  showFeaturedBadge: true,
+  showSoldBadge: true,
+  showMeta: true,
+  showPrice: false,
+  includeUnlistedCategories: false,
+};
+
 export const portfolioPageSchema = listingPageSchema.extend({
+  subtitle: z.preprocess(
+    (value) => clearLegacyInstructionalCopy(value, LEGACY_INSTRUCTIONAL_PORTFOLIO_SUBTITLES),
+    z.string().default(''),
+  ),
   layout: z.object({
     gridColumns: portfolioGridColumnsSchema.default('3'),
     showFilters: z.boolean().default(true),
     masonry: z.boolean().default(false),
-  }).default({ gridColumns: '3', showFilters: true, masonry: false }),
+    imageFit: portfolioImageFitSchema.default('cover'),
+    thumbAspect: portfolioThumbAspectSchema.default('square'),
+    showFeaturedBadge: z.boolean().default(true),
+    showSoldBadge: z.boolean().default(true),
+    showMeta: z.boolean().default(true),
+    showPrice: z.boolean().default(false),
+    includeUnlistedCategories: z.boolean().default(false),
+  }).default(DEFAULT_PORTFOLIO_LAYOUT),
+  categories: z.preprocess(normalizePortfolioCategories, z.array(portfolioCategorySchema)).default([]),
   artworkDetailLayout: productDetailLayoutSchema.default('standard'),
 });
 
@@ -665,7 +1094,7 @@ export const shopPageSchema = listingPageSchema.extend({
   purchaseInfo: z.object({
     title: z.string().default('Purchase Information'),
     authenticityTitle: z.string().default('Authenticity'),
-    authenticityText: z.string().default('All original works come with a signed certificate of authenticity.'),
+    authenticityText: z.string().default('Original works ship with a signed note of authenticity from the studio.'),
     shippingTitle: z.string().default('Shipping'),
     shippingText: z.string().default('Carefully packaged and insured shipping worldwide. Domestic shipping starts at $15.'),
     commissionsTitle: z.string().default('Commissions'),
@@ -674,7 +1103,7 @@ export const shopPageSchema = listingPageSchema.extend({
   }).default({
     title: 'Purchase Information',
     authenticityTitle: 'Authenticity',
-    authenticityText: 'All original works come with a signed certificate of authenticity.',
+    authenticityText: 'Original works ship with a signed note of authenticity from the studio.',
     shippingTitle: 'Shipping',
     shippingText: 'Carefully packaged and insured shipping worldwide. Domestic shipping starts at $15.',
     commissionsTitle: 'Commissions',
@@ -863,19 +1292,14 @@ export function homeHeroCtas(home: HomePageContent): Array<{ key: HeroCtaKey; hr
 }
 
 export const DEFAULT_SITE_IDENTITY: SiteIdentityContent = {
-  siteName: 'Artist Site',
+  siteName: 'Michal Elena',
   headerName: '',
-  tagline: 'Contemporary paintings and drawings exploring the intersection of urban landscapes, abstract form, and the ever-changing quality of light.',
-  footerTagline: 'Built with passion and creativity',
-  copyrightName: 'Artist Site',
+  logoImage: '',
+  tagline: 'created to create',
+  footerTagline: 'From the studio in Milwaukee.',
+  copyrightName: 'Michal Elena',
   navigation: DEFAULT_NAVIGATION,
-  theme: {
-    primaryColor: '#111827',
-    accentColor: '#374151',
-    fontPreset: 'system',
-    cardStyle: 'studio',
-    spacingDensity: 'comfortable',
-  },
+  theme: DEFAULT_SITE_THEME,
   footer: {
     quickLinksHeading: 'Quick Links',
     legalHeading: 'Legal',
@@ -891,12 +1315,12 @@ export const DEFAULT_HOME_PAGE: HomePageContent = {
   layoutTemplate: 'classic',
   sectionOrder: [...HOME_SECTION_KEYS],
   hero: {
-    titleLine1: 'Capturing Light',
-    titleLine2: 'Through Art',
-    subtitle: 'Contemporary paintings and drawings exploring the intersection of urban landscapes, abstract form, and the ever-changing quality of light.',
-    ctaShop: 'Shop Art',
+    titleLine1: 'created to',
+    titleLine2: 'create',
+    subtitle: 'Paintings, drawings, and handmade prints from Milwaukee.',
+    ctaShop: 'Shop',
     ctaPortfolio: 'View Portfolio',
-    ctaContact: 'Commission a Piece',
+    ctaContact: 'Get in Touch',
     portraitImage: '/images/artist-portrait.jpg',
     height: 'compact',
     imagePlacement: 'inline',
@@ -905,7 +1329,7 @@ export const DEFAULT_HOME_PAGE: HomePageContent = {
   },
   featured: {
     title: 'Featured Works',
-    description: 'A selection of recent pieces that showcase my ongoing exploration of light, form, and urban environments.',
+    description: 'Recent pieces from the studio.',
     cta: 'View Full Portfolio →',
     emptyMessage: 'Featured artworks coming soon...',
     showDescriptions: false,
@@ -917,8 +1341,8 @@ export const DEFAULT_HOME_PAGE: HomePageContent = {
   },
   about: {
     title: 'About the Artist',
-    paragraph1: 'My work explores the dynamic relationship between light and form in urban environments. Through painting and drawing, I seek to capture the fleeting moments when ordinary cityscapes are transformed by the changing quality of light throughout the day.',
-    paragraph2: 'Working primarily with oils, acrylics, and mixed media, I layer colors and textures to create pieces that hover between abstraction and representation, inviting viewers to discover their own connections to the urban landscape.',
+    paragraph1: 'I make art to explore ideas — color, texture, memory, and the feeling of a place.',
+    paragraph2: 'Working in acrylic, watercolor, and digital illustration from Milwaukee, I treat the studio like a journal and always find my way back to the work.',
     cta: 'Get in Touch',
     studioImage: '/images/artist-studio.jpg',
     showSection: false,
@@ -931,8 +1355,8 @@ export const DEFAULT_HOME_PAGE: HomePageContent = {
     showSection: false,
   },
   newsletter: {
-    title: 'Stay Connected',
-    description: 'Get updates on new works, upcoming exhibitions, and insights from the studio. Join a community of art enthusiasts and collectors.',
+    title: 'Studio notes',
+    description: 'New work, market dates, and notes from the studio.',
     placeholder: 'Enter your email',
     buttonLabel: 'Subscribe',
     disclaimer: 'No spam, unsubscribe at any time.',
@@ -940,83 +1364,48 @@ export const DEFAULT_HOME_PAGE: HomePageContent = {
   },
 };
 
+/** Statement-first blank slate — no prestige CV filler for day-one artists. */
 export const DEFAULT_BIO_PAGE: BioPageContent = {
-  sectionOrder: [...BIO_SECTION_KEYS],
+  sectionOrder: ['statement', 'studio', 'background', 'achievements', 'collections', 'cta'],
   hero: {
-    title: 'About the Artist',
-    subtitle: 'Contemporary painter exploring the intersection of urban landscapes, abstract form, and the ever-changing quality of light through oil and mixed media works.',
-    portraitImage: '/images/artist-portrait.jpg',
+    title: 'About',
+    subtitle: '',
+    portraitImage: '',
+    portraitImageAlt: '',
     ctaPortfolio: 'View Portfolio',
     ctaContact: 'Get in Touch',
   },
   statementTitle: 'Artist Statement',
-  backgroundTitle: 'Background',
-  achievementsTitle: 'Achievements',
-  studioTitle: 'Studio Practice',
-  collectionsTitle: 'Collections & Press',
-  studioImage: '/images/artist-studio.jpg',
-  artistStatementHtml: `
-    <p>My work explores the dynamic relationship between urban environments and natural light, capturing fleeting moments where architecture becomes canvas and shadow becomes form. Through oil painting and mixed media, I seek to translate the emotional resonance of city life into abstract compositions that speak to our shared human experience.</p>
-    <p>Each piece begins with observation—the way morning light filters through building facades, how evening shadows create unexpected geometries, or the rhythm of movement in bustling street scenes. These moments of urban poetry become the foundation for works that balance representation with abstraction, allowing viewers to discover their own connections to the metropolitan landscape.</p>
-    <p>Working primarily in oil on canvas, I employ both traditional techniques and contemporary approaches, often incorporating elements of collage and mixed media to create textural depth that mirrors the complexity of urban experience. My palette draws from the subtle variations of city light—warm ochres of sunset on concrete, cool blues of predawn streets, and the infinite grays that define metropolitan atmosphere.</p>
-  `.trim(),
-  backgroundHtml: `
-    <h3>Education</h3>
-    <p><strong>MFA, Painting</strong> - Yale School of Art, 2018</p>
-    <p><strong>BFA, Fine Arts</strong> - Rhode Island School of Design, 2015</p>
-    <p><strong>Study Abroad</strong> - Florence Academy of Art, 2014</p>
-    <h3>Professional Experience</h3>
-    <p><strong>Studio Artist</strong> - Independent Practice, 2018-Present</p>
-    <p><strong>Teaching Assistant</strong> - Yale School of Art, 2016-2018</p>
-    <p><strong>Gallery Intern</strong> - David Zwirner Gallery, 2015</p>
-  `.trim(),
-  achievementsHtml: `
-    <h3>Selected Exhibitions</h3>
-    <p><strong>2024</strong> - "Urban Abstractions" - Solo Exhibition, Gallery Modern</p>
-    <p><strong>2023</strong> - "New Voices in Contemporary Art" - Group Show, MoMA PS1</p>
-    <p><strong>2022</strong> - "Light and Shadow" - Solo Exhibition, Tribeca Gallery</p>
-    <p><strong>2021</strong> - "Emerging Artists" - Group Show, Whitney Biennial</p>
-    <h3>Awards &amp; Recognition</h3>
-    <p><strong>2023</strong> - Artist Fellowship, New York Foundation for the Arts</p>
-    <p><strong>2022</strong> - Emerging Artist Award, Art Basel Miami</p>
-    <p><strong>2019</strong> - Yale School of Art Merit Scholarship</p>
-  `.trim(),
-  studioPracticeHtml: `
-    <p>My studio practice is rooted in direct observation and material experimentation. Located in a converted warehouse in Long Island City, the space allows for both intimate drawing sessions and large-scale painting projects.</p>
-    <p>I typically work on multiple pieces simultaneously, allowing ideas to cross-pollinate and evolve organically. The studio serves as both laboratory and sanctuary, where urban inspiration is transformed into artistic expression through careful attention to color, form, and texture.</p>
-    <p>My materials range from traditional oil paints and brushes to unconventional tools like palette knives, found objects, and various texturing mediums. This hybrid approach reflects my interest in bridging classical techniques with contemporary conceptual frameworks.</p>
-  `.trim(),
-  collectionsHtml: `
-    <h3>Public Collections</h3>
-    <p>Museum of Contemporary Art, Chicago</p>
-    <p>Brooklyn Museum Permanent Collection</p>
-    <p>Yale University Art Gallery</p>
-    <p>Private collections throughout the US and Europe</p>
-    <h3>Press &amp; Publications</h3>
-    <p><em>Artforum</em> - "Rising Stars of 2024"</p>
-    <p><em>ARTnews</em> - "Urban Abstractions Review"</p>
-    <p><em>Art in America</em> - "New York Studio Visits"</p>
-    <p><em>Hyperallergic</em> - "Contemporary Landscape Painting"</p>
-  `.trim(),
+  backgroundTitle: 'Your path',
+  achievementsTitle: 'Shows & recognition',
+  studioTitle: 'How I work',
+  collectionsTitle: 'Collections & press',
+  studioImage: '',
+  studioImageAlt: '',
+  artistStatementHtml: '',
+  backgroundHtml: '',
+  achievementsHtml: '',
+  studioPracticeHtml: '',
+  collectionsHtml: '',
   cta: {
-    title: 'Connect With My Work',
-    subtitle: "Interested in learning more about my artistic practice, available works, or commission opportunities? I'd love to hear from you.",
+    title: 'Get in touch',
+    subtitle: 'Questions about a piece, a print, or a commission? Reach out anytime.',
     portfolioLabel: 'Explore Portfolio',
     shopLabel: 'Available Works',
     contactLabel: 'Contact',
   },
   showStatement: true,
-  showBackground: true,
-  showAchievements: true,
-  showStudio: true,
-  showCollections: true,
+  showBackground: false,
+  showAchievements: false,
+  showStudio: false,
+  showCollections: false,
   showCta: true,
 };
 
 export const DEFAULT_CONTACT_PAGE: ContactPageContent = {
   header: {
     title: 'Get in Touch',
-    subtitle: "I'd love to hear from you. Whether you're interested in purchasing artwork, commissioning a custom piece, or just want to say hello, don't hesitate to reach out.",
+    subtitle: 'Questions about a piece, a print, a commission, or just saying hello — write anytime.',
   },
   form: {
     title: 'Send a Message',
@@ -1035,9 +1424,9 @@ export const DEFAULT_CONTACT_PAGE: ContactPageContent = {
   },
   sidebar: {
     connectTitle: "Let's Connect",
-    connectText: "I'm always excited to discuss art, collaborate on projects, or simply chat about creativity.",
-    location: 'New York, NY',
-    instagramHandle: '@artistsite',
+    connectText: 'I read every note — sales, commissions, markets, or a simple hello.',
+    location: 'Milwaukee, WI',
+    instagramHandle: '@michalelenaart',
     contactInfoTitle: 'Contact Information',
     responseTimeTitle: 'Response Time',
     commissionTitle: 'Commission Work',
@@ -1050,7 +1439,7 @@ export const DEFAULT_CONTACT_PAGE: ContactPageContent = {
       </ul>
     `.trim(),
     commissionHtml: `
-      <p>I accept a limited number of commission projects each year. Please include details about:</p>
+      <p>I accept a limited number of commission projects each year. Choose <strong>Commission Request</strong> on the form and it will ask for:</p>
       <ul>
         <li>Desired size and medium</li>
         <li>Timeline and deadline</li>
@@ -1064,15 +1453,16 @@ export const DEFAULT_CONTACT_PAGE: ContactPageContent = {
 
 export const DEFAULT_PORTFOLIO_PAGE: PortfolioPageContent = {
   title: 'Portfolio',
-  subtitle: 'A collection of paintings, drawings, and mixed media works exploring themes of light, urban environments, and the intersection of abstraction and representation.',
+  subtitle: '',
   hero: { height: 'compact' },
-  layout: { gridColumns: '3', showFilters: true, masonry: false },
+  layout: { ...DEFAULT_PORTFOLIO_LAYOUT },
+  categories: [],
   artworkDetailLayout: 'standard',
 };
 
 export const DEFAULT_SHOP_PAGE: ShopPageContent = {
-  title: 'Art Shop',
-  subtitle: 'Discover original paintings, drawings, prints, and collections. Each piece is carefully crafted and comes with a certificate of authenticity.',
+  title: 'Shop',
+  subtitle: 'Originals, prints, and small goods from the studio.',
   hero: { height: 'compact' },
   layout: { gridColumns: '3', showFilters: true },
   searchPlaceholder: 'Search artworks by title, medium, or category…',
@@ -1099,7 +1489,7 @@ export const DEFAULT_SHOP_PAGE: ShopPageContent = {
   purchaseInfo: {
     title: 'Purchase Information',
     authenticityTitle: 'Authenticity',
-    authenticityText: 'All original works come with a signed certificate of authenticity.',
+    authenticityText: 'Original works ship with a signed note of authenticity from the studio.',
     shippingTitle: 'Shipping',
     shippingText: 'Carefully packaged and insured shipping worldwide. Domestic shipping starts at $15.',
     commissionsTitle: 'Commissions',
@@ -1147,188 +1537,108 @@ export const DEFAULT_BLOG_PAGE: BlogPageContent = {
   collectorDigestIntro: 'New private studio notes shared with you:',
 };
 
-/** One-tap studio looks: theme + home density without a page builder. */
-export type SiteLookbookId = 'gallery-wall' | 'night-opening' | 'warm-print' | 'compact-studio';
+/** The visual theme a look controls; page layouts stay with their own page tabs. */
+export type SiteLookTheme = Omit<SiteTheme, 'artworkPalette'>;
+
+export type SiteLookbookId =
+  | 'gallery-wall'
+  | 'night-opening'
+  | 'warm-print'
+  | 'compact-studio';
 
 export type SiteLookbook = {
   id: SiteLookbookId;
   label: string;
   description: string;
-  theme: {
-    primaryColor: string;
-    accentColor: string;
-    fontPreset: FontPreset;
-    cardStyle: CardStyle;
-    spacingDensity: SpacingDensity;
-  };
-  home: {
-    layoutTemplate: HomeLayoutTemplate;
-    heroHeight: 'compact' | 'full';
-    showSecondaryCtas: boolean;
-    showFeatured: boolean;
-    showAbout: boolean;
-    showBlog: boolean;
-    showNewsletter: boolean;
-  };
-  shop: {
-    showFilters: boolean;
-    showRecentlyViewed: boolean;
-    showRecommendations: boolean;
-    showPurchaseInfo: boolean;
-  };
+  theme: SiteLookTheme;
 };
 
 export const SITE_LOOKBOOKS: readonly SiteLookbook[] = [
   {
     id: 'gallery-wall',
     label: 'Gallery wall',
-    description: 'Light, quiet, art-first — compact home with featured works only',
+    description: 'All white, flat frames, quiet type',
     theme: {
       primaryColor: '#111827',
       accentColor: '#6b7280',
-      fontPreset: 'modern',
+      fontPreset: 'system',
       cardStyle: 'gallery',
       spacingDensity: 'compact',
-    },
-    home: {
-      layoutTemplate: 'gallery-first',
-      heroHeight: 'compact',
-      showSecondaryCtas: false,
-      showFeatured: true,
-      showAbout: false,
-      showBlog: false,
-      showNewsletter: false,
-    },
-    shop: {
-      showFilters: true,
-      showRecentlyViewed: false,
-      showRecommendations: false,
-      showPurchaseInfo: false,
+      pageTone: 'white',
     },
   },
   {
     id: 'night-opening',
     label: 'Night opening',
-    description: 'Dark primary, bold cards — hero + story + newsletter',
+    description: 'Deep navy, display serif, bold cards',
     theme: {
       primaryColor: '#0f172a',
-      accentColor: '#38bdf8',
-      fontPreset: 'system',
+      accentColor: '#0369a1',
+      fontPreset: 'editorial',
       cardStyle: 'bold',
       spacingDensity: 'comfortable',
-    },
-    home: {
-      layoutTemplate: 'story-first',
-      heroHeight: 'full',
-      showSecondaryCtas: true,
-      showFeatured: true,
-      showAbout: true,
-      showBlog: false,
-      showNewsletter: true,
-    },
-    shop: {
-      showFilters: true,
-      showRecentlyViewed: false,
-      showRecommendations: true,
-      showPurchaseInfo: true,
+      pageTone: 'soft',
     },
   },
   {
     id: 'warm-print',
     label: 'Warm print shop',
-    description: 'Warm tones, classic type — shop-friendly with purchase info',
+    description: 'Umber on cream paper, book serif',
     theme: {
       primaryColor: '#78350f',
       accentColor: '#b45309',
       fontPreset: 'serif',
       cardStyle: 'studio',
       spacingDensity: 'comfortable',
-    },
-    home: {
-      layoutTemplate: 'classic',
-      heroHeight: 'compact',
-      showSecondaryCtas: true,
-      showFeatured: true,
-      showAbout: true,
-      showBlog: true,
-      showNewsletter: true,
-    },
-    shop: {
-      showFilters: true,
-      showRecentlyViewed: true,
-      showRecommendations: true,
-      showPurchaseInfo: true,
+      pageTone: 'warm',
     },
   },
   {
     id: 'compact-studio',
     label: 'Compact studio',
-    description: 'Minimal scroll — hero and featured only',
+    description: 'Moss green, tight rhythm, clean type',
     theme: {
       primaryColor: '#365314',
       accentColor: '#4d7c0f',
       fontPreset: 'system',
       cardStyle: 'studio',
       spacingDensity: 'compact',
-    },
-    home: {
-      layoutTemplate: 'classic',
-      heroHeight: 'compact',
-      showSecondaryCtas: false,
-      showFeatured: true,
-      showAbout: false,
-      showBlog: false,
-      showNewsletter: false,
-    },
-    shop: {
-      showFilters: false,
-      showRecentlyViewed: false,
-      showRecommendations: false,
-      showPurchaseInfo: false,
+      pageTone: 'soft',
     },
   },
 ] as const;
 
-export function applySiteLookbook(
-  content: SiteContentByPage,
-  lookbookId: SiteLookbookId,
-): SiteContentByPage {
-  const lookbook = SITE_LOOKBOOKS.find((entry) => entry.id === lookbookId);
-  if (!lookbook) return content;
+/** Color-only starting points; each pair meets AA contrast on every page tone. */
+export const THEME_PALETTES = [
+  { name: 'Charcoal', primaryColor: DEFAULT_THEME_PRIMARY, accentColor: DEFAULT_THEME_ACCENT },
+  { name: 'Ocean', primaryColor: '#1e3a5f', accentColor: '#1d4ed8' },
+  { name: 'Terracotta', primaryColor: '#7c2d12', accentColor: '#c2410c' },
+  { name: 'Sage', primaryColor: '#365314', accentColor: '#4d7c0f' },
+  { name: 'Plum', primaryColor: '#581c87', accentColor: '#7e22ce' },
+  { name: 'Rose', primaryColor: '#881337', accentColor: '#be123c' },
+] as const;
 
-  return {
-    ...content,
-    identity: {
-      ...content.identity,
-      theme: {
-        ...content.identity.theme,
-        ...lookbook.theme,
-      },
-    },
-    home: {
-      ...content.home,
-      layoutTemplate: lookbook.home.layoutTemplate,
-      hero: {
-        ...content.home.hero,
-        height: lookbook.home.heroHeight,
-        showSecondaryCtas: lookbook.home.showSecondaryCtas,
-      },
-      featured: { ...content.home.featured, showSection: lookbook.home.showFeatured },
-      about: { ...content.home.about, showSection: lookbook.home.showAbout },
-      blog: { ...content.home.blog, showSection: lookbook.home.showBlog },
-      newsletter: { ...content.home.newsletter, showSection: lookbook.home.showNewsletter },
-    },
-    shop: {
-      ...content.shop,
-      layout: {
-        ...content.shop.layout,
-        showFilters: lookbook.shop.showFilters,
-      },
-      showRecentlyViewed: lookbook.shop.showRecentlyViewed,
-      showRecommendations: lookbook.shop.showRecommendations,
-      showPurchaseInfo: lookbook.shop.showPurchaseInfo,
-    },
-  };
+/** Applies a look's visual theme; the artist's saved artwork palette is kept. */
+export function applySiteLookbook(theme: SiteTheme, lookbookId: SiteLookbookId): SiteTheme {
+  const lookbook = SITE_LOOKBOOKS.find((entry) => entry.id === lookbookId);
+  if (!lookbook) return theme;
+  return { ...lookbook.theme, artworkPalette: theme.artworkPalette };
+}
+
+function lookThemeMatches(look: SiteLookTheme, theme: SiteTheme): boolean {
+  return (
+    normalizeHexColor(theme.primaryColor, '').toLowerCase() === look.primaryColor.toLowerCase()
+    && normalizeHexColor(theme.accentColor, '').toLowerCase() === look.accentColor.toLowerCase()
+    && theme.fontPreset === look.fontPreset
+    && theme.cardStyle === look.cardStyle
+    && theme.spacingDensity === look.spacingDensity
+    && theme.pageTone === look.pageTone
+  );
+}
+
+/** Returns the look id when the theme still matches that look exactly, else null. */
+export function detectSiteLookbook(theme: SiteTheme): SiteLookbookId | null {
+  return SITE_LOOKBOOKS.find((lookbook) => lookThemeMatches(lookbook.theme, theme))?.id ?? null;
 }
 
 export const SITE_CONTENT_DEFAULTS = {

@@ -4,6 +4,7 @@ import { Children, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 
 type SiteShellProps = {
+  topBanner?: React.ReactNode;
   header: React.ReactNode;
   footer: React.ReactNode;
   adminTools: React.ReactNode;
@@ -21,7 +22,7 @@ async function clearPublicServiceWorkers() {
   }
 }
 
-export default function SiteShell({ header, footer, adminTools, children, previewOffsetClass = '' }: SiteShellProps) {
+export default function SiteShell({ topBanner, header, footer, adminTools, children, previewOffsetClass = '' }: SiteShellProps) {
   const pathname = usePathname() || '';
   const isAdminRoute = pathname.startsWith('/admin');
 
@@ -48,6 +49,11 @@ export default function SiteShell({ header, footer, adminTools, children, previe
 
   return (
     <div className={shellOffsetClass}>
+      {topBanner ? (
+        <div key="site-banner" className="contents">
+          {topBanner}
+        </div>
+      ) : null}
       <div key="site-header" className="contents">
         {header}
       </div>

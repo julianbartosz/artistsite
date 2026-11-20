@@ -116,7 +116,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="rounded bg-gray-900 px-6 py-2 text-white transition-colors hover:bg-gray-800"
+              className="btn-primary px-6 py-2"
             >
               Reload page
             </button>
@@ -177,8 +177,8 @@ export class ErrorBoundary extends Component<Props, State> {
     }
 
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-6 text-center">
+      <div className="min-h-screen bg-surface-muted flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-surface rounded-lg shadow-lg p-6 text-center">
           <div className="text-red-500 text-6xl mb-4">⚠️</div>
           <h2 className="text-2xl font-bold text-gray-800 mb-2">
             Something went wrong

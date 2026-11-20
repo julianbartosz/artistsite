@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 
 function BioHero({ bio }: { bio: BioPageContent }) {
   return (
-    <section className="relative group bg-gray-50 section-space">
+    <section className="relative group bg-surface-muted section-space">
       <CmsEditAnchor targetKey="bio:hero" />
       <div className="max-w-6xl mx-auto px-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-12 items-center">
@@ -26,11 +26,11 @@ function BioHero({ bio }: { bio: BioPageContent }) {
                 {bio.hero.subtitle}
               </p>
             )}
-            <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-4">
               {bio.hero.ctaPortfolio.trim() && (
                 <Link
                   href="/portfolio"
-                  className="bg-gray-900 text-white px-6 py-3 rounded-lg hover:bg-gray-800 transition-colors text-center font-medium"
+                  className="btn-primary w-full sm:w-auto px-6 py-3 transition-colors font-medium whitespace-nowrap"
                 >
                   {bio.hero.ctaPortfolio}
                 </Link>
@@ -38,7 +38,7 @@ function BioHero({ bio }: { bio: BioPageContent }) {
               {bio.hero.ctaContact.trim() && (
                 <Link
                   href="/contact"
-                  className="border border-gray-900 text-gray-900 px-6 py-3 rounded-lg hover:bg-gray-900 hover:text-white transition-colors text-center font-medium"
+                  className="btn-primary-outline w-full sm:w-auto px-6 py-3 transition-colors font-medium whitespace-nowrap"
                 >
                   {bio.hero.ctaContact}
                 </Link>
@@ -50,7 +50,7 @@ function BioHero({ bio }: { bio: BioPageContent }) {
               <div className="relative w-full max-w-xs mx-auto lg:max-w-none aspect-[3/4] lg:aspect-[4/5] rounded-lg overflow-hidden shadow-xl">
                 <Image
                   src={bio.hero.portraitImage}
-                  alt="Artist in studio"
+                  alt={bio.hero.portraitImageAlt.trim() || 'Artist portrait'}
                   fill
                   className="object-cover"
                   sizes="(max-width: 1024px) 100vw, 50vw"
@@ -84,7 +84,7 @@ function BioBackgroundAchievements({ bio }: { bio: BioPageContent }) {
   if (!showBackground && !showAchievements) return null;
 
   return (
-    <section className="bg-gray-50 section-space-tight">
+    <section className="bg-surface-muted section-space-tight">
       <div className="max-w-6xl mx-auto px-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-12">
           {showBackground && (
@@ -120,7 +120,7 @@ function BioBackgroundAchievements({ bio }: { bio: BioPageContent }) {
 function BioBackground({ bio }: { bio: BioPageContent }) {
   if (!bio.showBackground || !htmlHasVisibleText(bio.backgroundHtml)) return null;
   return (
-    <section className="relative group bg-gray-50 section-space-tight">
+    <section className="relative group bg-surface-muted section-space-tight">
       <CmsEditAnchor targetKey="bio:background" />
       <div className="max-w-4xl mx-auto px-6">
         <h2 className="text-3xl font-bold text-gray-900 mb-8">{bio.backgroundTitle}</h2>
@@ -133,7 +133,7 @@ function BioBackground({ bio }: { bio: BioPageContent }) {
 function BioAchievements({ bio }: { bio: BioPageContent }) {
   if (!bio.showAchievements || !htmlHasVisibleText(bio.achievementsHtml)) return null;
   return (
-    <section className="bg-gray-50 section-space-tight">
+    <section className="bg-surface-muted section-space-tight">
       <div className="max-w-4xl mx-auto px-6">
         <h2 className="text-3xl font-bold text-gray-900 mb-8">{bio.achievementsTitle}</h2>
         <div className="prose prose-lg text-gray-700" dangerouslySetInnerHTML={{ __html: bio.achievementsHtml }} />
@@ -154,7 +154,7 @@ function BioStudio({ bio }: { bio: BioPageContent }) {
             <div className="relative w-full aspect-[4/3] rounded-lg overflow-hidden shadow-lg">
               <Image
                 src={bio.studioImage}
-                alt="Artist studio workspace"
+                alt={bio.studioImageAlt.trim() || 'Studio workspace'}
                 fill
                 className="object-cover"
                 sizes="(max-width: 1024px) 100vw, 50vw"
@@ -173,7 +173,7 @@ function BioStudio({ bio }: { bio: BioPageContent }) {
 function BioCollections({ bio }: { bio: BioPageContent }) {
   if (!bio.showCollections || !htmlHasVisibleText(bio.collectionsHtml)) return null;
   return (
-    <section className="relative group bg-gray-50 section-space-tight">
+    <section className="relative group bg-surface-muted section-space-tight">
       <CmsEditAnchor targetKey="bio:collections" />
       <div className="max-w-4xl mx-auto px-6 text-center">
         <h2 className="text-3xl font-bold text-gray-900 mb-8">{bio.collectionsTitle}</h2>
@@ -195,11 +195,11 @@ function BioCta({ bio }: { bio: BioPageContent }) {
             {bio.cta.subtitle}
           </p>
         )}
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-4 justify-center">
           {bio.cta.portfolioLabel.trim() && (
             <Link
               href="/portfolio"
-              className="bg-gray-900 text-white px-8 py-3 rounded-lg hover:bg-gray-800 transition-colors font-medium"
+              className="btn-primary w-full sm:w-auto px-8 py-3 transition-colors font-medium whitespace-nowrap"
             >
               {bio.cta.portfolioLabel}
             </Link>
@@ -207,7 +207,7 @@ function BioCta({ bio }: { bio: BioPageContent }) {
           {bio.cta.shopLabel.trim() && (
             <Link
               href="/shop"
-              className="border border-gray-900 text-gray-900 px-8 py-3 rounded-lg hover:bg-gray-900 hover:text-white transition-colors font-medium"
+              className="btn-primary-outline w-full sm:w-auto px-8 py-3 transition-colors font-medium whitespace-nowrap"
             >
               {bio.cta.shopLabel}
             </Link>
@@ -215,7 +215,7 @@ function BioCta({ bio }: { bio: BioPageContent }) {
           {bio.cta.contactLabel.trim() && (
             <Link
               href="/contact"
-              className="border border-gray-300 text-gray-700 px-8 py-3 rounded-lg hover:border-gray-900 hover:text-gray-900 transition-colors font-medium"
+              className="inline-flex w-full sm:w-auto items-center justify-center rounded-lg border border-gray-300 px-8 py-3 font-medium text-gray-700 transition-colors hover:border-gray-900 hover:text-gray-900 whitespace-nowrap"
             >
               {bio.cta.contactLabel}
             </Link>
@@ -257,10 +257,18 @@ function isBackgroundAchievementsPair(order: BioSectionKey[], index: number): bo
 export default async function BioPage() {
   const bio = await getSiteContent('bio');
   const order = normalizeBioSectionOrder(bio.sectionOrder);
+  const hasBodyContent =
+    (bio.showStatement && htmlHasVisibleText(bio.artistStatementHtml)) ||
+    (bio.showBackground && htmlHasVisibleText(bio.backgroundHtml)) ||
+    (bio.showAchievements && htmlHasVisibleText(bio.achievementsHtml)) ||
+    (bio.showStudio && (htmlHasVisibleText(bio.studioPracticeHtml) || Boolean(bio.studioImage))) ||
+    (bio.showCollections && htmlHasVisibleText(bio.collectionsHtml));
   const sections: React.ReactNode[] = [];
 
   for (let index = 0; index < order.length; index += 1) {
     const key = order[index];
+    // Avoid stacking a second CTA right beneath the hero before any bio body sections exist.
+    if (key === 'cta' && !hasBodyContent) continue;
     if (isBackgroundAchievementsPair(order, index)) {
       sections.push(<BioBackgroundAchievements key={`pair-${index}`} bio={bio} />);
       index += 1;
@@ -270,7 +278,7 @@ export default async function BioPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-surface">
       <BioHero bio={bio} />
       {sections}
     </div>

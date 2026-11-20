@@ -2,27 +2,30 @@
 
 import React, { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import RichTextEditor from '@/components/RichTextEditor';
-import { ThemeColorEditor } from '@/components/admin/ColorField';
+import { CheckboxField, EditorSection, HtmlField, SelectField, TextAreaField, TextField, reorder } from '@/components/admin/EditorFields';
+import SiteAppearancePanel from '@/components/admin/SiteAppearancePanel';
 import MediaImageField from '@/components/admin/MediaImageField';
+import BioNarrativeWizard from '@/components/admin/BioNarrativeWizard';
 import CommissionIntakeWizard from '@/components/admin/CommissionIntakeWizard';
-import { useLiveSiteTheme } from '@/components/admin/useLiveSiteTheme';
+import PortfolioPresentationWizard from '@/components/admin/PortfolioPresentationWizard';
 import { cmsSectionElementId } from '@/lib/cms-edit-map';
+import { PRODUCT_IMAGE_FALLBACK } from '@/lib/commerce';
 import type {
   ContactInquiryType,
   NavItem,
+  PortfolioCategory,
   SiteContentByPage,
   SiteContentPage,
   BioSectionKey,
 } from '@/lib/site-content-shared';
 import {
+  PAGE_SCHEMAS,
+  PORTFOLIO_CATEGORY_STARTERS,
   SITE_CONTENT_DEFAULTS,
   SITE_CONTENT_PAGES,
   SITE_CONTENT_PREVIEW_HREF,
-  SITE_LOOKBOOKS,
-  applySiteLookbook,
-  headerDisplayName,
-  visibleNavItems,
+  mergePortfolioCategoriesFromTags,
+  normalizePortfolioCategoryKey,
   type HomeSectionKey,
 } from '@/lib/site-content-shared';
 
@@ -35,12 +38,21 @@ const HOME_SECTION_LABELS: Record<HomeSectionKey, string> = {
 
 const BIO_SECTION_LABELS: Record<BioSectionKey, string> = {
   statement: 'Artist statement',
-  background: 'Background',
-  achievements: 'Achievements',
-  studio: 'Studio practice',
-  collections: 'Collections and press',
+  background: 'Your path (optional)',
+  achievements: 'Shows & recognition (optional)',
+  studio: 'How you work',
+  collections: 'Collections & press (optional)',
   cta: 'Closing call to action',
 };
+
+function bioSectionIsVisible(bio: SiteContentByPage['bio'], sectionKey: BioSectionKey): boolean {
+  if (sectionKey === 'statement') return bio.showStatement;
+  if (sectionKey === 'background') return bio.showBackground;
+  if (sectionKey === 'achievements') return bio.showAchievements;
+  if (sectionKey === 'studio') return bio.showStudio;
+  if (sectionKey === 'collections') return bio.showCollections;
+  return bio.showCta;
+}
 
 const NAV_PAGE_LABELS: Record<string, string> = {
   home: 'Home page',
@@ -51,7 +63,18 @@ const NAV_PAGE_LABELS: Record<string, string> = {
   contact: 'Contact',
 };
 
-type ArtworkOption = { slug: string; title: string; featured: boolean };
+type ArtworkOption = { slug: string; title: string; featured: boolean; category: string[]; image: string };
+
+function artworkImage(images: unknown): string {
+  if (!images || typeof images !== 'object') return '';
+  const { thumbnail, main } = images as { thumbnail?: unknown; main?: unknown };
+  if (typeof thumbnail === 'string' && thumbnail.trim()) return thumbnail;
+  return typeof main === 'string' ? main : '';
+}
+
+function samePageContent<P extends SiteContentPage>(left: SiteContentByPage[P], right: SiteContentByPage[P]): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
 
 /** Merge API payload with defaults; validation runs server-side only. */
 function assignPage<P extends SiteContentPage>(
@@ -67,89 +90,25 @@ function hydrateSiteContent(data: Record<string, unknown>): SiteContentByPage {
   for (const page of SITE_CONTENT_PAGES) {
     const incoming = data[page];
     if (incoming && typeof incoming === 'object' && !Array.isArray(incoming)) {
-      assignPage(next, page, incoming as SiteContentByPage[typeof page]);
+      try {
+        assignPage(next, page, PAGE_SCHEMAS[page].parse(incoming) as SiteContentByPage[typeof page]);
+      } catch {
+        // Keep defaults when a page payload fails validation.
+      }
     }
   }
   return next;
 }
 
 const PAGE_TABS: Array<{ key: SiteContentPage; label: string; description: string }> = [
-  { key: 'identity', label: 'Branding', description: 'Site appearance, colors, layout structure, navigation, and footer.' },
-  { key: 'home', label: 'Home', description: 'Top banner, homepage blocks, artwork spotlight, about, blog, and newsletter.' },
-  { key: 'bio', label: 'Bio', description: 'Biography sections, rich text, portraits, and which blocks appear on the public page.' },
+  { key: 'identity', label: 'Branding', description: 'Name, logo, site appearance, navigation, and footer.' },
+  { key: 'home', label: 'Home', description: 'Homepage layout, top banner, blocks, artwork spotlight, about, updates preview, and newsletter.' },
+  { key: 'bio', label: 'Bio', description: 'How you present yourself — narrative structure, statement, optional CV sections, and portraits.' },
   { key: 'contact', label: 'Contact', description: 'Form labels, inquiry types, sidebar copy, and response details.' },
-  { key: 'portfolio', label: 'Portfolio', description: 'Portfolio page title and introductory copy.' },
-  { key: 'shop', label: 'Shop', description: 'Shop copy, search placeholder, and purchase-information blocks.' },
+  { key: 'portfolio', label: 'Portfolio', description: 'Grid layout, image framing, categories, and listing copy.' },
+  { key: 'shop', label: 'Shop', description: 'Grid and filters, shop copy, search placeholder, and purchase-information blocks.' },
   { key: 'blog', label: 'Updates', description: 'Public feed, studio/journal filters, collector-only section, and subscribe links.' },
 ];
-
-function reorder<T>(items: T[], index: number, direction: -1 | 1): T[] {
-  const target = index + direction;
-  if (target < 0 || target >= items.length) return items;
-  const next = items.slice();
-  const current = next[index];
-  next[index] = next[target];
-  next[target] = current;
-  return next;
-}
-
-function TextField({ label, value, onChange, help }: { label: string; value: string; onChange: (value: string) => void; help?: string }) {
-  return (
-    <label className="block text-sm font-medium text-gray-700">
-      {label}
-      <input value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900" />
-      {help && <p className="mt-1 text-xs text-gray-500">{help}</p>}
-    </label>
-  );
-}
-
-function TextAreaField({ label, value, onChange, rows = 4, help }: { label: string; value: string; onChange: (value: string) => void; rows?: number; help?: string }) {
-  return (
-    <label className="block text-sm font-medium text-gray-700">
-      {label}
-      <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={rows} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900" />
-      {help && <p className="mt-1 text-xs text-gray-500">{help}</p>}
-    </label>
-  );
-}
-
-function SelectField({ label, value, onChange, options, help }: { label: string; value: string; onChange: (value: string) => void; options: Array<{ value: string; label: string }>; help?: string }) {
-  return (
-    <label className="block text-sm font-medium text-gray-700">
-      {label}
-      <select value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900">
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>{option.label}</option>
-        ))}
-      </select>
-      {help && <p className="mt-1 text-xs text-gray-500">{help}</p>}
-    </label>
-  );
-}
-
-function CheckboxField({ label, checked, onChange, help }: { label: string; checked: boolean; onChange: (value: boolean) => void; help?: string }) {
-  return (
-    <label className="flex items-start gap-2 text-sm font-medium text-gray-700">
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="mt-1 h-4 w-4 rounded border-gray-300" />
-      <span>
-        {label}
-        {help && <span className="block text-xs font-normal text-gray-500">{help}</span>}
-      </span>
-    </label>
-  );
-}
-
-function HtmlField({ label, value, onChange, help }: { label: string; value: string; onChange: (value: string) => void; help?: string }) {
-  return (
-    <div>
-      <span className="block text-sm font-medium text-gray-700">{label}</span>
-      {help && <p className="mt-1 mb-2 text-xs text-gray-500">{help}</p>}
-      <div className="mt-1">
-        <RichTextEditor value={value} onChange={onChange} />
-      </div>
-    </div>
-  );
-}
 
 function HeroImagePlacementPicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const options = [
@@ -202,15 +161,6 @@ function HeroImagePlacementPicker({ value, onChange }: { value: string; onChange
         ))}
       </div>
     </fieldset>
-  );
-}
-
-function EditorSection({ title, children, defaultOpen = false, id }: { title: string; children: React.ReactNode; defaultOpen?: boolean; id?: string }) {
-  return (
-    <details id={id} open={defaultOpen} className="rounded-md border border-gray-200 p-4">
-      <summary className="cursor-pointer font-semibold text-gray-900">{title}</summary>
-      <div className="mt-4 space-y-4">{children}</div>
-    </details>
   );
 }
 
@@ -314,6 +264,138 @@ function OrderedListEditor<T extends { key: string; label: string; visible: bool
   );
 }
 
+function PortfolioCategoryEditor({
+  items,
+  onChange,
+  artworkTags,
+}: {
+  items: PortfolioCategory[];
+  onChange: (items: PortfolioCategory[]) => void;
+  artworkTags: string[];
+}) {
+  const [draftLabel, setDraftLabel] = useState('');
+
+  function addCategory(labelInput: string) {
+    const label = labelInput.trim();
+    if (!label) return;
+    const key = normalizePortfolioCategoryKey(label);
+    if (items.some((item) => normalizePortfolioCategoryKey(item.key) === key)) {
+      setDraftLabel('');
+      return;
+    }
+    onChange([...items, { key, label, visible: true }]);
+    setDraftLabel('');
+  }
+
+  const unusedStarters = PORTFOLIO_CATEGORY_STARTERS.filter(
+    (starter) => !items.some((item) => normalizePortfolioCategoryKey(item.key) === normalizePortfolioCategoryKey(starter)),
+  );
+  const importableCount = mergePortfolioCategoriesFromTags(items, artworkTags).length - items.length;
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-gray-600">
+        Choose the filters visitors see. Match these names when tagging artworks — spelling can vary; we normalize them.
+      </p>
+      {items.length === 0 && (
+        <p className="text-sm text-gray-500">
+          No categories yet. Add a few below, or import tags already on your artworks.
+        </p>
+      )}
+      {unusedStarters.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {unusedStarters.map((starter) => (
+            <button
+              key={starter}
+              type="button"
+              onClick={() => addCategory(starter)}
+              className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            >
+              + {starter}
+            </button>
+          ))}
+        </div>
+      )}
+      {artworkTags.length > 0 && (
+        <button
+          type="button"
+          onClick={() => onChange(mergePortfolioCategoriesFromTags(items, artworkTags))}
+          disabled={importableCount <= 0}
+          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {importableCount > 0
+            ? `Add ${importableCount} tag${importableCount === 1 ? '' : 's'} from your artworks`
+            : 'All artwork tags already listed'}
+        </button>
+      )}
+      {items.map((item, index) => (
+        <div key={item.key} className="rounded-md border border-gray-200 p-3 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium text-gray-900">{item.label}</p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-40"
+                disabled={index === 0}
+                onClick={() => onChange(reorder(items, index, -1))}
+              >
+                Up
+              </button>
+              <button
+                type="button"
+                className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-40"
+                disabled={index === items.length - 1}
+                onClick={() => onChange(reorder(items, index, 1))}
+              >
+                Down
+              </button>
+              <button
+                type="button"
+                className="rounded border border-red-200 px-2 py-1 text-xs text-red-700"
+                onClick={() => onChange(items.filter((_, currentIndex) => currentIndex !== index))}
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+          <TextField
+            label="Display label"
+            value={item.label}
+            onChange={(label) => onChange(items.map((current, currentIndex) => (
+              currentIndex === index ? { ...current, label } : current
+            )))}
+          />
+          <CheckboxField
+            label="Show in filters"
+            checked={item.visible}
+            onChange={(visible) => onChange(items.map((current, currentIndex) => (
+              currentIndex === index ? { ...current, visible } : current
+            )))}
+          />
+        </div>
+      ))}
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="min-w-[12rem] flex-1">
+          <TextField
+            label="Add category"
+            value={draftLabel}
+            onChange={setDraftLabel}
+            help="Example: Paintings, Works on paper, Commissions"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => addCategory(draftLabel)}
+          disabled={!draftLabel.trim()}
+          className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminSiteContent() {
   const searchParams = useSearchParams();
   const [activePage, setActivePage] = useState<SiteContentPage>('identity');
@@ -325,8 +407,9 @@ export default function AdminSiteContent() {
   const [previewToken, setPreviewToken] = useState(0);
   const [artworkOptions, setArtworkOptions] = useState<ArtworkOption[]>([]);
   const [previewOpen, setPreviewOpen] = useState(true);
-  const savedBaselineRef = useRef<string>('');
+  const [saved, setSaved] = useState<SiteContentByPage | null>(null);
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasPreviewDraftRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
@@ -337,70 +420,38 @@ export default function AdminSiteContent() {
     return () => media.removeEventListener('change', sync);
   }, []);
 
-  const isDirty = content ? JSON.stringify(content) !== savedBaselineRef.current : false;
-
-  useLiveSiteTheme(content?.identity.theme);
-
-  const appearanceDirty = content && savedBaselineRef.current ? (() => {
-    try {
-      const baseline = JSON.parse(savedBaselineRef.current) as SiteContentByPage;
-      const currentAppearance = {
-        theme: content.identity.theme,
-        homeLayout: content.home.layoutTemplate,
-        shopLayout: content.shop.layout,
-        portfolioLayout: content.portfolio.layout,
-      };
-      const savedAppearance = {
-        theme: baseline.identity.theme,
-        homeLayout: baseline.home.layoutTemplate,
-        shopLayout: baseline.shop.layout,
-        portfolioLayout: baseline.portfolio.layout,
-      };
-      return JSON.stringify(currentAppearance) !== JSON.stringify(savedAppearance);
-    } catch {
-      return false;
-    }
-  })() : false;
-
-  function revertAppearance() {
-    if (!content || !savedBaselineRef.current) return;
-    try {
-      const baseline = JSON.parse(savedBaselineRef.current) as SiteContentByPage;
-      setContent({
-        ...content,
-        identity: {
-          ...content.identity,
-          theme: baseline.identity.theme,
-        },
-        home: {
-          ...content.home,
-          layoutTemplate: baseline.home.layoutTemplate,
-        },
-        shop: {
-          ...content.shop,
-          layout: { ...baseline.shop.layout },
-        },
-        portfolio: {
-          ...content.portfolio,
-          layout: { ...baseline.portfolio.layout },
-        },
-      });
-    } catch {
-      // Ignore malformed baseline snapshots.
-    }
-  }
+  const dirtyPages = content && saved
+    ? SITE_CONTENT_PAGES.filter((page) => !samePageContent(content[page], saved[page]))
+    : [];
+  const isDirty = dirtyPages.length > 0;
 
   const pushPreview = useCallback(async (snapshot: SiteContentByPage) => {
     try {
-      await fetch('/api/admin/site-content/preview', {
+      const response = await fetch('/api/admin/site-content/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify(snapshot),
       });
+      if (response.ok) {
+        hasPreviewDraftRef.current = true;
+      }
       setPreviewToken((current) => current + 1);
     } catch {
       // Preview failures should not block editing.
+    }
+  }, []);
+
+  const clearPreview = useCallback(async () => {
+    try {
+      await fetch('/api/admin/site-content/preview', {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      hasPreviewDraftRef.current = false;
+      setPreviewToken((current) => current + 1);
+    } catch {
+      // Preview cleanup failures should not block editing.
     }
   }, []);
 
@@ -413,8 +464,7 @@ export default function AdminSiteContent() {
       if (!response.ok) throw new Error(data.error || 'Failed to load site content');
       const hydrated = hydrateSiteContent(data);
       setContent(hydrated);
-      savedBaselineRef.current = JSON.stringify(hydrated);
-      void pushPreview(hydrated);
+      setSaved(hydrated);
     } catch (error) {
       setContent(null);
       setLoadError(error instanceof Error ? error.message : 'Failed to load site content');
@@ -453,11 +503,28 @@ export default function AdminSiteContent() {
       .then((data) => {
         if (Array.isArray(data.artworks)) {
           setArtworkOptions(
-            data.artworks.map((artwork: ArtworkOption) => ({
-              slug: artwork.slug,
-              title: artwork.title,
-              featured: artwork.featured,
-            })),
+            data.artworks.map((artwork: {
+              slug: string;
+              title: string;
+              featured: boolean;
+              category?: unknown;
+              images?: unknown;
+            }) => {
+              const rawCategory = artwork.category;
+              let category: string[] = [];
+              if (Array.isArray(rawCategory)) {
+                category = rawCategory.filter((entry): entry is string => typeof entry === 'string');
+              } else if (typeof rawCategory === 'string' && rawCategory.trim()) {
+                category = rawCategory.split(',').map((part: string) => part.trim()).filter(Boolean);
+              }
+              return {
+                slug: artwork.slug,
+                title: artwork.title,
+                featured: artwork.featured,
+                category,
+                image: artworkImage(artwork.images),
+              };
+            }),
           );
         }
       })
@@ -467,13 +534,19 @@ export default function AdminSiteContent() {
   useEffect(() => {
     if (!content) return undefined;
     if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
-    previewTimerRef.current = setTimeout(() => {
-      void pushPreview(content);
-    }, 300);
+    if (isDirty) {
+      previewTimerRef.current = setTimeout(() => {
+        void pushPreview(content);
+      }, 300);
+    } else if (hasPreviewDraftRef.current) {
+      previewTimerRef.current = setTimeout(() => {
+        void clearPreview();
+      }, 300);
+    }
     return () => {
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
     };
-  }, [content, pushPreview]);
+  }, [content, isDirty, pushPreview, clearPreview]);
 
   useEffect(() => {
     if (!isDirty) return undefined;
@@ -485,42 +558,40 @@ export default function AdminSiteContent() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isDirty]);
 
-  function requestTabChange(nextPage: SiteContentPage) {
-    if (nextPage === activePage) return;
-    if (isDirty && !window.confirm('You have unsaved changes on Site Pages. Switch tabs anyway? Your edits stay in this session until you save or leave admin.')) {
-      return;
-    }
-    setActivePage(nextPage);
-  }
-
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!content) return;
+    if (!content || !saved || dirtyPages.length === 0) return;
 
+    const submitted = Object.fromEntries(dirtyPages.map((page) => [page, content[page]])) as Partial<SiteContentByPage>;
     setSaving(true);
     setMessage(null);
     try {
       const response = await fetch('/api/admin/site-content', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ page: activePage, content: content[activePage] }),
+        body: JSON.stringify({ pages: submitted }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to save site content');
-      if (data.content) {
-        setContent((current) => {
-          if (!current) return current;
-          const next = { ...current };
-          assignPage(next, activePage, data.content as SiteContentByPage[typeof activePage]);
-          savedBaselineRef.current = JSON.stringify(next);
-          return next;
-        });
-      } else if (content) {
-        savedBaselineRef.current = JSON.stringify(content);
+      const stored = (data.pages ?? submitted) as Partial<SiteContentByPage>;
+      const nextSaved = { ...saved };
+      for (const page of dirtyPages) {
+        if (stored[page]) assignPage(nextSaved, page, stored[page] as SiteContentByPage[typeof page]);
       }
-      setMessage('Site content saved.');
-      await fetch('/api/admin/site-content/preview', { method: 'DELETE', credentials: 'include' });
-      if (content) void pushPreview(content);
+      setSaved(nextSaved);
+      // Keep edits made while the request was in flight; only pages unchanged since submit adopt the stored copy.
+      setContent((current) => {
+        if (!current) return current;
+        const next = { ...current };
+        for (const page of dirtyPages) {
+          if (samePageContent(current[page], submitted[page] as SiteContentByPage[typeof page])) {
+            assignPage(next, page, nextSaved[page]);
+          }
+        }
+        return next;
+      });
+      setMessage(dirtyPages.length === 1 ? 'Saved and published.' : `Saved and published ${dirtyPages.length} pages.`);
+      await clearPreview();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Failed to save site content');
     } finally {
@@ -556,20 +627,30 @@ export default function AdminSiteContent() {
   return (
     <div className="space-y-6" data-testid="site-content-editor">
       <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-        Edit public page copy and structure here without touching code. Routes stay fixed so navigation cannot point at broken URLs. Blog posts, portfolio items, and products are managed in their own tabs.
+        Edit public page copy and structure here without touching code. Routes stay fixed so navigation cannot point at broken URLs. Updates, portfolio pieces, and products are managed in their own tabs.
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {PAGE_TABS.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            onClick={() => requestTabChange(tab.key)}
-            className={`rounded-md px-4 py-2 text-sm font-medium ${activePage === tab.key ? 'bg-gray-900 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
-          >
-            {tab.label}
-          </button>
-        ))}
+        {PAGE_TABS.map((tab) => {
+          const tabDirty = dirtyPages.includes(tab.key);
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActivePage(tab.key)}
+              aria-current={activePage === tab.key ? 'page' : undefined}
+              className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium ${activePage === tab.key ? 'bg-gray-900 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+            >
+              {tab.label}
+              {tabDirty && (
+                <>
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden />
+                  <span className="sr-only">(unsaved changes)</span>
+                </>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2 xl:items-start">
@@ -605,158 +686,24 @@ export default function AdminSiteContent() {
               <div className="md:col-span-2">
                 <TextField label="Footer note" value={content.identity.footerTagline} onChange={(value) => setContent({ ...content, identity: { ...content.identity, footerTagline: value } })} />
               </div>
+              <div className="md:col-span-2">
+                <MediaImageField
+                  label="Logo (optional)"
+                  value={content.identity.logoImage}
+                  onChange={(value) => setContent({ ...content, identity: { ...content.identity, logoImage: value } })}
+                  help="A signature or wordmark shown in place of your name in the header. A transparent PNG or SVG works best. Your browser tab icon is made from your initials and main color."
+                />
+              </div>
             </div>
             <EditorSection title="Site appearance" defaultOpen id={cmsSectionElementId('identity', 'branding')}>
-              <ThemeColorEditor
-                primaryColor={content.identity.theme.primaryColor}
-                accentColor={content.identity.theme.accentColor}
-                onPrimaryChange={(value) => setContent({
-                  ...content,
-                  identity: { ...content.identity, theme: { ...content.identity.theme, primaryColor: value } },
-                })}
-                onAccentChange={(value) => setContent({
-                  ...content,
-                  identity: { ...content.identity, theme: { ...content.identity.theme, accentColor: value } },
-                })}
-                onApplyPalette={(primary, accent) => setContent({
-                  ...content,
-                  identity: {
-                    ...content.identity,
-                    theme: { ...content.identity.theme, primaryColor: primary, accentColor: accent },
-                  },
-                })}
-                fontPreset={content.identity.theme.fontPreset}
-                onFontPresetChange={(value) => setContent({
-                  ...content,
-                  identity: {
-                    ...content.identity,
-                    theme: { ...content.identity.theme, fontPreset: value },
-                  },
-                })}
-                cardStyle={content.identity.theme.cardStyle ?? 'studio'}
-                onCardStyleChange={(value) => setContent({
-                  ...content,
-                  identity: {
-                    ...content.identity,
-                    theme: { ...content.identity.theme, cardStyle: value },
-                  },
-                })}
-                spacingDensity={content.identity.theme.spacingDensity ?? 'comfortable'}
-                onSpacingDensityChange={(value) => setContent({
-                  ...content,
-                  identity: {
-                    ...content.identity,
-                    theme: { ...content.identity.theme, spacingDensity: value },
-                  },
-                })}
-                siteDisplayName={headerDisplayName(content.identity)}
-                navPreviewLabels={visibleNavItems(content.identity).map((item) => item.label)}
-                paletteSourceImage={content.home.hero.portraitImage || content.bio.hero.portraitImage}
-                canRevert={appearanceDirty}
-                onRevert={revertAppearance}
+              <SiteAppearancePanel
+                theme={content.identity.theme}
+                savedTheme={saved?.identity.theme ?? content.identity.theme}
+                onChange={(theme) => setContent({ ...content, identity: { ...content.identity, theme } })}
+                artworkChoices={artworkOptions
+                  .filter((artwork) => artwork.image && artwork.image !== PRODUCT_IMAGE_FALLBACK)
+                  .map((artwork) => ({ url: artwork.image, label: artwork.title }))}
               />
-              <div className="mt-6 space-y-4 border-t border-gray-200 pt-6">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">Studio lookbooks</p>
-                  <p className="mt-1 text-xs text-gray-600">Apply a complete look — colors, type, cards, homepage blocks, and shop chrome — then tweak anything.</p>
-                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {SITE_LOOKBOOKS.map((lookbook) => (
-                      <button
-                        key={lookbook.id}
-                        type="button"
-                        onClick={() => setContent(applySiteLookbook(content, lookbook.id))}
-                        className="rounded-md border border-gray-200 p-3 text-left text-xs hover:border-gray-400"
-                      >
-                        <p className="font-medium text-gray-900">{lookbook.label}</p>
-                        <p className="mt-1 text-gray-600">{lookbook.description}</p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <p className="text-sm font-medium text-gray-900">Page structure</p>
-                <SelectField
-                  label="Homepage layout"
-                  value={content.home.layoutTemplate}
-                  onChange={(value) => setContent({
-                    ...content,
-                    home: { ...content.home, layoutTemplate: value as typeof content.home.layoutTemplate },
-                  })}
-                  options={[
-                    { value: 'classic', label: 'Classic — banner first, then blocks below' },
-                    { value: 'gallery-first', label: 'Gallery first — artwork spotlight above the banner' },
-                    { value: 'story-first', label: 'Story first — about preview above the banner' },
-                  ]}
-                  help="Changes which block visitors see first without hiding your banner."
-                />
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <SelectField
-                    label="Shop grid columns"
-                    value={content.shop.layout.gridColumns}
-                    onChange={(value) => setContent({
-                      ...content,
-                      shop: {
-                        ...content.shop,
-                        layout: { ...content.shop.layout, gridColumns: value as typeof content.shop.layout.gridColumns },
-                      },
-                    })}
-                    options={[
-                      { value: '2', label: '2 columns' },
-                      { value: '3', label: '3 columns' },
-                      { value: '4', label: '4 columns' },
-                    ]}
-                  />
-                  <CheckboxField
-                    label="Show shop filters"
-                    checked={content.shop.layout.showFilters}
-                    onChange={(value) => setContent({
-                      ...content,
-                      shop: {
-                        ...content.shop,
-                        layout: { ...content.shop.layout, showFilters: value },
-                      },
-                    })}
-                  />
-                  <SelectField
-                    label="Portfolio grid columns"
-                    value={content.portfolio.layout.gridColumns}
-                    onChange={(value) => setContent({
-                      ...content,
-                      portfolio: {
-                        ...content.portfolio,
-                        layout: { ...content.portfolio.layout, gridColumns: value as typeof content.portfolio.layout.gridColumns },
-                      },
-                    })}
-                    options={[
-                      { value: '2', label: '2 columns' },
-                      { value: '3', label: '3 columns' },
-                      { value: '4', label: '4 columns' },
-                    ]}
-                  />
-                  <CheckboxField
-                    label="Portfolio masonry layout"
-                    checked={content.portfolio.layout.masonry}
-                    onChange={(value) => setContent({
-                      ...content,
-                      portfolio: {
-                        ...content.portfolio,
-                        layout: { ...content.portfolio.layout, masonry: value },
-                      },
-                    })}
-                    help="Taller portrait crops instead of uniform squares."
-                  />
-                  <CheckboxField
-                    label="Show portfolio category filters"
-                    checked={content.portfolio.layout.showFilters}
-                    onChange={(value) => setContent({
-                      ...content,
-                      portfolio: {
-                        ...content.portfolio,
-                        layout: { ...content.portfolio.layout, showFilters: value },
-                      },
-                    })}
-                  />
-                </div>
-              </div>
             </EditorSection>
             <EditorSection title="Footer columns" id={cmsSectionElementId('identity', 'footer')}>
               <TextField label="Quick links heading" value={content.identity.footer.quickLinksHeading} onChange={(value) => setContent({ ...content, identity: { ...content.identity, footer: { ...content.identity.footer, quickLinksHeading: value } } })} />
@@ -795,7 +742,21 @@ export default function AdminSiteContent() {
 
         {activePage === 'home' && (
           <div className="space-y-4">
-            <p className="text-sm text-gray-600">Homepage layout and colors are in Branding → Site appearance. Edit copy and sections here.</p>
+            <p className="text-sm text-gray-600">Colors, type, and shape are in Branding → Site appearance.</p>
+            <SelectField
+              label="Homepage layout"
+              value={content.home.layoutTemplate}
+              onChange={(value) => setContent({
+                ...content,
+                home: { ...content.home, layoutTemplate: value as typeof content.home.layoutTemplate },
+              })}
+              options={[
+                { value: 'classic', label: 'Classic — banner first, then blocks below' },
+                { value: 'gallery-first', label: 'Gallery first — artwork spotlight above the banner' },
+                { value: 'story-first', label: 'Story first — about preview above the banner' },
+              ]}
+              help="Changes which block visitors see first without hiding your banner."
+            />
             <EditorSection title="Homepage blocks" defaultOpen>
               <p className="text-sm text-gray-600">Choose which blocks appear on your homepage and in what order. Homepage layout (Gallery first / Story first) can place artwork or about above the banner. Hide individual blocks in their panels below.</p>
               <div className="space-y-3">
@@ -999,75 +960,96 @@ export default function AdminSiteContent() {
 
         {activePage === 'bio' && (
           <div className="space-y-4">
+            <BioNarrativeWizard
+              bio={content.bio}
+              onApply={(nextBio) => setContent({ ...content, bio: nextBio })}
+            />
             <EditorSection title="Section order" defaultOpen>
-              <p className="text-sm text-gray-600">Reorder biography blocks on the public page. Background and achievements stay side-by-side when they are next to each other.</p>
+              <p className="text-sm text-gray-600">
+                Reorder blocks on the public page. Path and recognition sit side-by-side when adjacent and both visible.
+              </p>
               <div className="space-y-3">
-                {content.bio.sectionOrder.map((sectionKey, index) => (
-                  <div key={sectionKey} className="flex items-center justify-between rounded-md border border-gray-200 p-3">
-                    <span className="text-sm font-medium text-gray-900">{BIO_SECTION_LABELS[sectionKey]}</span>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-40"
-                        disabled={index === 0}
-                        onClick={() => setContent({
-                          ...content,
-                          bio: { ...content.bio, sectionOrder: reorder(content.bio.sectionOrder, index, -1) },
-                        })}
-                      >
-                        Up
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-40"
-                        disabled={index === content.bio.sectionOrder.length - 1}
-                        onClick={() => setContent({
-                          ...content,
-                          bio: { ...content.bio, sectionOrder: reorder(content.bio.sectionOrder, index, 1) },
-                        })}
-                      >
-                        Down
-                      </button>
+                {content.bio.sectionOrder.map((sectionKey, index) => {
+                  const visible = bioSectionIsVisible(content.bio, sectionKey);
+                  return (
+                    <div key={sectionKey} className="flex items-center justify-between rounded-md border border-gray-200 p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-medium text-gray-900">{BIO_SECTION_LABELS[sectionKey]}</span>
+                        {!visible && (
+                          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-gray-500">
+                            Hidden
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-40"
+                          disabled={index === 0}
+                          onClick={() => setContent({
+                            ...content,
+                            bio: { ...content.bio, sectionOrder: reorder(content.bio.sectionOrder, index, -1) },
+                          })}
+                        >
+                          Up
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-40"
+                          disabled={index === content.bio.sectionOrder.length - 1}
+                          onClick={() => setContent({
+                            ...content,
+                            bio: { ...content.bio, sectionOrder: reorder(content.bio.sectionOrder, index, 1) },
+                          })}
+                        >
+                          Down
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </EditorSection>
             <EditorSection title="Visible sections" defaultOpen>
+              <p className="text-sm text-gray-600">
+                Turn off anything that does not fit your story — empty CV blocks never appear on the public page.
+              </p>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <CheckboxField label="Artist statement" checked={content.bio.showStatement} onChange={(value) => setContent({ ...content, bio: { ...content.bio, showStatement: value } })} />
-                <CheckboxField label="Background" checked={content.bio.showBackground} onChange={(value) => setContent({ ...content, bio: { ...content.bio, showBackground: value } })} />
-                <CheckboxField label="Achievements" checked={content.bio.showAchievements} onChange={(value) => setContent({ ...content, bio: { ...content.bio, showAchievements: value } })} />
-                <CheckboxField label="Studio practice" checked={content.bio.showStudio} onChange={(value) => setContent({ ...content, bio: { ...content.bio, showStudio: value } })} />
-                <CheckboxField label="Collections and press" checked={content.bio.showCollections} onChange={(value) => setContent({ ...content, bio: { ...content.bio, showCollections: value } })} />
+                <CheckboxField label="Your path (optional)" checked={content.bio.showBackground} onChange={(value) => setContent({ ...content, bio: { ...content.bio, showBackground: value } })} help="Education, self-taught route, or how you found your practice." />
+                <CheckboxField label="Shows & recognition (optional)" checked={content.bio.showAchievements} onChange={(value) => setContent({ ...content, bio: { ...content.bio, showAchievements: value } })} help="Leave off until you have exhibitions, awards, or residencies to share." />
+                <CheckboxField label="How you work" checked={content.bio.showStudio} onChange={(value) => setContent({ ...content, bio: { ...content.bio, showStudio: value } })} />
+                <CheckboxField label="Collections & press (optional)" checked={content.bio.showCollections} onChange={(value) => setContent({ ...content, bio: { ...content.bio, showCollections: value } })} />
                 <CheckboxField label="Closing call to action" checked={content.bio.showCta} onChange={(value) => setContent({ ...content, bio: { ...content.bio, showCta: value } })} />
               </div>
             </EditorSection>
             <EditorSection title="Welcome area" defaultOpen id={cmsSectionElementId('bio', 'hero')}>
               <TextField label="Page title" value={content.bio.hero.title} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, title: value } } })} />
-              <TextAreaField label="Intro text" value={content.bio.hero.subtitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, subtitle: value } } })} />
+              <TextAreaField label="Intro text" value={content.bio.hero.subtitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, subtitle: value } } })} help="Shown under the title on your public bio. Leave blank until you have a real intro." />
               <MediaImageField label="Your photo" value={content.bio.hero.portraitImage} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, portraitImage: value } } })} help="Leave blank to hide." />
+              <TextField label="Photo description" value={content.bio.hero.portraitImageAlt} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, portraitImageAlt: value } } })} help="Short alt text for accessibility. Leave blank for a generic label." />
               <TextField label="Portfolio button" value={content.bio.hero.ctaPortfolio} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, ctaPortfolio: value } } })} help="Leave blank to hide this button." />
               <TextField label="Contact button" value={content.bio.hero.ctaContact} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, ctaContact: value } } })} help="Leave blank to hide this button." />
             </EditorSection>
             <EditorSection title="Artist statement" id={cmsSectionElementId('bio', 'statement')}>
               <TextField label="Artist statement heading" value={content.bio.statementTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, statementTitle: value } })} />
-              <HtmlField label="Artist statement" value={content.bio.artistStatementHtml} onChange={(value) => setContent({ ...content, bio: { ...content.bio, artistStatementHtml: value } })} />
+              <HtmlField label="Artist statement" value={content.bio.artistStatementHtml} help="A few paragraphs about what you make and why. This section stays hidden on the site until you write something." onChange={(value) => setContent({ ...content, bio: { ...content.bio, artistStatementHtml: value } })} />
             </EditorSection>
-            <EditorSection title="Studio practice" id={cmsSectionElementId('bio', 'studio')}>
-              <TextField label="Studio section heading" value={content.bio.studioTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, studioTitle: value } })} />
-              <MediaImageField label="Studio image" value={content.bio.studioImage} onChange={(value) => setContent({ ...content, bio: { ...content.bio, studioImage: value } })} />
-              <HtmlField label="Studio practice section" value={content.bio.studioPracticeHtml} onChange={(value) => setContent({ ...content, bio: { ...content.bio, studioPracticeHtml: value } })} />
+            <EditorSection title="How you work" id={cmsSectionElementId('bio', 'studio')}>
+              <TextField label="Section heading" value={content.bio.studioTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, studioTitle: value } })} />
+              <MediaImageField label="Studio image" value={content.bio.studioImage} onChange={(value) => setContent({ ...content, bio: { ...content.bio, studioImage: value } })} help="Optional. Leave blank to hide." />
+              <TextField label="Studio image description" value={content.bio.studioImageAlt} onChange={(value) => setContent({ ...content, bio: { ...content.bio, studioImageAlt: value } })} help="Short alt text for accessibility." />
+              <HtmlField label="Process / studio notes" value={content.bio.studioPracticeHtml} onChange={(value) => setContent({ ...content, bio: { ...content.bio, studioPracticeHtml: value } })} />
             </EditorSection>
-            <EditorSection title="Background and achievements" id={cmsSectionElementId('bio', 'background')}>
-              <TextField label="Background heading" value={content.bio.backgroundTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, backgroundTitle: value } })} />
-              <HtmlField label="Background section" value={content.bio.backgroundHtml} help="Education and professional experience." onChange={(value) => setContent({ ...content, bio: { ...content.bio, backgroundHtml: value } })} />
-              <TextField label="Achievements heading" value={content.bio.achievementsTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, achievementsTitle: value } })} />
-              <HtmlField label="Achievements section" value={content.bio.achievementsHtml} onChange={(value) => setContent({ ...content, bio: { ...content.bio, achievementsHtml: value } })} />
+            <EditorSection title="Optional CV blocks" id={cmsSectionElementId('bio', 'background')}>
+              <TextField label="Path heading" value={content.bio.backgroundTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, backgroundTitle: value } })} />
+              <HtmlField label="Your path" value={content.bio.backgroundHtml} help="Optional. School, self-taught route, or anything that frames your practice — hide the section if it does not fit." onChange={(value) => setContent({ ...content, bio: { ...content.bio, backgroundHtml: value } })} />
+              <TextField label="Recognition heading" value={content.bio.achievementsTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, achievementsTitle: value } })} />
+              <HtmlField label="Shows & recognition" value={content.bio.achievementsHtml} help="Optional. Exhibitions, awards, or residencies — hide until you have something to share." onChange={(value) => setContent({ ...content, bio: { ...content.bio, achievementsHtml: value } })} />
             </EditorSection>
-            <EditorSection title="Collections and press" id={cmsSectionElementId('bio', 'collections')}>
-              <TextField label="Collections heading" value={content.bio.collectionsTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, collectionsTitle: value } })} />
-              <HtmlField label="Collections and press section" value={content.bio.collectionsHtml} onChange={(value) => setContent({ ...content, bio: { ...content.bio, collectionsHtml: value } })} />
+            <EditorSection title="Collections & press" id={cmsSectionElementId('bio', 'collections')}>
+              <TextField label="Section heading" value={content.bio.collectionsTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, collectionsTitle: value } })} />
+              <HtmlField label="Collections & press" value={content.bio.collectionsHtml} help="Optional. Leave blank and keep the section hidden until press or collections exist." onChange={(value) => setContent({ ...content, bio: { ...content.bio, collectionsHtml: value } })} />
             </EditorSection>
             <EditorSection title="Closing call to action" id={cmsSectionElementId('bio', 'cta')}>
               <TextField label="Closing section title" value={content.bio.cta.title} onChange={(value) => setContent({ ...content, bio: { ...content.bio, cta: { ...content.bio.cta, title: value } } })} />
@@ -1128,33 +1110,205 @@ export default function AdminSiteContent() {
 
         {activePage === 'portfolio' && (
           <div className="space-y-4">
-            <SelectField
-              label="Listing header size"
-              value={content.portfolio.hero.height}
-              onChange={(value) => setContent({ ...content, portfolio: { ...content.portfolio, hero: { ...content.portfolio.hero, height: value as typeof content.portfolio.hero.height } } })}
-              options={[
-                { value: 'compact', label: 'Compact' },
-                { value: 'full', label: 'Spacious' },
-              ]}
+            <PortfolioPresentationWizard
+              portfolio={content.portfolio}
+              onApply={(nextPortfolio) => setContent({ ...content, portfolio: nextPortfolio })}
             />
-            <TextField label="Page title" value={content.portfolio.title} onChange={(value) => setContent({ ...content, portfolio: { ...content.portfolio, title: value } })} />
-            <TextAreaField label="Page subtitle" value={content.portfolio.subtitle} onChange={(value) => setContent({ ...content, portfolio: { ...content.portfolio, subtitle: value } })} />
-            <SelectField
-              label="Artwork page layout"
-              value={content.portfolio.artworkDetailLayout}
-              onChange={(value) => setContent({ ...content, portfolio: { ...content.portfolio, artworkDetailLayout: value as typeof content.portfolio.artworkDetailLayout } })}
-              options={[
-                { value: 'standard', label: 'Standard — gallery and details side by side' },
-                { value: 'gallery-focus', label: 'Gallery focus — full-width image above details' },
-              ]}
-            />
-            <p className="text-sm text-gray-600">Grid layout and filters are in Branding → Site appearance.</p>
+            <EditorSection title="Listing intro" defaultOpen id={cmsSectionElementId('portfolio', 'listing')}>
+              <SelectField
+                label="Listing header size"
+                value={content.portfolio.hero.height}
+                onChange={(value) => setContent({ ...content, portfolio: { ...content.portfolio, hero: { ...content.portfolio.hero, height: value as typeof content.portfolio.hero.height } } })}
+                options={[
+                  { value: 'compact', label: 'Compact' },
+                  { value: 'full', label: 'Spacious' },
+                ]}
+              />
+              <TextField label="Page title" value={content.portfolio.title} onChange={(value) => setContent({ ...content, portfolio: { ...content.portfolio, title: value } })} />
+              <TextAreaField label="Page subtitle" value={content.portfolio.subtitle} onChange={(value) => setContent({ ...content, portfolio: { ...content.portfolio, subtitle: value } })} help="Optional line under the title. Leave blank for a quieter header." />
+              <SelectField
+                label="Artwork page layout"
+                value={content.portfolio.artworkDetailLayout}
+                onChange={(value) => setContent({ ...content, portfolio: { ...content.portfolio, artworkDetailLayout: value as typeof content.portfolio.artworkDetailLayout } })}
+                options={[
+                  { value: 'standard', label: 'Standard — gallery and details side by side' },
+                  { value: 'gallery-focus', label: 'Gallery focus — full-width image above details' },
+                ]}
+              />
+            </EditorSection>
+            <EditorSection title="Grid and images" defaultOpen>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <SelectField
+                  label="Grid columns"
+                  value={content.portfolio.layout.gridColumns}
+                  onChange={(value) => setContent({
+                    ...content,
+                    portfolio: {
+                      ...content.portfolio,
+                      layout: { ...content.portfolio.layout, gridColumns: value as typeof content.portfolio.layout.gridColumns },
+                    },
+                  })}
+                  options={[
+                    { value: '2', label: '2 columns' },
+                    { value: '3', label: '3 columns' },
+                    { value: '4', label: '4 columns' },
+                  ]}
+                />
+                <SelectField
+                  label="Thumbnail shape"
+                  value={content.portfolio.layout.thumbAspect}
+                  onChange={(value) => setContent({
+                    ...content,
+                    portfolio: {
+                      ...content.portfolio,
+                      layout: { ...content.portfolio.layout, thumbAspect: value as typeof content.portfolio.layout.thumbAspect },
+                    },
+                  })}
+                  options={[
+                    { value: 'square', label: 'Square' },
+                    { value: 'portrait', label: 'Portrait' },
+                    { value: 'landscape', label: 'Landscape' },
+                  ]}
+                  help="Masonry uses portrait thumbnails automatically."
+                />
+                <SelectField
+                  label="Image fit"
+                  value={content.portfolio.layout.imageFit}
+                  onChange={(value) => setContent({
+                    ...content,
+                    portfolio: {
+                      ...content.portfolio,
+                      layout: { ...content.portfolio.layout, imageFit: value as typeof content.portfolio.layout.imageFit },
+                    },
+                  })}
+                  options={[
+                    { value: 'cover', label: 'Fill frame (may crop)' },
+                    { value: 'contain', label: 'Show full artwork (letterbox)' },
+                  ]}
+                />
+              </div>
+              <CheckboxField
+                label="Masonry layout"
+                checked={content.portfolio.layout.masonry}
+                onChange={(value) => setContent({
+                  ...content,
+                  portfolio: {
+                    ...content.portfolio,
+                    layout: { ...content.portfolio.layout, masonry: value },
+                  },
+                })}
+                help="Column flow with taller portrait frames."
+              />
+              <CheckboxField
+                label="Show category filters"
+                checked={content.portfolio.layout.showFilters}
+                onChange={(value) => setContent({
+                  ...content,
+                  portfolio: {
+                    ...content.portfolio,
+                    layout: { ...content.portfolio.layout, showFilters: value },
+                  },
+                })}
+                help="Filters appear once you define categories below."
+              />
+              <CheckboxField
+                label="Also show artwork tags not listed below"
+                checked={content.portfolio.layout.includeUnlistedCategories}
+                onChange={(value) => setContent({
+                  ...content,
+                  portfolio: {
+                    ...content.portfolio,
+                    layout: { ...content.portfolio.layout, includeUnlistedCategories: value },
+                  },
+                })}
+                help="Off by default so your filter list stays intentional."
+              />
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <CheckboxField
+                  label="Show featured badge"
+                  checked={content.portfolio.layout.showFeaturedBadge}
+                  onChange={(value) => setContent({
+                    ...content,
+                    portfolio: {
+                      ...content.portfolio,
+                      layout: { ...content.portfolio.layout, showFeaturedBadge: value },
+                    },
+                  })}
+                />
+                <CheckboxField
+                  label="Show sold badge"
+                  checked={content.portfolio.layout.showSoldBadge}
+                  onChange={(value) => setContent({
+                    ...content,
+                    portfolio: {
+                      ...content.portfolio,
+                      layout: { ...content.portfolio.layout, showSoldBadge: value },
+                    },
+                  })}
+                />
+                <CheckboxField
+                  label="Show medium / size / year"
+                  checked={content.portfolio.layout.showMeta}
+                  onChange={(value) => setContent({
+                    ...content,
+                    portfolio: {
+                      ...content.portfolio,
+                      layout: { ...content.portfolio.layout, showMeta: value },
+                    },
+                  })}
+                />
+                <CheckboxField
+                  label="Show price on cards"
+                  checked={content.portfolio.layout.showPrice}
+                  onChange={(value) => setContent({
+                    ...content,
+                    portfolio: {
+                      ...content.portfolio,
+                      layout: { ...content.portfolio.layout, showPrice: value },
+                    },
+                  })}
+                  help="Off by default — keep prices on the shop if you prefer a quieter portfolio."
+                />
+              </div>
+            </EditorSection>
+            <EditorSection title="Categories" defaultOpen>
+              <PortfolioCategoryEditor
+                items={content.portfolio.categories}
+                artworkTags={Array.from(new Set(artworkOptions.flatMap((artwork) => artwork.category)))}
+                onChange={(categories) => setContent({
+                  ...content,
+                  portfolio: { ...content.portfolio, categories },
+                })}
+              />
+            </EditorSection>
           </div>
         )}
 
         {activePage === 'shop' && (
           <div className="space-y-4">
-            <p className="text-sm text-gray-600">Shop grid layout is in Branding → Site appearance.</p>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <SelectField
+                label="Grid columns"
+                value={content.shop.layout.gridColumns}
+                onChange={(value) => setContent({
+                  ...content,
+                  shop: { ...content.shop, layout: { ...content.shop.layout, gridColumns: value as typeof content.shop.layout.gridColumns } },
+                })}
+                options={[
+                  { value: '2', label: '2 columns' },
+                  { value: '3', label: '3 columns' },
+                  { value: '4', label: '4 columns' },
+                ]}
+              />
+              <CheckboxField
+                label="Show shop filters"
+                checked={content.shop.layout.showFilters}
+                onChange={(value) => setContent({
+                  ...content,
+                  shop: { ...content.shop, layout: { ...content.shop.layout, showFilters: value } },
+                })}
+              />
+            </div>
             <SelectField
               label="Listing header size"
               value={content.shop.hero.height}
@@ -1274,9 +1428,14 @@ export default function AdminSiteContent() {
           </div>
         )}
 
-        <div className="flex justify-end">
-          <button type="submit" disabled={saving} className="btn-primary px-5 py-2 rounded disabled:opacity-50">
-            {saving ? 'Saving...' : `Save ${activeTab.label}`}
+        <div className="sticky bottom-above-admin-nav md:bottom-0 -mx-6 -mb-6 flex items-center justify-end gap-3 rounded-b-lg border-t border-gray-200 bg-white/95 px-6 py-3 backdrop-blur">
+          <p className="mr-auto text-xs text-gray-600" role="status">
+            {isDirty
+              ? `Unsaved changes on ${dirtyPages.map((page) => PAGE_TABS.find((tab) => tab.key === page)?.label ?? page).join(', ')}`
+              : 'All changes published'}
+          </p>
+          <button type="submit" disabled={saving || !isDirty} className="btn-primary shrink-0 whitespace-nowrap px-5 py-2 disabled:opacity-50">
+            {saving ? 'Saving…' : 'Save changes'}
           </button>
         </div>
       </form>
@@ -1288,7 +1447,6 @@ export default function AdminSiteContent() {
             <p className="text-xs text-gray-500">Updates as you edit — save to publish changes.</p>
           </div>
           <div className="flex items-center gap-3">
-            {isDirty && <span className="text-xs font-medium text-amber-700">Unsaved changes</span>}
             <button
               type="button"
               onClick={() => setPreviewOpen((open) => !open)}

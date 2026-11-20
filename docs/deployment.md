@@ -1,237 +1,83 @@
-# CI/CD & Deployment Documentation
+# Deployment
 
-## Overview
-This document outlines the comprehensive CI/CD pipeline and deployment strategy for the Artist Site project, covering automated testing, security scanning, containerization, and multi-environment deployments.
+Production runs on **Fly.io** (one always-on `shared-cpu-1x` / 1 GB machine in `iad`), **Neon Postgres** (Free plan), and **Azure Blob Storage** for uploads, served at `https://michalelena.art`. Every push to `main` deploys automatically once CI passes.
 
-## Pipeline Architecture
+## How it fits together
 
-### 🔄 Workflow Stages
-1. **Quality Gates** - Linting, type checking, testing with coverage
-2. **Security Scanning** - npm audit, Trivy vulnerability scanning
-3. **Build & Test** - Application build and artifact creation
-4. **Docker Build** - Multi-platform container creation with security scanning
-5. **Performance Testing** - Lighthouse CI performance validation
-6. **Deployment** - Automated staging/production deployments
-7. **Monitoring** - Health checks and error tracking
+- **Image** — `Dockerfile` builds the Next.js standalone server. Nothing is baked in at build time; configuration comes from Fly secrets or Admin → Settings (saved settings win).
+- **Migrations** — Fly's `release_command` runs `scripts/release.sh` (`prisma migrate deploy` over the direct Neon connection) before new machines take traffic. A failed migration aborts the deploy and leaves the current release running.
+- **Health checks** — Fly polls `/api/health/live`, which never touches the database so Neon can scale to zero. `/api/health` reports database, Stripe, and Mailchimp status.
+- **Automations** — cart recovery, scheduled newsletters, social posts, digests, and expired stock holds run inside the server every 30 minutes once an automation secret exists. A database lease prevents overlapping runs (deploys briefly run two machines). Admin → Settings → *Run automations now* triggers a run on demand.
+- **Checkout holds** — Stripe Checkout sessions expire after 31 minutes and stock is held slightly longer. Returning from Stripe via *back* or session expiry releases the hold immediately.
+- **Canonical host** — `www.` redirects to the `NEXTAUTH_URL` host (or the reverse if the canonical host is `www.`).
 
-### 🌍 Environments
+## First-time setup
 
-#### Development
-- **Branch**: `feature/*`, `dev/*`
-- **Triggers**: Pull requests to main
-- **Actions**: Quality gates, security scanning, performance testing
-- **Access**: Local development, GitHub Actions runners
+1. **Tools and accounts**
+   - `brew install flyctl && fly auth login`
+   - `gh auth login` (lets the script store the GitHub deploy token)
+   - `az login` (only if the script should create the storage account)
+   - Register `michalelena.art`.
+   - Create a Neon project in **AWS US East (N. Virginia)**, next to Fly's `iad` region.
+   - Stripe account (test mode for UAT) and an SMTP provider.
+2. **Configure** — run `npm run fly:setup`. The first run writes `.env.fly` (gitignored); fill in the required values and run it again. The script:
+   - verifies both Neon connection strings,
+   - creates the Fly app, and the Azure storage account and container if needed,
+   - registers the Stripe webhook (`checkout.session.completed`, `checkout.session.expired`),
+   - generates `NEXTAUTH_SECRET`, `SETTINGS_ENCRYPTION_KEY`, and `CRON_SECRET` and imports all secrets into Fly,
+   - allocates IPs, requests TLS certificates for the apex and `www`, prints the DNS records, and saves `FLY_API_TOKEN` to GitHub.
+3. **DNS** — add the printed `A`, `AAAA`, and `www` `CNAME` records at the registrar. `fly certs show michalelena.art` reports when certificates are issued.
+4. **Deploy** — `npm run deploy`, or merge to `main`.
+5. **Admin account** — sign up at `/auth/signup` with an `ADMIN_EMAILS` address, then work through Admin → Settings until the readiness checklist is green.
 
-#### Staging
-- **Branch**: `develop`
-- **Triggers**: Push to develop branch
-- **URL**: `https://staging.artistsite.com`
-- **Actions**: Full pipeline + deployment to Azure Container Instances
-- **Purpose**: Pre-production testing, stakeholder reviews
+Do not run `npm run db:seed` against production; it creates demo accounts and orders.
 
-#### Production
-- **Branch**: `main`
-- **Triggers**: GitHub releases (tags)
-- **URL**: `https://artistsite.com`
-- **Actions**: Full pipeline + production deployment
-- **Purpose**: Live customer-facing application
+## Deploying changes
 
-## Deployment Process
+- **Automatic** — merge to `main`. CI runs type-check, lint, unit tests, build, and the security scan, then the `deploy` job runs `flyctl deploy`. Deploys queue rather than cancel each other.
+- **Manual** — `npm run deploy`.
+- **Rollback** — `fly releases --app michalelena --image` lists previous images; `fly deploy --image <image>` redeploys one. Migrations are forward-only, so roll back code only when the schema is compatible.
+- **Logs and access** — `fly logs`, `fly status`, `fly ssh console`.
 
-### Prerequisites
-1. **Azure CLI** installed and authenticated
-2. **Docker** installed for local testing
-3. **GitHub Secrets** configured (see Environment Variables section)
-4. **Azure Resource Group** created for container deployments
+## Secrets
 
-### Environment Variables & Secrets
-Required GitHub repository secrets:
+`.env.fly` is the local record of production configuration. Re-run `npm run fly:setup` after editing it; running machines restart with the new values.
 
-```bash
-# Azure Configuration
-AZURE_RG=artistsite-resources
+| Secret | Notes |
+| --- | --- |
+| `DATABASE_URL` / `DATABASE_URL_UNPOOLED` | Neon pooled string (app) and direct string (migrations), both with `&connect_timeout=15` |
+| `NEXTAUTH_URL` | Canonical origin; password-reset links and the `www` redirect use it |
+| `NEXTAUTH_SECRET`, `CRON_SECRET` | Generated; rotating `NEXTAUTH_SECRET` signs everyone out |
+| `SETTINGS_ENCRYPTION_KEY` | Generated; **never change it** — saved integration secrets are encrypted with it |
+| `AZURE_STORAGE_CONNECTION_STRING` | The account must allow anonymous blob access; uploaded images are public URLs |
+| Stripe, SMTP, Google, contact emails | Optional here; can be entered in Admin → Settings instead |
 
-# Staging Environment
-STAGING_STRIPE_PUBLISHABLE_KEY=pk_test_...
-STAGING_STRIPE_SECRET_KEY=sk_test_...
-STAGING_MAILCHIMP_API_KEY=...
-STAGING_MAILCHIMP_LIST_ID=...
+## Neon Free plan limits
 
-# Production Environment
-PROD_STRIPE_PUBLISHABLE_KEY=pk_live_...
-PROD_STRIPE_SECRET_KEY=sk_live_...
-PROD_MAILCHIMP_API_KEY=...
-PROD_MAILCHIMP_LIST_ID=...
+The Free plan includes 100 compute-hours a month and suspends the database after 5 idle minutes. Health checks never wake it; the automation schedule uses roughly 30 compute-hours a month, leaving the rest for traffic. If the allowance runs out, the database stays suspended until the next month, so upgrade to the Launch plan before real sales. The Free plan's restore window is short; take a `pg_dump` with `DATABASE_URL_UNPOOLED` before risky changes.
 
-# Monitoring & Notifications
-SLACK_WEBHOOK_URL=https://hooks.slack.com/...
-LHCI_GITHUB_APP_TOKEN=...
-```
+## Going live after UAT
 
-### Manual Deployment Commands
+1. Replace the Stripe test keys in `.env.fly` with live keys and clear `STRIPE_WEBHOOK_SECRET`.
+2. Run `npm run fly:setup` — it registers the live-mode webhook and restarts the machine.
+3. Place one real low-value order and refund it from Admin → Orders.
 
-#### Local Development
-```bash
-# Start development server
-npm run dev
+## UAT checklist
 
-# Build and test locally
-npm run build
-npm run test:coverage
+- Browse home, portfolio, shop, updates, bio, and contact on phone and desktop.
+- Admin → Settings readiness is green; Site appearance changes show on the public site.
+- Upload an artwork image and confirm it displays (Azure Blob).
+- Buy with Stripe test card `4242 4242 4242 4242`: confirmation email arrives and the order appears in Admin → Orders.
+- Start checkout, press *back* on the Stripe page: the piece is immediately purchasable again.
+- Contact form and commission request reach the studio inbox and email.
+- Password reset email links to `https://michalelena.art`.
+- Newsletter signup, test send, and unsubscribe work.
 
-# Local Docker testing
-npm run docker:build
-npm run docker:run
-```
-
-#### Staging Deployment
-```bash
-# Deploy to staging (requires Azure CLI auth)
-npm run deploy:staging
-
-# Test staging deployment
-curl -f https://staging.artistsite.com/api/health
-```
-
-#### Production Deployment
-```bash
-# Deploy to production (requires clean main branch)
-npm run deploy:production
-
-# Verify production deployment
-curl -f https://artistsite.com/api/health
-```
-
-## Monitoring & Health Checks
-
-### Health Endpoint
-- **URL**: `/api/health`
-- **Method**: GET
-- **Response**: System metrics, service status, performance data
-
-### Error Tracking
-- **URL**: `/api/errors`
-- **Methods**: GET (retrieve), POST (report)
-- **Features**: Error aggregation, filtering, monitoring integration
-
-### Performance Monitoring
-- **Lighthouse CI**: Automated performance testing on PRs
-- **Metrics**: Performance, Accessibility, Best Practices, SEO scores
-- **Thresholds**: Performance ≥85%, Accessibility ≥95%, SEO ≥95%
-
-## Security Features
-
-### Container Security
-- Multi-stage Docker builds
-- Non-root user execution
-- Vulnerability scanning with Trivy
-- Minimal Alpine Linux base images
-
-### Application Security
-- Rate limiting via Nginx
-- Security headers (HSTS, CSP, etc.)
-- Input validation and sanitization
-- Environment variable isolation
-
-### CI/CD Security
-- Dependency vulnerability scanning
-- Secret management via GitHub Secrets
-- Signed container images
-- Audit trails for all deployments
+The site is publicly indexable during UAT. Keep unfinished content as drafts.
 
 ## Troubleshooting
 
-### Common Issues
-
-#### Deployment Failures
-```bash
-# Check Azure container logs
-az container logs --resource-group $AZURE_RG --name artistsite-staging
-
-# Verify environment variables
-az container show --resource-group $AZURE_RG --name artistsite-staging --query environmentVariables
-```
-
-#### Health Check Failures
-```bash
-# Test health endpoint
-curl -v https://staging.artistsite.com/api/health
-
-# Check error logs
-curl https://staging.artistsite.com/api/errors
-```
-
-#### Performance Issues
-```bash
-# Run local Lighthouse audit
-npm run lighthouse:ci
-
-# Check system metrics
-curl https://artistsite.com/api/health | jq '.memory'
-```
-
-### Rollback Procedures
-
-#### Staging Rollback
-```bash
-# Redeploy previous version
-az container restart --resource-group $AZURE_RG --name artistsite-staging
-```
-
-#### Production Rollback
-```bash
-# Deploy previous stable version
-git checkout <previous-release-tag>
-npm run deploy:production
-```
-
-## Monitoring Dashboard URLs
-
-### Development Tools
-- **GitHub Actions**: Repository > Actions tab
-- **Code Coverage**: `coverage/lcov-report/index.html`
-- **Lighthouse Reports**: GitHub Actions artifacts
-
-### Production Monitoring
-- **Health Status**: `https://artistsite.com/api/health`
-- **Error Tracking**: `https://artistsite.com/api/errors`
-- **Azure Portal**: Container Instances dashboard
-
-## Performance Benchmarks
-
-### Target Metrics
-- **Response Time**: < 200ms (API), < 1s (pages)
-- **Lighthouse Performance**: ≥ 85/100
-- **Lighthouse Accessibility**: ≥ 95/100
-- **Memory Usage**: < 512MB normal operation
-- **Error Rate**: < 0.1% of requests
-
-### Load Testing
-```bash
-# Basic load test
-curl -w "@curl-format.txt" -s -o /dev/null https://artistsite.com/
-
-# Concurrent requests test
-ab -n 100 -c 10 https://artistsite.com/
-```
-
-## Next Steps & Improvements
-
-### Phase 1 (Current)
-- ✅ Automated CI/CD pipeline
-- ✅ Multi-environment deployments
-- ✅ Health monitoring
-- ✅ Error tracking
-
-### Phase 2 (Future)
-- [ ] Database integration and monitoring
-- [ ] Advanced caching strategies
-- [ ] Blue-green deployments
-- [ ] Automated performance regression detection
-- [ ] Enhanced security scanning (SAST/DAST)
-
-### Phase 3 (Advanced)
-- [ ] Multi-region deployments
-- [ ] Auto-scaling based on metrics
-- [ ] Advanced observability (APM)
-- [ ] Chaos engineering practices
+- **Deploy stopped at the release step** — `fly logs` shows the Prisma error; fix the migration and redeploy. The previous release keeps serving.
+- **Uploads fail** — the storage account must allow anonymous blob access, or the connection string is missing.
+- **First request after idle is slow** — Neon is waking (about a second).
+- **Webhook signature errors** — `STRIPE_WEBHOOK_SECRET` must match the endpoint for the current Stripe mode.

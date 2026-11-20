@@ -90,14 +90,19 @@ const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: Setting
   },
   {
     title: 'Newsletter',
-    description: 'Mailchimp receives public newsletter signups. Use log mode while setting up.',
+    description: 'Newsletters you write in the Newsletter tab send through Email Delivery above. Signups can also be copied to Mailchimp.',
     keys: [
       {
+        key: 'NEWSLETTER_FOOTER_ADDRESS',
+        label: 'Mailing address for newsletter footer',
+        help: 'Anti-spam law requires a postal address in every newsletter. A PO box works.',
+      },
+      {
         key: 'NEWSLETTER_DELIVERY_MODE',
-        label: 'Newsletter delivery mode',
+        label: 'Signup copy',
         options: [
-          { value: 'log', label: 'Log only (safe for testing)' },
-          { value: 'mailchimp', label: 'Send to Mailchimp' },
+          { value: 'log', label: 'Keep signups on this site only' },
+          { value: 'mailchimp', label: 'Also add signups to Mailchimp' },
         ],
         defaultValue: 'log',
       },
@@ -183,7 +188,7 @@ const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: Setting
     title: 'Automation',
     description: 'Cart recovery and scheduled marketing jobs. Optional until you want hands-off follow-up.',
     keys: [
-      { key: 'CRON_SECRET', label: 'Automation secret', type: 'password', help: 'Protects scheduled runs. Save this, then use Run automations now above.' },
+      { key: 'CRON_SECRET', label: 'Automation secret', type: 'password', help: 'Turns on automatic runs every 30 minutes and protects the scheduling URL.' },
       {
         key: 'CART_ABANDONMENT_ENABLED',
         label: 'Send cart recovery emails',
@@ -249,27 +254,41 @@ function applySettingFieldDefaults(values: Record<string, string>): Record<strin
 function integrationStatuses(settings: Record<string, SettingRecord>, draft: Record<string, string>) {
   const stripeOk = settings.STRIPE_SECRET_KEY?.status === 'configured' || Boolean(draft.STRIPE_SECRET_KEY?.trim());
   const emailMode = draft.EMAIL_DELIVERY_MODE || 'log';
-  const emailOk = emailMode === 'log' || Boolean(draft.SMTP_HOST?.trim());
+  const emailOk = emailMode === 'smtp' && Boolean(draft.SMTP_HOST?.trim());
   const shippingProvider = draft.SHIPPING_PROVIDER || 'manual';
   const shippingOk = shippingProvider === 'manual' || settings.EASYPOST_API_KEY?.status === 'configured' || Boolean(draft.EASYPOST_API_KEY?.trim());
   const newsletterMode = draft.NEWSLETTER_DELIVERY_MODE || 'log';
-  const newsletterOk = newsletterMode === 'log' || settings.MAILCHIMP_API_KEY?.status === 'configured';
+  const newsletterAddressOk = Boolean(draft.NEWSLETTER_FOOTER_ADDRESS?.trim());
+  const newsletterOk = newsletterAddressOk && (newsletterMode === 'log' || settings.MAILCHIMP_API_KEY?.status === 'configured');
 
   return [
     { label: 'Stripe payments', ok: stripeOk, detail: stripeOk ? 'Connected' : 'Add Stripe keys to accept payments' },
-    { label: 'Email delivery', ok: emailOk, detail: emailMode === 'smtp' ? 'SMTP configured' : 'Log mode — emails are not sent' },
+    {
+      label: 'Email delivery',
+      ok: emailOk,
+      detail: emailMode === 'smtp'
+        ? (emailOk ? 'SMTP configured' : 'Add SMTP host to send emails')
+        : 'Log mode — emails are not sent',
+    },
     { label: 'Shipping labels', ok: shippingOk, detail: shippingProvider === 'easypost' ? 'EasyPost ready' : 'Manual tracking only' },
-    { label: 'Newsletter', ok: newsletterOk, detail: newsletterMode === 'mailchimp' ? 'Mailchimp configured' : 'Log mode' },
+    {
+      label: 'Newsletter',
+      ok: newsletterOk,
+      detail: !newsletterAddressOk
+        ? 'Add a footer mailing address'
+        : newsletterMode === 'mailchimp' ? 'Signups copied to Mailchimp' : 'Ready — sends with Email delivery',
+    },
   ];
 }
 
 export default function AdminSettings() {
   const [settings, setSettings] = useState<Record<string, SettingRecord>>({});
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [savedDraft, setSavedDraft] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [runningAutomation, setRunningAutomation] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [siteContent, setSiteContent] = useState<SiteContentByPage | null>(null);
 
   useEffect(() => {
@@ -298,12 +317,14 @@ export default function AdminSettings() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to load settings');
       const records = Object.fromEntries((data.settings || []).map((item: SettingRecord) => [item.key, item]));
-      setSettings(records);
-      setDraft(applySettingFieldDefaults(
+      const nextDraft = applySettingFieldDefaults(
         Object.fromEntries((data.settings || []).map((item: SettingRecord) => [item.key, item.value || ''])),
-      ));
+      );
+      setSettings(records);
+      setDraft(nextDraft);
+      setSavedDraft(nextDraft);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Failed to load settings');
+      setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Failed to load settings' });
     } finally {
       setLoading(false);
     }
@@ -323,13 +344,15 @@ export default function AdminSettings() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to save settings');
       const records = Object.fromEntries((data.settings || []).map((item: SettingRecord) => [item.key, item]));
-      setSettings(records);
-      setDraft(applySettingFieldDefaults(
+      const nextDraft = applySettingFieldDefaults(
         Object.fromEntries((data.settings || []).map((item: SettingRecord) => [item.key, item.value || ''])),
-      ));
-      setMessage('Settings saved. Secret values are hidden after saving.');
+      );
+      setSettings(records);
+      setDraft(nextDraft);
+      setSavedDraft(nextDraft);
+      setMessage({ type: 'success', text: 'Settings saved. Secret values are hidden after saving.' });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Failed to save settings');
+      setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Failed to save settings' });
     } finally {
       setSaving(false);
     }
@@ -342,13 +365,13 @@ export default function AdminSettings() {
       const response = await fetch('/api/admin/automation/run', { method: 'POST' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Automation run failed');
-      setMessage(`Automations completed. Processed ${data.processed ?? 0} job(s).`);
+      setMessage({ type: 'success', text: `Automations completed. Processed ${data.processed ?? 0} job(s).` });
       if (typeof data.lastRunAt === 'string' && data.lastRunAt) {
         setDraft((prev) => ({ ...prev, CRON_LAST_RUN_AT: data.lastRunAt }));
       }
       await loadSettings();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Automation run failed');
+      setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Automation run failed' });
     } finally {
       setRunningAutomation(false);
     }
@@ -376,11 +399,15 @@ export default function AdminSettings() {
       { label: 'Connect Stripe for checkout', complete: stripeOk, href: adminSettingFieldHref('STRIPE_SECRET_KEY') },
       { label: 'Configure email delivery', complete: emailOk, href: adminSettingFieldHref('EMAIL_DELIVERY_MODE') },
       { label: 'Set up shipping (manual or EasyPost)', complete: shippingOk, href: adminSettingFieldHref('SHIPPING_PROVIDER') },
-      { label: 'Connect newsletter delivery', complete: newsletterOk, href: adminSettingFieldHref('NEWSLETTER_DELIVERY_MODE') },
+      { label: 'Set up your newsletter', complete: newsletterOk, href: adminSettingFieldHref(draft.NEWSLETTER_FOOTER_ADDRESS?.trim() ? 'NEWSLETTER_DELIVERY_MODE' : 'NEWSLETTER_FOOTER_ADDRESS') },
     ];
   }, [statuses, draft, siteContent, settings]);
   const setupCompleteCount = setupSteps.filter((step) => step.complete).length;
   const showSetupWizard = setupCompleteCount < setupSteps.length;
+  const isDirty = useMemo(
+    () => Object.keys({ ...savedDraft, ...draft }).some((key) => (draft[key] || '') !== (savedDraft[key] || '')),
+    [draft, savedDraft],
+  );
 
   if (loading) {
     return <div className="rounded-lg border bg-white p-6 text-gray-600">Loading settings...</div>;
@@ -389,8 +416,15 @@ export default function AdminSettings() {
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {message && (
-        <div className="rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
-          {message}
+        <div
+          role={message.type === 'error' ? 'alert' : 'status'}
+          className={`rounded border p-3 text-sm ${
+            message.type === 'error'
+              ? 'border-red-200 bg-red-50 text-red-800'
+              : 'border-green-200 bg-green-50 text-green-800'
+          }`}
+        >
+          {message.text}
         </div>
       )}
 
@@ -442,7 +476,8 @@ export default function AdminSettings() {
       <section className="rounded-lg border bg-white p-6">
         <h2 className="text-lg font-semibold text-gray-900">Studio automations</h2>
         <p className="mt-1 text-sm text-gray-600">
-          Run cart recovery and scheduled marketing jobs from here. Optional until you want hands-off follow-up.
+          Cart recovery, scheduled newsletters, and social posts run automatically every 30 minutes once an
+          automation secret is saved. Use the button to run them right away.
         </p>
         <p className="mt-2 text-sm text-gray-600">
           Last run: {draft.CRON_LAST_RUN_AT ? new Date(draft.CRON_LAST_RUN_AT).toLocaleString() : 'Not recorded yet'}
@@ -458,7 +493,8 @@ export default function AdminSettings() {
         <details className="mt-4 text-sm text-gray-600">
           <summary className="cursor-pointer font-medium text-gray-800">Advanced scheduling</summary>
           <p className="mt-2">
-            Hosts can call this URL hourly with your automation secret. Most artists can ignore this and use the button above.
+            Your site already runs automations on its own. An external scheduler can also call this URL with your
+            automation secret; overlapping runs are skipped safely.
           </p>
           <code className="mt-2 block overflow-x-auto rounded bg-gray-100 px-2 py-1 text-xs">
             {typeof window !== 'undefined' ? `${window.location.origin}/api/cron/marketing` : '/api/cron/marketing'}
@@ -539,8 +575,15 @@ export default function AdminSettings() {
         );
       })}
 
-      <div className="flex justify-end">
-        <button type="submit" disabled={saving} className="rounded bg-gray-900 px-5 py-2 text-white disabled:opacity-50">
+      <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+        <p className="text-sm text-gray-600">
+          {isDirty ? 'You have unsaved settings changes.' : 'All settings saved.'}
+        </p>
+        <button
+          type="submit"
+          disabled={saving || !isDirty}
+          className="rounded bg-gray-900 px-5 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+        >
           {saving ? 'Saving...' : 'Save Settings'}
         </button>
       </div>

@@ -267,7 +267,7 @@ export function FilterSidebar({
             id="shop-sort-sheet"
             value={currentSort || 'relevance'}
             onChange={(event) => onSortChange(event.target.value as SortOption)}
-            className="min-h-11 w-full rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-900"
+            className="min-h-11 w-full rounded-md border border-gray-300 bg-surface px-3 text-sm text-gray-900"
           >
             {sortOptions.map((option) => (
               <option key={option.value} value={option.value}>{option.label}</option>
@@ -393,7 +393,7 @@ export function FilterSidebar({
         <button
           type="button"
           onClick={() => setMobileOpen(true)}
-          className="w-full flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-900 hover:bg-gray-50"
+          className="w-full flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-surface px-4 py-3 text-sm font-medium text-gray-900 hover:bg-gray-50"
           aria-expanded={mobileOpen}
           aria-controls="shop-filters-panel"
         >
@@ -417,7 +417,7 @@ export function FilterSidebar({
           />
           <div
             id="shop-filters-panel"
-            className="fixed inset-x-0 bottom-0 z-50 flex max-h-[min(85vh,640px)] flex-col rounded-t-2xl bg-white shadow-xl lg:hidden"
+            className="fixed inset-x-0 bottom-0 z-50 flex max-h-[min(85vh,640px)] flex-col rounded-t-2xl bg-surface shadow-xl lg:hidden"
             role="dialog"
             aria-modal="true"
             aria-label="Shop filters"
@@ -441,7 +441,7 @@ export function FilterSidebar({
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}
-                className="w-full rounded-lg bg-gray-900 px-4 py-3 text-sm font-medium text-white hover:bg-gray-800"
+                className="btn-primary w-full px-4 py-3 text-sm"
               >
                 View results
               </button>
@@ -450,7 +450,7 @@ export function FilterSidebar({
         </>
       )}
 
-      <div className={`hidden lg:block bg-white border border-gray-200 rounded-lg p-6 ${className}`}>
+      <div className={`hidden lg:block bg-surface border border-gray-200 rounded-lg p-6 ${className}`}>
         {renderFilterPanel(false)}
       </div>
     </>

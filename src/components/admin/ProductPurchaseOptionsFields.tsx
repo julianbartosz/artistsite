@@ -26,6 +26,12 @@ const GROUP_LABELS: Record<VariantGroupKey, string> = {
   materials: 'Material options',
 };
 
+const GROUP_PLACEHOLDERS: Record<VariantGroupKey, string> = {
+  sizes: '24" × 36" (Original)',
+  framing: 'Museum frame',
+  materials: 'Archival paper',
+};
+
 function emptyVariant(prefix: string): ProductVariant {
   const id = `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
   return {
@@ -124,7 +130,8 @@ export default function ProductPurchaseOptionsFields({ value, onChange }: Produc
                         value={row.name}
                         onChange={(event) => updateRow(key, index, { name: event.target.value })}
                         className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                        placeholder="Museum frame"
+                        placeholder={GROUP_PLACEHOLDERS[key]}
+                        required
                       />
                     </label>
                     <label className="block text-xs font-medium text-gray-600">

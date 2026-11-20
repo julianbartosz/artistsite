@@ -66,9 +66,9 @@ DATABASE_URL=postgresql://...
 - **Email**: Mailchimp/SendGrid
 
 ### DevOps
-- **Containerization**: Docker & Docker Compose
+- **Containerization**: Docker (Next.js standalone)
 - **CI/CD**: GitHub Actions
-- **Hosting**: Azure Container Instances
+- **Hosting**: Fly.io, Neon Postgres, Azure Blob Storage
 - **Monitoring**: Custom analytics dashboard
 
 ## 📁 Project Structure
@@ -122,33 +122,11 @@ npm run test:coverage     # Generate coverage report
 
 ## 🚢 Deployment
 
-### Staging Deployment
+Production runs on Fly.io + Neon Postgres + Azure Blob Storage. Pushes to `main` deploy automatically after CI passes. See [docs/deployment.md](docs/deployment.md) for setup, rollback, and the UAT checklist.
+
 ```bash
-# Automatic deployment on push to main
-git push origin main
-
-# Manual staging deployment
-npm run deploy:staging
-```
-
-### Production Deployment
-```bash
-# Tagged releases trigger production deployment
-git tag v1.0.0
-git push origin v1.0.0
-
-# Manual production deployment
-npm run deploy:production
-```
-
-### Docker
-```bash
-# Local development with Docker
-docker-compose up
-
-# Production build
-docker build -t artist-site .
-docker run -p 3000:3000 artist-site
+npm run fly:setup    # Configure Fly, secrets, storage, Stripe webhook, DNS (re-runnable)
+npm run deploy       # Manual deploy
 ```
 
 ## 📊 Monitoring & Analytics

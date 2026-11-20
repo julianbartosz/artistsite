@@ -4,7 +4,10 @@ import { authOptions } from '@/lib/auth';
 import { buildCollectorFeedPosts } from '@/lib/updates-digest';
 import { verifyCollectorFeedToken } from '@/lib/collector-feed-token';
 import { UPDATES_PATH, updatesPostPath } from '@/lib/site-content-shared';
-import { getSiteContent } from '@/lib/site-content';
+import { getPublishedSiteContent } from '@/lib/site-content';
+import { getSiteUrl } from '@/lib/config';
+import { escapeHtml } from '@/lib/email-shell';
+import { absoluteUrl } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,23 +34,21 @@ export async function GET(request: NextRequest) {
     return new NextResponse('Unauthorized', { status: 401 });
   }
 
-  const [blog, identity, posts] = await Promise.all([
-    getSiteContent('blog'),
-    getSiteContent('identity'),
+  const [blog, identity, posts, siteUrl] = await Promise.all([
+    getPublishedSiteContent('blog'),
+    getPublishedSiteContent('identity'),
     buildCollectorFeedPosts(userId, email),
+    getSiteUrl(),
   ]);
-
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXTAUTH_URL || 'https://artistsite.com';
-  const siteName = identity.siteName || 'Artist Site';
-  const lastBuildDate = new Date().toUTCString();
+  const link = (path: string) => escapeHtml(absoluteUrl(path, siteUrl));
 
   const rssItems = posts.slice(0, 50).map((post) => {
-    const postUrl = `${baseUrl.replace(/\/$/, '')}${updatesPostPath(post.slug)}`;
+    const postUrl = link(updatesPostPath(post.slug));
     const title = post.format === 'short' ? (post.excerpt || post.title) : post.title;
     return `
     <item>
-      <title><![CDATA[${title}]]></title>
-      <description><![CDATA[${post.excerpt}]]></description>
+      <title>${escapeHtml(title)}</title>
+      <description>${escapeHtml(post.excerpt)}</description>
       <link>${postUrl}</link>
       <guid isPermaLink="true">${postUrl}</guid>
       <pubDate>${new Date(post.publishedAt).toUTCString()}</pubDate>
@@ -57,11 +58,11 @@ export async function GET(request: NextRequest) {
   const rssXml = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
   <channel>
-    <title><![CDATA[${siteName} — ${blog.privateSectionTitle}]]></title>
-    <description><![CDATA[Private collector updates feed]]></description>
-    <link>${baseUrl}${UPDATES_PATH}?view=collectors</link>
+    <title>${escapeHtml(`${identity.siteName} — ${blog.privateSectionTitle}`)}</title>
+    <description>${escapeHtml(blog.privateSectionSubtitle)}</description>
+    <link>${link(`${UPDATES_PATH}?view=collectors`)}</link>
     <language>en-us</language>
-    <lastBuildDate>${lastBuildDate}</lastBuildDate>
+    <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
 ${rssItems}
   </channel>
 </rss>`;

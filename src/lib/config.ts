@@ -1,6 +1,5 @@
 import 'server-only';
-import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
-import { db } from '@/lib/db';
+import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';import { db } from '@/lib/db';
 
 const CACHE_TTL_MS = 30_000;
 const ENCRYPTION_KEY_NAME = 'SETTINGS_ENCRYPTION_KEY';
@@ -142,6 +141,12 @@ export async function getConfigBool(key: string): Promise<boolean> {
   return ['1', 'true', 'yes', 'on'].includes((value || '').toLowerCase());
 }
 
+export async function getSiteUrl(): Promise<string> {
+  return await getConfig('NEXT_PUBLIC_SITE_URL')
+    || await getConfig('NEXT_PUBLIC_BASE_URL')
+    || process.env.NEXTAUTH_URL
+    || '';
+}
 export async function getConfigMany(keys: string[]): Promise<Record<string, string | undefined>> {
   const entries = await Promise.all(keys.map(async (key) => [normalizeKey(key), await getConfig(key)] as const));
   return Object.fromEntries(entries);
@@ -159,6 +164,23 @@ export async function setConfig(key: string, value: string, options: { encrypt?:
   });
 
   clearConfigCache(normalizedKey);
+}
+
+/** Writes several plain (non-secret) settings atomically — all succeed or none persist. */
+export async function setConfigMany(entries: Array<{ key: string; value: string }>): Promise<void> {
+  const normalized = entries.map((entry) => ({ key: normalizeKey(entry.key), value: entry.value }));
+  const secret = normalized.find((entry) => isSecretSettingKey(entry.key));
+  if (secret) {
+    throw new Error(`setConfigMany does not encrypt; save ${secret.key} with setConfig`);
+  }
+
+  await db.$transaction(normalized.map((entry) => settingClient().upsert({
+    where: { key: entry.key },
+    create: { key: entry.key, value: entry.value, encrypted: false },
+    update: { value: entry.value, encrypted: false },
+  })));
+
+  for (const entry of normalized) clearConfigCache(entry.key);
 }
 
 export async function deleteConfig(key: string): Promise<void> {

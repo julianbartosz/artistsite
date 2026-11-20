@@ -2,33 +2,16 @@ const { PrismaClient } = require('@prisma/client');
 const fs = require('fs');
 const path = require('path');
 const matter = require('gray-matter');
+const { marked } = require('marked');
 
 const prisma = new PrismaClient();
 const root = path.resolve(__dirname, '..');
 
-function escapeHtml(value) {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
+/** Mirrors src/lib/markdown-to-html.ts — keep marked options identical. */
 function markdownToHtml(markdown) {
-  const blocks = String(markdown || '')
-    .split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter(Boolean);
-
-  if (blocks.length === 0) return '<p></p>';
-
-  return blocks.map((block) => {
-    if (block.startsWith('### ')) return `<h3>${escapeHtml(block.slice(4))}</h3>`;
-    if (block.startsWith('## ')) return `<h2>${escapeHtml(block.slice(3))}</h2>`;
-    if (block.startsWith('# ')) return `<h1>${escapeHtml(block.slice(2))}</h1>`;
-    return `<p>${escapeHtml(block).replace(/\n/g, '<br />')}</p>`;
-  }).join('\n');
+  const raw = String(markdown || '').trim();
+  if (!raw) return '<p></p>';
+  return marked.parse(raw, { async: false, gfm: true, breaks: false });
 }
 
 function existingPublicImageOrFallback(imagePath, fallback = '/images/fallback-artwork.svg') {
@@ -83,6 +66,7 @@ async function seedProducts() {
         relatedProducts: product.relatedProducts,
         bundle: product.bundle,
         commissionInfo: product.commissionInfo,
+        edition: product.edition || null,
       },
       update: {
         slug: product.slug || product.id,
@@ -105,8 +89,31 @@ async function seedProducts() {
         relatedProducts: product.relatedProducts,
         bundle: product.bundle,
         commissionInfo: product.commissionInfo,
+        edition: product.edition || null,
       },
     });
+
+    const editionTotal = Number(product.edition?.total);
+    const editionRemaining = Number(product.edition?.remaining);
+    if (Number.isFinite(editionTotal) && editionTotal > 0) {
+      const startingStock = Number.isFinite(editionRemaining)
+        ? Math.max(0, Math.min(editionTotal, Math.floor(editionRemaining)))
+        : Math.floor(editionTotal);
+      await prisma.productInventory.upsert({
+        where: { productId: product.id },
+        create: {
+          productId: product.id,
+          currentStock: startingStock,
+          reservedStock: 0,
+          availableStock: startingStock,
+          lowStockThreshold: Math.max(1, Math.min(5, Math.floor(editionTotal / 10) || 1)),
+          stockStatus: startingStock === 0 ? 'out_of_stock' : startingStock <= 5 ? 'low_stock' : 'in_stock',
+          isTrackingEnabled: true,
+          allowBackorders: false,
+        },
+        update: {},
+      });
+    }
   }
 }
 

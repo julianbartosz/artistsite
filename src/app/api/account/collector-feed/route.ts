@@ -2,15 +2,14 @@ import { NextResponse } from 'next/server';
 import { ApiError } from '@/lib/api-error-handler';
 import { requireUser } from '@/lib/auth';
 import { createCollectorFeedToken } from '@/lib/collector-feed-token';
+import { getSiteUrl } from '@/lib/config';
+import { absoluteUrl } from '@/lib/utils';
 
 export async function GET() {
   try {
     const session = await requireUser();
     const token = await createCollectorFeedToken(session.user.id);
-    const origin = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_SITE_URL || '';
-    const feedUrl = origin
-      ? `${origin.replace(/\/$/, '')}/rss-collector.xml?token=${encodeURIComponent(token)}`
-      : `/rss-collector.xml?token=${encodeURIComponent(token)}`;
+    const feedUrl = absoluteUrl(`/rss-collector.xml?${new URLSearchParams({ token })}`, await getSiteUrl());
 
     return NextResponse.json({ feedUrl, token });
   } catch (error) {

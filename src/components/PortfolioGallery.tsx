@@ -6,13 +6,16 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import type { ArtworkPiece } from '@/lib/portfolio';
 import { PRODUCT_IMAGE_FALLBACK } from '@/lib/commerce';
-import { displayFilterLabel } from '@/lib/search-params';
-import type { PortfolioPageContent } from '@/lib/site-content-shared';
+import {
+  normalizePortfolioCategoryKey,
+  type PortfolioPageContent,
+} from '@/lib/site-content-shared';
 
 /** Above this, a select stays quieter than a wrapping link row on small screens. */
 const INLINE_CATEGORY_LIMIT = 6;
 
 type PortfolioLayout = PortfolioPageContent['layout'];
+type PortfolioFilterCategory = { key: string; label: string };
 
 const GRID_CLASS: Record<PortfolioLayout['gridColumns'], string> = {
   '2': 'grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-10',
@@ -26,17 +29,32 @@ const MASONRY_CLASS: Record<PortfolioLayout['gridColumns'], string> = {
   '4': 'columns-1 sm:columns-2 lg:columns-4 gap-6 md:gap-8',
 };
 
+const ASPECT_CLASS: Record<PortfolioLayout['thumbAspect'], string> = {
+  square: 'aspect-square',
+  portrait: 'aspect-[4/5]',
+  landscape: 'aspect-[3/2]',
+};
+
 function portfolioCategoryHref(category: string | 'all'): string {
   if (category === 'all') return '/portfolio';
   return `/portfolio?category=${encodeURIComponent(category)}`;
 }
 
+function thumbAspectClass(layout: PortfolioLayout): string {
+  if (layout.masonry) return ASPECT_CLASS.portrait;
+  return ASPECT_CLASS[layout.thumbAspect];
+}
+
+function imageFitClass(layout: PortfolioLayout): string {
+  return layout.imageFit === 'contain' ? 'object-contain' : 'object-cover';
+}
+
 function PortfolioArtworkCard({
   artwork,
-  masonry,
+  layout,
 }: {
   artwork: ArtworkPiece;
-  masonry: boolean;
+  layout: PortfolioLayout;
 }) {
   const [imageSrc, setImageSrc] = useState(
     () => artwork.images.thumbnail || artwork.images.main || PRODUCT_IMAGE_FALLBACK,
@@ -46,12 +64,12 @@ function PortfolioArtworkCard({
   return (
     <article data-testid="portfolio-item">
       <Link href={`/portfolio/${artwork.slug}`} className="group block">
-        <div className={`relative overflow-hidden bg-gray-100 ${masonry ? 'aspect-[4/5]' : 'aspect-square'}`}>
+        <div className={`relative overflow-hidden bg-gray-100 ${thumbAspectClass(layout)}`}>
           <Image
             src={imageSrc}
             alt={artwork.title}
             fill
-            className="object-cover transition-transform duration-300 group-hover:scale-105 motion-reduce:transform-none"
+            className={`${imageFitClass(layout)} transition-transform duration-300 group-hover:scale-105 motion-reduce:transform-none`}
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
             unoptimized={imageSrc.endsWith('.svg')}
             onError={() => {
@@ -60,12 +78,12 @@ function PortfolioArtworkCard({
               }
             }}
           />
-          {artwork.featured && (
+          {layout.showFeaturedBadge && artwork.featured && (
             <span className="absolute left-3 top-3 bg-black/70 px-2 py-1 text-xs font-medium text-white">
               Featured
             </span>
           )}
-          {!artwork.available && (
+          {layout.showSoldBadge && !artwork.available && (
             <span className="absolute right-3 top-3 bg-white/95 px-2 py-1 text-xs font-medium text-gray-900">
               Sold
             </span>
@@ -76,8 +94,8 @@ function PortfolioArtworkCard({
           <h3 className="text-lg font-semibold text-gray-900 transition-colors group-hover:text-gray-700">
             {artwork.title}
           </h3>
-          {meta && <p className="text-sm text-gray-600">{meta}</p>}
-          {artwork.price && artwork.available && (
+          {layout.showMeta && meta && <p className="text-sm text-gray-600">{meta}</p>}
+          {layout.showPrice && artwork.price && artwork.available && (
             <p className="text-sm font-medium text-gray-900">{artwork.price}</p>
           )}
         </div>
@@ -95,29 +113,50 @@ function filterLinkClass(active: boolean): string {
   ].join(' ');
 }
 
+const DEFAULT_LAYOUT: PortfolioLayout = {
+  gridColumns: '3',
+  showFilters: true,
+  masonry: false,
+  imageFit: 'cover',
+  thumbAspect: 'square',
+  showFeaturedBadge: true,
+  showSoldBadge: true,
+  showMeta: true,
+  showPrice: false,
+  includeUnlistedCategories: false,
+};
+
 export function PortfolioGallery({
   artworks,
   categories,
   selectedCategory = 'all',
-  layout = { gridColumns: '3', showFilters: true, masonry: false },
+  layout = DEFAULT_LAYOUT,
 }: {
   artworks: ArtworkPiece[];
-  categories: string[];
+  categories: PortfolioFilterCategory[];
   selectedCategory?: string;
   layout?: PortfolioLayout;
 }) {
   const router = useRouter();
-  const activeCategory = selectedCategory === 'all' || categories.includes(selectedCategory)
+  const categoryKeys = categories.map((category) => category.key);
+  const activeCategory = selectedCategory === 'all' || categoryKeys.includes(selectedCategory)
     ? selectedCategory
     : 'all';
+  const activeCategoryKey = activeCategory === 'all'
+    ? 'all'
+    : normalizePortfolioCategoryKey(activeCategory);
   const filteredArtworks = activeCategory === 'all'
     ? artworks
-    : artworks.filter((artwork) => artwork.category.includes(activeCategory));
+    : artworks.filter((artwork) => artwork.category.some(
+      (category) => normalizePortfolioCategoryKey(category) === activeCategoryKey,
+    ));
 
   const containerClass = layout.masonry ? MASONRY_CLASS[layout.gridColumns] : GRID_CLASS[layout.gridColumns];
   const itemClass = layout.masonry ? 'break-inside-avoid mb-8' : '';
   const showFilters = layout.showFilters && categories.length > 0;
   const useSelect = categories.length > INLINE_CATEGORY_LIMIT;
+  const activeLabel = categories.find((category) => category.key === activeCategory)?.label
+    ?? activeCategory;
 
   return (
     <>
@@ -137,8 +176,8 @@ export function PortfolioGallery({
               >
                 <option value="all">All works</option>
                 {categories.map((category) => (
-                  <option key={category} value={category}>
-                    {displayFilterLabel(category)}
+                  <option key={category.key} value={category.key}>
+                    {category.label}
                   </option>
                 ))}
               </select>
@@ -158,16 +197,16 @@ export function PortfolioGallery({
               All
             </Link>
             {categories.map((category) => {
-              const active = activeCategory === category;
+              const active = activeCategory === category.key;
               return (
                 <Link
-                  key={category}
-                  href={portfolioCategoryHref(category)}
-                  data-testid={`filter-${category}`}
+                  key={category.key}
+                  href={portfolioCategoryHref(category.key)}
+                  data-testid={`filter-${category.key}`}
                   aria-current={active ? 'page' : undefined}
                   className={filterLinkClass(active)}
                 >
-                  {displayFilterLabel(category)}
+                  {category.label}
                 </Link>
               );
             })}
@@ -180,9 +219,13 @@ export function PortfolioGallery({
           <p className="text-lg text-gray-500">
             {activeCategory === 'all'
               ? 'No artworks to display yet.'
-              : `No works in ${displayFilterLabel(activeCategory)} yet.`}
+              : `No works in ${activeLabel} yet.`}
           </p>
-          {activeCategory !== 'all' && (
+          {activeCategory === 'all' ? (
+            <Link href="/contact" className="mt-3 inline-block text-sm font-medium text-gray-900 underline-offset-4 hover:underline">
+              Contact the studio
+            </Link>
+          ) : (
             <Link href="/portfolio" className="mt-3 inline-block text-sm font-medium text-gray-900 underline-offset-4 hover:underline">
               View all works
             </Link>
@@ -192,7 +235,7 @@ export function PortfolioGallery({
         <div className={containerClass}>
           {filteredArtworks.map((artwork) => (
             <div key={artwork.slug} className={itemClass}>
-              <PortfolioArtworkCard artwork={artwork} masonry={layout.masonry} />
+              <PortfolioArtworkCard artwork={artwork} layout={layout} />
             </div>
           ))}
         </div>

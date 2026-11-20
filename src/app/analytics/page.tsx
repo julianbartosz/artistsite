@@ -1,30 +1,24 @@
 import { Metadata } from 'next'
-import AnalyticsDashboard from '@/components/AnalyticsDashboard'
-import { Suspense } from 'react'
+import { redirect } from 'next/navigation'
+import { getServerSession } from 'next-auth'
+import { authOptions, isAdminEmailResolved } from '@/lib/auth'
 
 export const metadata: Metadata = {
-  title: 'Analytics Dashboard - Artist Site',
-  description: 'Real-time analytics and customer insights for the artist marketplace',
+  title: 'Analytics',
+  description: 'Visitor analytics and collector insights',
   robots: { index: false, follow: false }, // Private admin page
 }
 
-export default function AnalyticsPage() {
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <Suspense fallback={
-        <div className="p-8">
-          <div className="animate-pulse space-y-4">
-            <div className="h-8 bg-gray-200 rounded w-1/4"></div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {[...Array(6)].map((_, i) => (
-                <div key={i} className="h-32 bg-gray-200 rounded"></div>
-              ))}
-            </div>
-          </div>
-        </div>
-      }>
-        <AnalyticsDashboard />
-      </Suspense>
-    </div>
-  )
+export const dynamic = 'force-dynamic'
+
+export default async function AnalyticsPage() {
+  const session = await getServerSession(authOptions)
+  const isAdmin = Boolean(session?.user?.isAdmin)
+    || (session?.user?.email ? await isAdminEmailResolved(session.user.email) : false)
+
+  if (!isAdmin) {
+    redirect('/auth/signin?callbackUrl=%2Fadmin%3Ftab%3Danalytics')
+  }
+
+  redirect('/admin?tab=analytics')
 }

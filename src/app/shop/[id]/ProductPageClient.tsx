@@ -85,28 +85,21 @@ export default function ProductPageClient({
   const activeImage = galleryImages[selectedImageIndex] ?? galleryImages[0];
   const galleryFocus = detailLayout === 'gallery-focus';
 
-  const purchaseActions = isAvailable ? (
+  // Always mount AddToCartButton so sold/reserved commission CTAs match Quick Look behavior.
+  const purchaseActions = (
     <div className="space-y-3">
       <AddToCartButton product={product} purchasable={purchasable} />
       <Link
-        href={`/contact?subject=${encodeURIComponent(`Inquiry about ${product.title}`)}`}
-        className="w-full min-h-11 inline-flex items-center justify-center border border-gray-300 text-gray-700 py-3 px-6 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+        href={`/contact?subject=${encodeURIComponent(`Inquiry about ${product.title}`)}&inquiryType=purchase`}
+        className="w-full min-h-11 inline-flex items-center justify-center border border-gray-300 text-gray-700 py-3 px-6 rounded-button hover:bg-gray-50 transition-colors font-medium"
       >
-        Ask About This Piece
+        Ask about this piece
       </Link>
     </div>
-  ) : (
-    <button
-      type="button"
-      disabled
-      className="w-full min-h-11 bg-gray-300 text-gray-500 py-3 px-6 rounded-lg cursor-not-allowed font-medium"
-    >
-      Not Available
-    </button>
   );
 
   return (
-    <div className="min-h-screen bg-white pb-24 lg:pb-0">
+    <div className="min-h-screen bg-surface pb-24 lg:pb-0">
       <div className="max-w-7xl mx-auto page-x py-8 md:py-12">
         <nav className="mb-6 md:mb-8">
           <ol className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-500">
@@ -258,7 +251,7 @@ export default function ProductPageClient({
             </div>
 
             {/* Shipping Information */}
-            <div className="bg-gray-50 rounded-lg p-6">
+            <div className="bg-surface-muted rounded-lg p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-3">Shipping</h2>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
@@ -320,7 +313,7 @@ export default function ProductPageClient({
       </div>
 
       {isAvailable && (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-white/95 backdrop-blur lg:hidden safe-area-bottom">
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-surface/95 backdrop-blur lg:hidden safe-area-bottom">
           <div className="page-x py-3 flex items-center gap-3">
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium text-gray-900">{product.title}</p>

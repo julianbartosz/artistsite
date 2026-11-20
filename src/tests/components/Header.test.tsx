@@ -43,7 +43,7 @@ describe('Header Component', () => {
   it('renders navigation links correctly', () => {
     render(<Header />);
     
-    expect(screen.getByText('Artist Site')).toBeInTheDocument();
+    expect(screen.getByText('Michal Elena')).toBeInTheDocument();
     expect(screen.getByText('Home')).toBeInTheDocument();
     expect(screen.getByText('Portfolio')).toBeInTheDocument();
     expect(screen.getByText('Updates')).toBeInTheDocument();
@@ -70,6 +70,7 @@ describe('Header Component', () => {
 
     expect(screen.getByTestId('mobile-menu')).toBeInTheDocument();
     expect(menuButton).toHaveAttribute('aria-expanded', 'true');
+    expect(menuButton).toHaveAttribute('aria-label', 'Close main menu');
   });
 
   it('closes mobile menu when link is clicked', () => {
@@ -96,7 +97,7 @@ describe('Header Component', () => {
   it('has correct link hrefs', () => {
     render(<Header />);
     
-    expect(screen.getByRole('link', { name: 'Artist Site' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: 'Michal Elena' })).toHaveAttribute('href', '/');
     expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/');
     expect(screen.getByRole('link', { name: 'Portfolio' })).toHaveAttribute('href', '/portfolio');
     expect(screen.getByRole('link', { name: 'Updates' })).toHaveAttribute('href', '/updates');
@@ -174,5 +175,42 @@ describe('Header Component', () => {
     render(<Header />);
 
     expect(screen.getByRole('link', { name: 'Studio' })).toHaveAttribute('href', '/admin');
+  });
+
+  it('tucks sign in and create account into the account menu when signed out and closes on Escape', () => {
+    render(<Header />);
+
+    expect(screen.queryByRole('link', { name: /sign in/i })).not.toBeInTheDocument();
+    const accountButton = screen.getByTestId('account-menu-button');
+    expect(accountButton).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(accountButton);
+    expect(accountButton).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('menuitem', { name: 'Sign in' })).toHaveAttribute('href', '/auth/signin');
+    expect(screen.getByRole('menuitem', { name: 'Create account' })).toHaveAttribute('href', '/auth/signup');
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(accountButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('menuitem', { name: 'Sign in' })).not.toBeInTheDocument();
+  });
+
+  it('shows user menu items when signed in and stays quiet while session loads', () => {
+    mockUseSession.mockReturnValue({ data: null, status: 'loading', update: jest.fn() });
+    const { rerender } = render(<Header />);
+    expect(screen.getByTestId('account-menu-button')).toBeDisabled();
+
+    mockUseSession.mockReturnValue({
+      data: { user: { isAdmin: false, name: 'Jane Collector', email: 'jane@example.com' } },
+      status: 'authenticated',
+      update: jest.fn(),
+    } as never);
+    rerender(<Header />);
+
+    const accountButton = screen.getByTestId('account-menu-button');
+    expect(accountButton).not.toBeDisabled();
+    fireEvent.click(accountButton);
+    expect(screen.getByText('Jane Collector')).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'My Account' })).toHaveAttribute('href', '/account');
+    expect(screen.getByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument();
   });
 });

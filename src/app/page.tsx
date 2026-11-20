@@ -21,8 +21,16 @@ import CmsEditAnchor from "@/components/admin/CmsEditAnchor";
 
 export const dynamic = 'force-dynamic';
 
-const primaryCtaClass = "btn-primary px-8 py-3 md:py-4 rounded-lg text-base md:text-lg text-center";
-const secondaryCtaClass = "btn-primary-outline px-8 py-3 md:py-4 rounded-lg text-base md:text-lg text-center";
+/** Natural-width gallery CTA row: full-width tap targets on phones, balanced inline buttons on tablet/desktop. */
+function heroCtaLayoutClass(inlineHero: boolean): string {
+  return inlineHero
+    ? 'flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3'
+    : 'flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center sm:justify-center gap-3';
+}
+
+const primaryCtaClass = "btn-primary w-full sm:w-auto sm:min-w-[10rem] px-6 py-3 text-sm sm:text-base text-center whitespace-nowrap";
+const secondaryCtaClass = "btn-primary-outline w-full sm:w-auto sm:min-w-[10rem] px-6 py-3 text-sm sm:text-base text-center whitespace-nowrap";
+const backgroundSecondaryCtaClass = "inline-flex w-full sm:w-auto sm:min-w-[10rem] items-center justify-center border-2 border-white text-white px-6 py-3 rounded-button hover:bg-white hover:text-primary transition-colors font-medium text-sm sm:text-base text-center whitespace-nowrap";
 
 type HomeSectionContext = {
   home: HomePageContent;
@@ -54,51 +62,45 @@ function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
 
   switch (key) {
     case 'featured':
-      if (!home.featured.showSection) return null;
+      if (!home.featured.showSection || featuredArtworks.length === 0) return null;
       return (
-        <section key="featured" className="section-space-tight bg-white">
+        <section key="featured" className="section-space-tight bg-surface">
           <div className="max-w-7xl mx-auto px-6">
             <div className="text-center mb-10 md:mb-12">
               <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">{home.featured.title}</h2>
               <p className="text-lg text-gray-600 max-w-2xl mx-auto">{home.featured.description}</p>
             </div>
 
-            {featuredArtworks.length > 0 ? (
-              <div className={`${gridColumnsClass(home.featured.columns)} mb-10`}>
-                {featuredArtworks.map((artwork) => (
-                  <Link key={artwork.slug} href={`/portfolio/${artwork.slug}`} className="group block">
-                    <div className="relative mb-3 aspect-square overflow-hidden bg-gray-100">
-                      <Image
-                        src={artwork.images.thumbnail}
-                        alt={artwork.title}
-                        fill
-                        className="object-cover transition-transform duration-300 group-hover:scale-105 motion-reduce:transform-none"
-                        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                        unoptimized={artwork.images.thumbnail.endsWith('.svg')}
-                      />
-                      {!artwork.available && (
-                        <span className="absolute right-3 top-3 bg-white/95 px-2 py-1 text-xs font-medium text-gray-900">
-                          Sold
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="text-xl font-semibold text-gray-900 transition-colors group-hover:text-gray-700">
-                      {artwork.title}
-                    </h3>
-                    <p className="mt-1 text-sm text-gray-600">
-                      {[artwork.medium, artwork.year].filter(Boolean).join(' · ')}
-                    </p>
-                    {home.featured.showDescriptions && (
-                      <p className="mt-2 text-gray-700 line-clamp-2">{artwork.description}</p>
+            <div className={`${gridColumnsClass(home.featured.columns)} mb-10`}>
+              {featuredArtworks.map((artwork) => (
+                <Link key={artwork.slug} href={`/portfolio/${artwork.slug}`} className="group block">
+                  <div className="relative mb-3 aspect-square overflow-hidden bg-gray-100">
+                    <Image
+                      src={artwork.images.thumbnail}
+                      alt={artwork.title}
+                      fill
+                      className="object-cover transition-transform duration-300 group-hover:scale-105 motion-reduce:transform-none"
+                      sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                      unoptimized={artwork.images.thumbnail.endsWith('.svg')}
+                    />
+                    {!artwork.available && (
+                      <span className="absolute right-3 top-3 bg-white/95 px-2 py-1 text-xs font-medium text-gray-900">
+                        Sold
+                      </span>
                     )}
-                  </Link>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-12">
-                <p className="text-gray-500">{home.featured.emptyMessage}</p>
-              </div>
-            )}
+                  </div>
+                  <h3 className="text-xl font-semibold text-gray-900 transition-colors group-hover:text-gray-700">
+                    {artwork.title}
+                  </h3>
+                  <p className="mt-1 text-sm text-gray-600">
+                    {[artwork.medium, artwork.year].filter(Boolean).join(' · ')}
+                  </p>
+                  {home.featured.showDescriptions && (
+                    <p className="mt-2 text-gray-700 line-clamp-2">{artwork.description}</p>
+                  )}
+                </Link>
+              ))}
+            </div>
 
             <div className="text-center">
               <Link href="/portfolio" className="inline-flex items-center text-primary hover:opacity-80 font-medium text-lg">
@@ -112,14 +114,14 @@ function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
     case 'about':
       if (!home.about.showSection) return null;
       return (
-        <section key="about" className="section-space-tight bg-gray-50">
+        <section key="about" className="section-space-tight bg-surface-muted">
           <div className="max-w-6xl mx-auto px-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
               <div>
                 <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-6">{home.about.title}</h2>
                 <p className="text-lg text-gray-700 mb-6 leading-relaxed">{home.about.paragraph1}</p>
                 <p className="text-lg text-gray-700 mb-8 leading-relaxed">{home.about.paragraph2}</p>
-                <Link href="/contact" className="btn-primary px-6 py-3 rounded-lg inline-block">
+                <Link href="/contact" className="btn-primary px-6 py-3 inline-block">
                   {home.about.cta}
                 </Link>
               </div>
@@ -140,51 +142,45 @@ function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
       );
 
     case 'blog':
-      if (!home.blog.showSection) return null;
+      if (!home.blog.showSection || recentPosts.length === 0) return null;
       return (
-        <section key="blog" className="section-space-tight bg-white">
+        <section key="blog" className="section-space-tight bg-surface">
           <div className="max-w-7xl mx-auto px-6">
             <div className="text-center mb-10 md:mb-12">
               <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">{home.blog.title}</h2>
               <p className="text-lg text-gray-600 max-w-2xl mx-auto">{home.blog.description}</p>
             </div>
 
-            {recentPosts.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-10">
-                {recentPosts.map((post) => (
-                  <Link key={post.slug} href={updatesPostPath(post.slug)} className="group">
-                    <article className="bg-gray-50 rounded-lg overflow-hidden h-full hover:shadow-lg transition-shadow card-surface">
-                      {(post.coverImage || post.media[0]) && (
-                        <div className="aspect-[4/3] overflow-hidden bg-gray-200">
-                          {post.media[0]?.type === 'video' ? (
-                            <video src={post.media[0].url} className="h-full w-full object-cover" muted playsInline preload="metadata" />
-                          ) : (
-                            <img src={post.coverImage || post.media[0]?.url} alt={post.title} className="h-full w-full object-cover" />
-                          )}
-                        </div>
-                      )}
-                      <div className="p-6">
-                      <time className="text-sm text-gray-500">
-                        {new Date(post.publishedAt).toLocaleDateString('en-US', {
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric',
-                        })}
-                      </time>
-                      <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-4 group-hover:text-gray-700 transition-colors">
-                        {post.format === 'short' ? (post.excerpt || post.title) : post.title}
-                      </h3>
-                      {post.format !== 'short' && <p className="text-gray-700 leading-relaxed">{post.excerpt}</p>}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-10">
+              {recentPosts.map((post) => (
+                <Link key={post.slug} href={updatesPostPath(post.slug)} className="group">
+                  <article className="bg-surface-muted rounded-lg overflow-hidden h-full hover:shadow-lg transition-shadow card-surface">
+                    {(post.coverImage || post.media[0]) && (
+                      <div className="aspect-[4/3] overflow-hidden bg-gray-200">
+                        {post.media[0]?.type === 'video' ? (
+                          <video src={post.media[0].url} className="h-full w-full object-cover" muted playsInline preload="metadata" />
+                        ) : (
+                          <img src={post.coverImage || post.media[0]?.url} alt={post.title} className="h-full w-full object-cover" />
+                        )}
                       </div>
-                    </article>
-                  </Link>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-12">
-                <p className="text-gray-500">{home.blog.emptyMessage}</p>
-              </div>
-            )}
+                    )}
+                    <div className="p-6">
+                    <time className="text-sm text-gray-500">
+                      {new Date(post.publishedAt).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                      })}
+                    </time>
+                    <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-4 group-hover:text-gray-700 transition-colors">
+                      {post.format === 'short' ? (post.excerpt || post.title) : post.title}
+                    </h3>
+                    {post.format !== 'short' && <p className="text-gray-700 leading-relaxed">{post.excerpt}</p>}
+                    </div>
+                  </article>
+                </Link>
+              ))}
+            </div>
 
             <div className="text-center">
               <Link href={UPDATES_PATH} className="inline-flex items-center text-primary hover:opacity-80 font-medium text-lg">
@@ -234,7 +230,7 @@ export default async function Home() {
   const heroHeightClass = homeHeroHeightClass(home.hero.height);
   const heroTextClass = isBackgroundHero ? 'text-white' : 'text-gray-900';
   const heroSubtitleClass = isBackgroundHero ? 'text-gray-100' : 'text-gray-700';
-  const heroAccentClass = isBackgroundHero ? 'text-gray-200' : 'text-gray-600';
+  const heroAccentClass = isBackgroundHero ? 'text-gray-200' : 'text-accent';
   const { beforeHero, afterHero } = resolveHomeSectionRenderPlan(home);
   const sectionContext: HomeSectionContext = { home, featuredArtworks, recentPosts };
 
@@ -246,7 +242,7 @@ export default async function Home() {
         </React.Fragment>
       ))}
 
-      <section className={`relative group flex items-center justify-center overflow-hidden ${isBackgroundHero ? 'bg-primary' : 'bg-gradient-to-br from-gray-50 to-gray-100'} ${heroHeightClass}`}>
+      <section className={`relative group flex items-center justify-center overflow-hidden ${isBackgroundHero ? 'bg-primary' : 'bg-gradient-to-br from-surface-muted to-surface-sunken'} ${heroHeightClass}`}>
         <CmsEditAnchor targetKey="home:hero" />
         {isBackgroundHero && portraitImage && (
           <>
@@ -275,16 +271,14 @@ export default async function Home() {
             <p className={`text-lg md:text-2xl mb-8 max-w-2xl ${isInlineHero ? '' : 'mx-auto'} ${heroSubtitleClass}`}>
               {home.hero.subtitle}
             </p>
-            <div className={`flex flex-col sm:flex-row gap-3 sm:gap-4 ${isInlineHero ? '' : 'justify-center'}`}>
+            <div className={heroCtaLayoutClass(isInlineHero)}>
               {ctas.map((cta) => (
                 <Link
                   key={cta.key}
                   href={cta.href}
                   className={cta.variant === 'primary'
-                    ? (isBackgroundHero ? primaryCtaClass : primaryCtaClass)
-                    : (isBackgroundHero
-                      ? 'border-2 border-white text-white px-8 py-3 md:py-4 rounded-lg hover:bg-white hover:text-primary transition-colors font-medium text-base md:text-lg text-center'
-                      : secondaryCtaClass)}
+                    ? primaryCtaClass
+                    : (isBackgroundHero ? backgroundSecondaryCtaClass : secondaryCtaClass)}
                 >
                   {cta.label}
                 </Link>

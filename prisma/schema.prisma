@@ -124,6 +124,7 @@ model Order {
   paymentIntentId String?
   paymentStatus   String
   paymentMethod   String?
+  stripeSessionId String?  @unique
   
   // Shipping
   shippingAddressId String?
@@ -304,6 +305,7 @@ model Product {
   relatedProducts Json?
   bundle          Json?
   commissionInfo  Json?
+  edition         Json?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -625,13 +627,33 @@ model EmailCampaign {
   metrics     String   // JSON object for campaign metrics
   status      String   @default("draft")
   scheduledAt DateTime? @map("scheduled_at")
+  sentAt      DateTime? @map("sent_at")
   createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
 
   // Relations
   promoCodes  PromoCode[]
   customers   CustomerProfile[]
+  deliveries  EmailCampaignDelivery[]
 
+  @@index([status, scheduledAt])
   @@map("email_campaigns")
+}
+
+/// One row per recipient per campaign so sends can resume and retries never double-deliver.
+model EmailCampaignDelivery {
+  id          String   @id @default(cuid())
+  campaignId  String   @map("campaign_id")
+  email       String
+  status      String   // 'sent' | 'failed'
+  error       String?
+  attemptedAt DateTime @default(now()) @map("attempted_at")
+
+  campaign    EmailCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, email])
+  @@index([campaignId, status])
+  @@map("email_campaign_deliveries")
 }
 
 model PromoCode {

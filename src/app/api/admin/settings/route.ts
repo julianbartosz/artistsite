@@ -24,6 +24,7 @@ const SETTING_KEYS = [
   'ARTIST_EMAIL',
   'SUPPORT_EMAIL',
   'NEWSLETTER_DELIVERY_MODE',
+  'NEWSLETTER_FOOTER_ADDRESS',
   'MAILCHIMP_API_KEY',
   'MAILCHIMP_LIST_ID',
   'MAILCHIMP_SERVER_PREFIX',
@@ -89,11 +90,20 @@ function serializeSetting(key: string, value: string | undefined) {
   return { key, value: value || '', status: value ? 'configured' : 'not_set', secret: false };
 }
 
+async function resolveSettingValue(key: string): Promise<string | undefined> {
+  const configured = await getConfig(key);
+  if (configured) return configured;
+  if (key === 'NEXT_PUBLIC_SITE_URL') {
+    return process.env.NEXTAUTH_URL?.trim() || undefined;
+  }
+  return undefined;
+}
+
 export async function GET() {
   try {
     await requireAdmin();
     const settings = await Promise.all(
-      SETTING_KEYS.map(async (key) => serializeSetting(key, await getConfig(key)))
+      SETTING_KEYS.map(async (key) => serializeSetting(key, await resolveSettingValue(key)))
     );
 
     return NextResponse.json({ settings });
@@ -122,7 +132,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const settings = await Promise.all(
-      SETTING_KEYS.map(async (key) => serializeSetting(key, await getConfig(key)))
+      SETTING_KEYS.map(async (key) => serializeSetting(key, await resolveSettingValue(key)))
     );
 
     return NextResponse.json({ settings });

@@ -135,4 +135,48 @@ describe('AddToCartButton', () => {
       expect(mockCartFunctions.openCart).toHaveBeenCalled();
     }, { timeout: 200 });
   });
+
+  it('labels the button as add another when the variant is already in the cart', () => {
+    mockUseCart.mockReturnValue({
+      state: {
+        items: [{
+          product: mockProduct,
+          quantity: 1,
+          variant: {},
+          customizations: {},
+          totalPrice: 100,
+          addedAt: Date.now(),
+        }],
+        total: 100,
+        itemCount: 1,
+        isOpen: false,
+        lastUpdated: Date.now(),
+        isLoaded: true,
+      },
+      ...mockCartFunctions,
+    });
+
+    render(<AddToCartButton product={mockProduct} />);
+    expect(screen.getByRole('button', { name: /add another/i })).toBeInTheDocument();
+  });
+
+  it('shows inline validation instead of browser alerts', () => {
+    const alertSpy = jest.spyOn(window, 'alert').mockImplementation(() => undefined);
+    const productWithRequired = {
+      ...mockProduct,
+      customizations: [{
+        id: 'notes',
+        name: 'Notes',
+        type: 'input' as const,
+        required: true,
+      }],
+    };
+
+    render(<AddToCartButton product={productWithRequired} />);
+    fireEvent.click(screen.getByTestId('add-to-cart'));
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/please complete: notes/i);
+    expect(alertSpy).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
 });

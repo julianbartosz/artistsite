@@ -96,6 +96,30 @@ export async function GET(request: NextRequest) {
   }
 }
 
+export async function DELETE() {
+  try {
+    await requireAdmin()
+    const deleted = await prisma.analyticsEvent.deleteMany()
+    return NextResponse.json({
+      success: true,
+      deletedEvents: deleted.count,
+    })
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status }
+      )
+    }
+
+    console.error('Analytics dashboard reset error:', error)
+    return NextResponse.json(
+      { error: 'Failed to clear analytics data' },
+      { status: 500 }
+    )
+  }
+}
+
 async function calculateConversionMetrics() {
   const [viewItemEvents, addToCartEvents, checkoutEvents, purchaseEvents] = await Promise.all([
     prisma.analyticsEvent.count({ where: { eventName: 'view_item' } }),
@@ -130,7 +154,10 @@ async function getRealTimeMetrics() {
       where: { timestamp: { gte: last5Minutes } }
     }),
     prisma.analyticsEvent.findMany({
-      where: { timestamp: { gte: last1Hour } },
+      where: {
+        timestamp: { gte: last1Hour },
+        sessionId: { not: null },
+      },
       distinct: ['sessionId'],
       select: { sessionId: true }
     }).then(sessions => sessions.length),

@@ -1,4 +1,5 @@
 // src/lib/api-error-handler.ts
+import { ZodError } from 'zod'
 import { debug } from './debug'
 
 export interface ApiErrorResponse {
@@ -67,6 +68,18 @@ export function handleApiError(error: unknown, request?: Request): ApiErrorRespo
       details: error 
     })
   }
+}
+
+/** `{ error, code, details }` JSON for admin UIs, which display `error` verbatim. */
+export function jsonErrorResponse(error: unknown, fallbackMessage: string): Response {
+  if (error instanceof ApiError) {
+    return Response.json({ error: error.message, code: error.code, details: error.details }, { status: error.status })
+  }
+  if (error instanceof ZodError) {
+    return Response.json({ error: 'Some fields are invalid.', code: 'INVALID_REQUEST', details: error.issues }, { status: 400 })
+  }
+  console.error(fallbackMessage, error)
+  return Response.json({ error: fallbackMessage }, { status: 500 })
 }
 
 // Enhanced API route wrapper with error handling

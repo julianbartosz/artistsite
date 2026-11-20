@@ -3,6 +3,7 @@
 import { Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
+import Link from 'next/link';
 import { useCart } from '@/components/CartContext';
 import { useAnalytics } from '@/components/AnalyticsProvider';
 import { formatPrice, productImageSrc, cartItemLineTotal, formatCartItemVariant, E2E_CHECKOUT_SESSION_PREFIX } from '@/lib/commerce';
@@ -30,7 +31,7 @@ type CheckoutStep = 'contact' | 'shipping' | 'review';
 export default function CheckoutPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-surface-muted flex items-center justify-center">
         <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-gray-900" aria-label="Loading checkout" />
       </div>
     }>
@@ -72,6 +73,9 @@ function CheckoutPageContent() {
   const checkoutTracked = useRef(false);
   const [reviewSubmitReady, setReviewSubmitReady] = useState(false);
   const [recoveryLoading, setRecoveryLoading] = useState(() => Boolean(searchParams.get('recover')));
+  const [promoDiscount, setPromoDiscount] = useState<{ code: string; amount: number } | null>(null);
+  const [promoStatus, setPromoStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
+  const [promoError, setPromoError] = useState('');
 
   useEffect(() => {
     const recoverToken = searchParams.get('recover');
@@ -120,27 +124,58 @@ function CheckoutPageContent() {
     return () => window.clearTimeout(timer);
   }, [step]);
 
-  // Redirect if cart is empty
-  useEffect(() => {
-    if (!state.isLoaded || recoveryLoading) return;
-    if (state.items.length === 0) {
-      router.push('/shop');
-    }
-  }, [state.isLoaded, state.items.length, recoveryLoading, router]);
-
   // Calculate totals
   const subtotal = state.total;
+  const discountAmount = promoDiscount?.amount ?? 0;
   const shipping = state.items.reduce((total, item) => {
     const shippingCost = formData.country === 'US'
       ? item.product.shipping.domestic
       : item.product.shipping.international;
     return total + (shippingCost * item.quantity);
   }, 0);
-  const total = subtotal + shipping;
+  const total = Math.max(0, subtotal - discountAmount) + shipping;
+
+  const validatePromoCode = useCallback(async (code: string, currentSubtotal: number) => {
+    const trimmed = code.trim();
+    if (!trimmed) {
+      setPromoDiscount(null);
+      setPromoError('');
+      setPromoStatus('idle');
+      return;
+    }
+    setPromoStatus('checking');
+    setPromoError('');
+    try {
+      const response = await fetch('/api/checkout/promo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ promoCode: trimmed, subtotal: currentSubtotal }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.valid) {
+        setPromoDiscount(null);
+        setPromoStatus('invalid');
+        setPromoError(data.error || 'Invalid promo code');
+        return;
+      }
+      setPromoDiscount({ code: data.code, amount: Number(data.amount) || 0 });
+      setPromoStatus('valid');
+      setPromoError('');
+    } catch {
+      setPromoDiscount(null);
+      setPromoStatus('invalid');
+      setPromoError('Could not validate promo code');
+    }
+  }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    if (name === 'promoCode') {
+      setPromoDiscount(null);
+      setPromoError('');
+      setPromoStatus('idle');
+    }
     // Clear error when user starts typing
     if (errors[name as keyof CheckoutFormData]) {
       setErrors(prev => ({ ...prev, [name]: undefined }));
@@ -253,6 +288,10 @@ function CheckoutPageContent() {
     if (step !== 'review') return;
     if (!reviewSubmitReady) return;
     if (!validateForm()) return;
+    if (formData.promoCode.trim() && !promoDiscount) {
+      setSubmitError('Apply your promo code on the contact step, or clear it before paying.');
+      return;
+    }
 
     setIsProcessing(true);
 
@@ -315,11 +354,28 @@ function CheckoutPageContent() {
   }
 
   if (state.items.length === 0) {
-    return null;
+    return (
+      <div className="min-h-screen bg-neutral-50 py-12">
+        <div className="mx-auto max-w-lg px-4 text-center">
+          <h1 className="text-2xl font-semibold text-gray-900">Your cart is empty</h1>
+          <p className="mt-2 text-sm text-gray-600">
+            Add a work from the shop before checking out.
+          </p>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            <Link href="/shop" className="btn-primary px-5 py-2.5 text-sm font-medium">
+              Browse shop
+            </Link>
+            <Link href="/portfolio" className="btn-primary-outline px-5 py-2.5 text-sm font-medium">
+              View portfolio
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const orderSummary = (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+    <div className="bg-surface rounded-lg shadow-sm border border-gray-200 p-6">
       <div className="space-y-4 mb-6">
         {state.items.map((item) => {
           const itemKey = getItemKey(item.product.id, item.variant);
@@ -358,10 +414,10 @@ function CheckoutPageContent() {
           <span className="text-gray-600">Shipping</span>
           <span className="text-gray-900">{formatPrice(shipping)}</span>
         </div>
-        {formData.promoCode.trim() && (
+        {promoDiscount && (
           <div className="flex justify-between text-sm">
-            <span className="text-gray-600">Promo code</span>
-            <span className="text-gray-900">Validated at checkout</span>
+            <span className="text-gray-600">Promo ({promoDiscount.code})</span>
+            <span className="text-gray-900">−{formatPrice(promoDiscount.amount)}</span>
           </div>
         )}
         <div className="flex justify-between text-sm">
@@ -378,7 +434,7 @@ function CheckoutPageContent() {
   );
 
   return (
-    <div className="relative group min-h-screen bg-gray-50 py-6 md:py-12">
+    <div className="relative group min-h-screen bg-surface-muted py-6 md:py-12">
       <CmsEditAnchor targetKey="shop:checkout" />
       <div className="max-w-7xl mx-auto page-x">
         <div className="text-center mb-6 md:mb-10">
@@ -388,7 +444,7 @@ function CheckoutPageContent() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16">
           <div className="order-1 lg:order-none">
-            <details className="lg:hidden mb-6 rounded-lg border border-gray-200 bg-white">
+            <details className="lg:hidden mb-6 rounded-lg border border-gray-200 bg-surface">
               <summary className="cursor-pointer list-none px-4 py-3 font-medium text-gray-900 flex items-center justify-between">
                 <span>Order summary</span>
                 <span>{formatPrice(total)}</span>
@@ -431,7 +487,7 @@ function CheckoutPageContent() {
                 </div>
               )}
 
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="bg-surface rounded-lg shadow-sm border border-gray-200 p-6">
                 {step === 'contact' && (
                 <>
                 <div className="mb-6">
@@ -445,7 +501,7 @@ function CheckoutPageContent() {
                     value={formData.email}
                     onChange={handleInputChange}
                     onBlur={handleContactEmailBlur}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
+                    className={`w-full px-3 py-2 border rounded-input focus:ring-2 focus:ring-primary focus:border-primary ${
                       errors.email ? 'border-red-500' : 'border-gray-300'
                     }`}
                     placeholder="john@example.com"
@@ -457,17 +513,39 @@ function CheckoutPageContent() {
                   <label htmlFor="promoCode" className="block text-sm font-medium text-gray-700 mb-1">
                     Promo Code
                   </label>
-                  <input
-                    type="text"
-                    id="promoCode"
-                    name="promoCode"
-                    value={formData.promoCode}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary uppercase"
-                    placeholder="Optional"
-                    autoComplete="off"
-                  />
-                  <p className="mt-1 text-xs text-gray-500">Valid codes are applied securely when payment is created.</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      id="promoCode"
+                      name="promoCode"
+                      value={formData.promoCode}
+                      onChange={handleInputChange}
+                      onBlur={() => {
+                        if (formData.promoCode.trim()) {
+                          void validatePromoCode(formData.promoCode, subtotal);
+                        }
+                      }}
+                      className={`w-full px-3 py-2 border rounded-input focus:ring-2 focus:ring-primary focus:border-primary uppercase ${
+                        promoStatus === 'invalid' ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                      placeholder="Optional"
+                      autoComplete="off"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void validatePromoCode(formData.promoCode, subtotal)}
+                      disabled={!formData.promoCode.trim() || promoStatus === 'checking'}
+                      className="shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      {promoStatus === 'checking' ? 'Checking…' : 'Apply'}
+                    </button>
+                  </div>
+                  {promoStatus === 'valid' && promoDiscount && (
+                    <p className="mt-1 text-xs text-green-700">
+                      {promoDiscount.code} saves {formatPrice(promoDiscount.amount)}
+                    </p>
+                  )}
+                  {promoError && <p className="mt-1 text-xs text-red-600">{promoError}</p>}
                 </div>
                 </>
                 )}
@@ -485,7 +563,7 @@ function CheckoutPageContent() {
                       name="firstName"
                       value={formData.firstName}
                       onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
+                      className={`w-full px-3 py-2 border rounded-input focus:ring-2 focus:ring-primary focus:border-primary ${
                         errors.firstName ? 'border-red-500' : 'border-gray-300'
                       }`}
                     />
@@ -501,7 +579,7 @@ function CheckoutPageContent() {
                       name="lastName"
                       value={formData.lastName}
                       onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
+                      className={`w-full px-3 py-2 border rounded-input focus:ring-2 focus:ring-primary focus:border-primary ${
                         errors.lastName ? 'border-red-500' : 'border-gray-300'
                       }`}
                     />
@@ -521,7 +599,7 @@ function CheckoutPageContent() {
                       name="address"
                       value={formData.address}
                       onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
+                      className={`w-full px-3 py-2 border rounded-input focus:ring-2 focus:ring-primary focus:border-primary ${
                         errors.address ? 'border-red-500' : 'border-gray-300'
                       }`}
                     />
@@ -539,7 +617,7 @@ function CheckoutPageContent() {
                         name="city"
                         value={formData.city}
                         onChange={handleInputChange}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
+                        className={`w-full px-3 py-2 border rounded-input focus:ring-2 focus:ring-primary focus:border-primary ${
                           errors.city ? 'border-red-500' : 'border-gray-300'
                         }`}
                       />
@@ -555,7 +633,7 @@ function CheckoutPageContent() {
                         name="state"
                         value={formData.state}
                         onChange={handleInputChange}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
+                        className={`w-full px-3 py-2 border rounded-input focus:ring-2 focus:ring-primary focus:border-primary ${
                           errors.state ? 'border-red-500' : 'border-gray-300'
                         }`}
                       />
@@ -574,7 +652,7 @@ function CheckoutPageContent() {
                         name="postalCode"
                         value={formData.postalCode}
                         onChange={handleInputChange}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
+                        className={`w-full px-3 py-2 border rounded-input focus:ring-2 focus:ring-primary focus:border-primary ${
                           errors.postalCode ? 'border-red-500' : 'border-gray-300'
                         }`}
                       />
@@ -589,7 +667,7 @@ function CheckoutPageContent() {
                         name="country"
                         value={formData.country}
                         onChange={handleInputChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-input focus:ring-2 focus:ring-primary focus:border-primary"
                       >
                         <option value="US">United States</option>
                         <option value="CA">Canada</option>
@@ -609,7 +687,7 @@ function CheckoutPageContent() {
                       name="phone"
                       value={formData.phone}
                       onChange={handleInputChange}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
+                      className={`w-full px-3 py-2 border rounded-input focus:ring-2 focus:ring-primary focus:border-primary ${
                         errors.phone ? 'border-red-500' : 'border-gray-300'
                       }`}
                     />
@@ -624,7 +702,11 @@ function CheckoutPageContent() {
                   <div>
                     <p className="font-medium text-gray-900">Contact</p>
                     <p>{formData.email}</p>
-                    {formData.promoCode.trim() && <p>Promo: {formData.promoCode.toUpperCase()}</p>}
+                    {promoDiscount
+                      ? <p>Promo: {promoDiscount.code} (−{formatPrice(promoDiscount.amount)})</p>
+                      : formData.promoCode.trim()
+                        ? <p className="text-amber-700">Promo entered — apply it on the contact step before paying</p>
+                        : null}
                   </div>
                   <div>
                     <p className="font-medium text-gray-900">Ship to</p>
@@ -634,7 +716,7 @@ function CheckoutPageContent() {
                     <p>{formData.country}</p>
                     <p>{formData.phone}</p>
                   </div>
-                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
+                  <div className="rounded-lg border border-gray-200 bg-surface-muted p-4 space-y-3">
                     <label className="flex items-start gap-3 cursor-pointer">
                       <input
                         type="checkbox"
@@ -664,7 +746,7 @@ function CheckoutPageContent() {
                           value={formData.giftMessage}
                           onChange={handleInputChange}
                           placeholder="A short note for the recipient…"
-                          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-primary"
+                          className="w-full rounded-input border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-primary"
                         />
                       </div>
                     )}
@@ -688,7 +770,7 @@ function CheckoutPageContent() {
                   <button
                     type="button"
                     onClick={goToNextStep}
-                    className="w-full sm:flex-1 btn-primary py-3 px-6 rounded-lg"
+                    className="w-full sm:flex-1 btn-primary py-3 px-6"
                   >
                     Continue
                   </button>
@@ -697,7 +779,7 @@ function CheckoutPageContent() {
                 type="submit"
                 data-testid="complete-order"
                 disabled={isProcessing || !reviewSubmitReady}
-                className="w-full sm:flex-1 btn-primary py-4 px-6 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="w-full sm:flex-1 btn-primary py-4 px-6 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {isProcessing ? (
                   <>

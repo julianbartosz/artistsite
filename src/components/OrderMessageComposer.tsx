@@ -52,11 +52,11 @@ export default function OrderMessageComposer({
   return (
     <div className={compact ? '' : 'mt-4'}>
       {!open ? (
-        <button type="button" onClick={() => setOpen(true)} className={compact ? 'text-sm font-medium text-primary hover:opacity-80' : 'btn-primary-outline rounded-md px-4 py-2 text-sm'}>
+        <button type="button" onClick={() => setOpen(true)} className={compact ? 'text-sm font-medium text-primary hover:opacity-80' : 'btn-primary-outline px-4 py-2 text-sm'}>
           {buttonLabel}
         </button>
       ) : (
-        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+        <div className="rounded-lg border border-gray-200 bg-surface-muted p-4">
           <h3 className="text-sm font-semibold text-gray-900">Message about order #{orderNumber}</h3>
           <textarea
             value={body}
@@ -66,7 +66,7 @@ export default function OrderMessageComposer({
             placeholder="Ask a question about shipping, customization, or your order..."
           />
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" disabled={sending || !body.trim()} onClick={() => void sendMessage()} className="btn-primary rounded-md px-4 py-2 text-sm disabled:opacity-50">
+            <button type="button" disabled={sending || !body.trim()} onClick={() => void sendMessage()} className="btn-primary px-4 py-2 text-sm disabled:opacity-50">
               {sending ? 'Sending...' : 'Send message'}
             </button>
             <button type="button" onClick={() => setOpen(false)} className="rounded-md px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">

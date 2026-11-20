@@ -72,7 +72,7 @@ export default function SavedUpdatesPanel({
       <div className="text-center py-10">
         <h3 className="text-sm font-medium text-gray-900 mb-2">No saved updates yet</h3>
         <p className="text-sm text-gray-500 mb-4">Tap save on any update in the feed to bookmark it here.</p>
-        <Link href="/updates" className="btn-primary px-4 py-2 rounded-md inline-block">Browse updates</Link>
+        <Link href="/updates" className="btn-primary px-4 py-2 inline-block">Browse updates</Link>
       </div>
     );
   }

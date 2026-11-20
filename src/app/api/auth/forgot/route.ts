@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash, randomBytes } from 'crypto';
-import { getConfig } from '@/lib/config';
-import { generatePasswordResetEmail, sendTemplateEmail } from '@/lib/email';
+import { absoluteUrl } from '@/lib/utils';
+import { generatePasswordResetEmail, getEmailBrand, sendTemplateEmail } from '@/lib/email';
 import { prisma } from '@/lib/db';
 
 export const runtime = 'nodejs';
@@ -21,12 +21,6 @@ function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
-async function resetBaseUrl(request: NextRequest): Promise<string> {
-  const configured = await getConfig('NEXT_PUBLIC_SITE_URL') || await getConfig('NEXT_PUBLIC_BASE_URL');
-  if (configured) return configured.replace(/\/$/, '');
-  return request.nextUrl.origin;
-}
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -37,7 +31,11 @@ export async function POST(request: NextRequest) {
     }
 
     const user = await prisma.user.findUnique({ where: { email } });
-    if (user) {
+    const brand = await getEmailBrand();
+    // Reset links are never built from request headers, which an attacker controls.
+    if (user && !brand.siteUrl) {
+      console.error('Password reset skipped: set the public site URL in Settings or NEXTAUTH_URL.');
+    } else if (user) {
       const token = randomBytes(32).toString('base64url');
       const tokenHash = hashToken(token);
       const expires = new Date(Date.now() + RESET_TOKEN_TTL_MS);
@@ -45,9 +43,11 @@ export async function POST(request: NextRequest) {
       await prisma.verificationToken.deleteMany({ where: { identifier: email } });
       await prisma.verificationToken.create({ data: { identifier: email, token: tokenHash, expires } });
 
-      const baseUrl = await resetBaseUrl(request);
-      const resetUrl = `${baseUrl}/auth/reset?email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`;
-      await sendTemplateEmail(email, generatePasswordResetEmail(resetUrl, RESET_TOKEN_TTL_MINUTES));
+      const resetUrl = absoluteUrl(
+        `/auth/reset?${new URLSearchParams({ email, token })}`,
+        brand.siteUrl,
+      );
+      await sendTemplateEmail(email, generatePasswordResetEmail(resetUrl, RESET_TOKEN_TTL_MINUTES, brand));
     }
 
     return NextResponse.json({ message: 'If an account exists for that email, a reset link has been sent.' });

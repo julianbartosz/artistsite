@@ -107,7 +107,7 @@ export function RecentlyViewed({
       <div className="text-center py-10">
         <h3 className="text-sm font-medium text-gray-900 mb-2">Nothing here yet</h3>
         <p className="text-sm text-gray-500 mb-4">Browse the shop and your recently viewed works will appear here.</p>
-        <Link href="/shop" className="btn-primary px-4 py-2 rounded-md inline-block">Browse shop</Link>
+        <Link href="/shop" className="btn-primary px-4 py-2 inline-block">Browse shop</Link>
       </div>
     ) : null;
   }
@@ -120,7 +120,7 @@ export function RecentlyViewed({
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {recentlyViewed.map((product) => (
           <Link key={product.id} href={`/shop/${product.id}`} className="group">
-            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-shadow duration-200">
+            <div className="bg-surface rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-shadow duration-200">
               <div className="aspect-square relative overflow-hidden">
                 <Image
                   src={productImageSrc(product)}

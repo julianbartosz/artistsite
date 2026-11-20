@@ -1,6 +1,6 @@
-const CACHE_NAME = 'artist-site-admin-shell-v3';
+const CACHE_NAME = 'artist-site-admin-shell-v4';
 // Only precache static assets — never cache /admin HTML (stale JS after deploy).
-const SHELL_URLS = ['/manifest.json', '/icon.svg'];
+const SHELL_URLS = ['/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

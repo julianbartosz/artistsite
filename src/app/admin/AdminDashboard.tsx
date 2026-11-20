@@ -9,6 +9,7 @@ import AdminContentManager from '@/components/AdminContentManager';
 import AdminSiteContent from '@/components/AdminSiteContent';
 import AnalyticsDashboard from '@/components/AnalyticsDashboard';
 import AdminOrders from '@/components/AdminOrders';
+import AdminNewsletter from '@/components/AdminNewsletter';
 import AdminSettings, { adminSettingFieldId } from '@/components/AdminSettings';
 import { InventoryDashboard } from '@/components/InventoryDashboard';
 import { UnifiedMarketingDashboard } from '@/components/UnifiedMarketingDashboard';
@@ -18,16 +19,16 @@ import { buildLaunchReadinessItems } from '@/lib/setup-readiness';
 import { 
   FileText, 
   ShoppingBag, 
-  BarChart3, 
   Image as ImageIcon,
   ClipboardList,
   Package,
   Megaphone,
+  Newspaper,
   Plus, 
-  Calendar,
   Settings,
   TrendingUp,
   LayoutTemplate,
+  LayoutDashboard,
   Mail,
   MoreHorizontal,
   ExternalLink,
@@ -42,8 +43,8 @@ const fetcher = async (url: string) => {
 };
 
 const ADMIN_TABS = [
-  { key: 'overview', label: 'Overview', icon: BarChart3 },
-  { key: 'pages', label: 'Site Pages', icon: LayoutTemplate },
+  { key: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { key: 'pages', label: 'Pages', icon: LayoutTemplate },
   { key: 'products', label: 'Products', icon: ShoppingBag },
   { key: 'portfolio', label: 'Portfolio', icon: ImageIcon },
   { key: 'posts', label: 'Updates', icon: FileText },
@@ -51,30 +52,37 @@ const ADMIN_TABS = [
   { key: 'orders', label: 'Orders', icon: ClipboardList },
   { key: 'inventory', label: 'Inventory', icon: Package },
   { key: 'marketing', label: 'Marketing', icon: Megaphone },
+  { key: 'newsletter', label: 'Newsletter', icon: Newspaper },
   { key: 'analytics', label: 'Analytics', icon: TrendingUp },
   { key: 'settings', label: 'Settings', icon: Settings },
 ] as const;
 
 type AdminTab = typeof ADMIN_TABS[number]['key'];
 
-const ADMIN_TAB_GROUPS: Array<{ label: string; tabs: AdminTab[] }> = [
-  { label: 'Site', tabs: ['overview', 'pages', 'analytics'] },
-  { label: 'Content', tabs: ['products', 'portfolio', 'posts', 'inbox'] },
-  { label: 'Shop', tabs: ['orders', 'inventory'] },
-  { label: 'Growth & settings', tabs: ['marketing', 'settings'] },
+/** Desktop chrome: one area expanded at a time so 12 destinations stay scannable. */
+const ADMIN_TAB_GROUPS: Array<{ id: string; label: string; tabs: AdminTab[] }> = [
+  { id: 'site', label: 'Site', tabs: ['overview', 'pages'] },
+  { id: 'content', label: 'Content', tabs: ['portfolio', 'posts', 'products', 'inbox'] },
+  { id: 'shop', label: 'Shop', tabs: ['orders', 'inventory'] },
+  { id: 'grow', label: 'Grow', tabs: ['marketing', 'newsletter', 'analytics', 'settings'] },
 ];
 
-const ADMIN_BOTTOM_NAV: Array<{ key: AdminTab; label: string; icon: typeof BarChart3 }> = [
-  { key: 'overview', label: 'Overview', icon: BarChart3 },
-  { key: 'pages', label: 'Pages', icon: LayoutTemplate },
+// Month-1 ops path: fulfillment + inbox stay one tap away once real orders arrive.
+const ADMIN_BOTTOM_NAV: Array<{ key: AdminTab; label: string; icon: typeof LayoutDashboard }> = [
+  { key: 'overview', label: 'Overview', icon: LayoutDashboard },
   { key: 'orders', label: 'Orders', icon: ClipboardList },
   { key: 'inbox', label: 'Inbox', icon: Mail },
+  { key: 'products', label: 'Products', icon: ShoppingBag },
 ];
 
 const ADMIN_BOTTOM_PRIMARY = new Set<AdminTab>(ADMIN_BOTTOM_NAV.map((entry) => entry.key));
 
 function isAdminTab(value: string): value is AdminTab {
   return ADMIN_TABS.some((tab) => tab.key === value);
+}
+
+function adminGroupForTab(tab: AdminTab) {
+  return ADMIN_TAB_GROUPS.find((group) => group.tabs.includes(tab)) ?? ADMIN_TAB_GROUPS[0];
 }
 
 function resolveAdminTab(tabParam: string | null | undefined, initialTab?: string | null): AdminTab {
@@ -114,22 +122,36 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeTab: AdminTab = resolveAdminTab(searchParams.get('tab'), initialTab);
+  const activeGroup = adminGroupForTab(activeTab);
   const [readinessExpanded, setReadinessExpanded] = React.useState(true);
   const [mobileMoreOpen, setMobileMoreOpen] = React.useState(false);
   const moreTabs = ADMIN_TABS.filter((tab) => !ADMIN_BOTTOM_PRIMARY.has(tab.key));
   const moreTabActive = moreTabs.some((tab) => tab.key === activeTab);
 
-  const selectTab = useCallback((tab: AdminTab, hash?: string) => {
+  const selectTab = useCallback((tab: AdminTab, hash?: string, options?: { create?: boolean }) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', tab);
     if (tab !== 'pages') {
       params.delete('page');
       params.delete('section');
     }
+    if (tab !== 'newsletter') params.delete('newsletter');
+    if (options?.create) {
+      params.set('create', '1');
+    } else {
+      params.delete('create');
+    }
     const query = params.toString();
     const path = query ? `/admin?${query}` : '/admin';
     router.replace(hash ? `${path}#${hash}` : path, { scroll: false });
   }, [router, searchParams]);
+
+  const selectGroup = useCallback((groupId: string) => {
+    const group = ADMIN_TAB_GROUPS.find((entry) => entry.id === groupId);
+    if (!group) return;
+    if (group.tabs.includes(activeTab)) return;
+    selectTab(group.tabs[0]);
+  }, [activeTab, selectTab]);
 
   // Fetch dashboard data
   const { data: stats, error: statsError } = useSWR<DashboardStats>('/api/admin/stats', fetcher);
@@ -178,9 +200,6 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
       router.replace(`/auth/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`);
       return;
     }
-    if (status === 'authenticated' && session && !session.user?.isAdmin) {
-      router.replace('/');
-    }
   }, [router, session, status]);
 
   // Check authentication
@@ -192,8 +211,33 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
     );
   }
 
-  if (status === 'unauthenticated' || !session || !session.user?.isAdmin) {
+  if (status === 'unauthenticated' || !session) {
     return null;
+  }
+
+  if (!session.user?.isAdmin) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] max-w-lg flex-col items-center justify-center px-6 text-center">
+        <h1 className="text-2xl font-semibold text-gray-900">Studio access required</h1>
+        <p className="mt-3 text-sm text-gray-600">
+          You are signed in, but this account is not on the studio access list. Ask the site owner to add your email to ADMIN_EMAILS, then sign out and back in.
+        </p>
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+          <Link href="/" className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50">
+            View site
+          </Link>
+          <button
+            type="button"
+            onClick={() => {
+              void signOut({ callbackUrl: '/' });
+            }}
+            className="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    );
   }
 
   const renderOverview = () => (
@@ -270,55 +314,74 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
         </div>
       )}
 
-      {/* Stats Grid */}
+      {/* Stats Grid — clickable jump cards into each studio area */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-        <div className="bg-white rounded-lg shadow-sm border p-4 md:p-5">
+        <button
+          type="button"
+          onClick={() => selectTab('portfolio')}
+          className="bg-white rounded-lg shadow-sm border p-4 md:p-5 text-left hover:border-gray-300 hover:shadow transition-all"
+        >
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <FileText className="h-7 w-7 text-blue-600" />
+              <ImageIcon className="h-7 w-7 text-violet-600" aria-hidden="true" />
             </div>
             <div className="ml-3">
-              <p className="text-sm font-medium text-gray-500">Updates</p>
-              <p className="text-xl font-semibold text-gray-900">{safeStats.totalPosts}</p>
+              <p className="text-sm font-medium text-gray-500">Portfolio</p>
+              <p className="text-xl font-semibold text-gray-900">{safeStats.totalArtworks}</p>
             </div>
           </div>
-        </div>
+        </button>
 
-        <div className="bg-white rounded-lg shadow-sm border p-4 md:p-5">
+        <button
+          type="button"
+          onClick={() => selectTab('products')}
+          className="bg-white rounded-lg shadow-sm border p-4 md:p-5 text-left hover:border-gray-300 hover:shadow transition-all"
+        >
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <ShoppingBag className="h-7 w-7 text-green-600" />
+              <ShoppingBag className="h-7 w-7 text-green-600" aria-hidden="true" />
             </div>
             <div className="ml-3">
               <p className="text-sm font-medium text-gray-500">Products</p>
               <p className="text-xl font-semibold text-gray-900">{safeStats.totalProducts}</p>
             </div>
           </div>
-        </div>
+        </button>
 
-        <div className="bg-white rounded-lg shadow-sm border p-4 md:p-5">
+        <button
+          type="button"
+          onClick={() => selectTab('posts')}
+          className="bg-white rounded-lg shadow-sm border p-4 md:p-5 text-left hover:border-gray-300 hover:shadow transition-all"
+        >
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <TrendingUp className="h-7 w-7 text-purple-600" />
+              <FileText className="h-7 w-7 text-blue-600" aria-hidden="true" />
             </div>
             <div className="ml-3">
-              <p className="text-sm font-medium text-gray-500">Total Views</p>
-              <p className="text-xl font-semibold text-gray-900">{safeStats.totalViews.toLocaleString()}</p>
+              <p className="text-sm font-medium text-gray-500">Updates</p>
+              <p className="text-xl font-semibold text-gray-900">{safeStats.totalPosts}</p>
             </div>
           </div>
-        </div>
+        </button>
 
-        <div className="bg-white rounded-lg shadow-sm border p-4 md:p-5">
+        <button
+          type="button"
+          onClick={() => selectTab('analytics')}
+          className="bg-white rounded-lg shadow-sm border p-4 md:p-5 text-left hover:border-gray-300 hover:shadow transition-all"
+        >
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <Calendar className="h-7 w-7 text-orange-600" />
+              <TrendingUp className="h-7 w-7 text-orange-600" aria-hidden="true" />
             </div>
-            <div className="ml-3">
+            <div className="ml-3 min-w-0">
               <p className="text-sm font-medium text-gray-500">Monthly Views</p>
               <p className="text-xl font-semibold text-gray-900">{safeStats.monthlyViews.toLocaleString()}</p>
+              {safeStats.totalViews > safeStats.monthlyViews && (
+                <p className="truncate text-xs text-gray-500">{safeStats.totalViews.toLocaleString()} all-time</p>
+              )}
             </div>
           </div>
-        </div>
+        </button>
       </div>
 
       {/* Quick Actions — first-week studio work, not ops detours */}
@@ -336,7 +399,7 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
 
           <button
             type="button"
-            onClick={() => selectTab('products')}
+            onClick={() => selectTab('products', undefined, { create: true })}
             className="flex items-center justify-center p-3 border border-gray-200 rounded-lg hover:border-green-500 hover:bg-green-50 transition-colors"
           >
             <Plus className="h-5 w-5 text-gray-400 mr-2" aria-hidden="true" />
@@ -345,7 +408,7 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
 
           <button
             type="button"
-            onClick={() => selectTab('portfolio')}
+            onClick={() => selectTab('portfolio', undefined, { create: true })}
             className="flex items-center justify-center p-3 border border-gray-200 rounded-lg hover:border-violet-500 hover:bg-violet-50 transition-colors"
           >
             <ImageIcon className="h-5 w-5 text-gray-400 mr-2" aria-hidden="true" />
@@ -354,7 +417,7 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
 
           <button
             type="button"
-            onClick={() => selectTab('posts')}
+            onClick={() => selectTab('posts', undefined, { create: true })}
             className="flex items-center justify-center p-3 border border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors"
           >
             <FileText className="h-5 w-5 text-gray-400 mr-2" aria-hidden="true" />
@@ -372,9 +435,41 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
       {/* Sticky studio chrome: public header is hidden on /admin, so exit + session live here */}
       <div className="sticky top-0 z-30 -mx-4 mb-6 border-b border-gray-200 bg-gray-50/95 px-4 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
         <div className="flex items-center justify-between gap-3 py-2.5">
-          <div className="min-w-0">
-            <h1 className="truncate text-base font-semibold text-gray-900 sm:text-lg">Studio</h1>
-            <p className="truncate text-xs text-gray-500 md:hidden">{activeTabLabel}</p>
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="min-w-0">
+              <h1 className="truncate text-base font-semibold text-gray-900 sm:text-lg">Studio</h1>
+              <p className="truncate text-xs text-gray-500 md:hidden">{activeTabLabel}</p>
+            </div>
+            <div
+              className="hidden min-w-0 items-center gap-1 overflow-x-auto md:flex"
+              role="navigation"
+              aria-label="Studio areas"
+            >
+              {ADMIN_TAB_GROUPS.map((group, groupIndex) => {
+                const isActive = group.id === activeGroup.id;
+                return (
+                  <React.Fragment key={group.id}>
+                    {groupIndex > 0 && (
+                      <span className="mx-0.5 h-4 w-px shrink-0 bg-gray-200" aria-hidden="true" />
+                    )}
+                    <button
+                      type="button"
+                      aria-current={isActive ? 'true' : undefined}
+                      aria-expanded={isActive}
+                      aria-controls={isActive ? 'admin-group-tabs' : undefined}
+                      onClick={() => selectGroup(group.id)}
+                      className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors ${
+                        isActive
+                          ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-200'
+                          : 'text-gray-500 hover:bg-white/70 hover:text-gray-800'
+                      }`}
+                    >
+                      {group.label}
+                    </button>
+                  </React.Fragment>
+                );
+              })}
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <Link
@@ -397,44 +492,35 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
         </div>
 
         <nav
-          className="-mb-px hidden min-w-0 items-end gap-1 overflow-x-auto sm:gap-2 md:flex"
+          id="admin-group-tabs"
+          className="-mb-px hidden min-w-0 gap-4 overflow-x-auto md:flex"
           role="tablist"
-          aria-label="Admin sections"
+          aria-label={`${activeGroup.label} sections`}
         >
-          {ADMIN_TAB_GROUPS.map((group, groupIndex) => (
-            <div
-              key={group.label}
-              className={`flex items-end gap-1 sm:gap-2 ${groupIndex > 0 ? 'ml-2 border-l border-gray-200 pl-3 sm:ml-3 sm:pl-4' : ''}`}
-            >
-              <span className="mb-2 hidden text-[10px] font-semibold uppercase tracking-wide text-gray-400 lg:inline">
-                {group.label}
-              </span>
-              {group.tabs.map((tabKey) => {
-                const tab = ADMIN_TABS.find((entry) => entry.key === tabKey);
-                if (!tab) return null;
-                const Icon = tab.icon;
-                return (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    role="tab"
-                    id={`admin-tab-${tab.key}`}
-                    aria-selected={activeTab === tab.key}
-                    aria-controls={`admin-panel-${tab.key}`}
-                    onClick={() => selectTab(tab.key)}
-                    className={`flex flex-shrink-0 items-center whitespace-nowrap border-b-2 px-1 py-2 text-sm font-medium ${
-                      activeTab === tab.key
-                        ? 'border-blue-500 text-blue-600'
-                        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                    }`}
-                  >
-                    <Icon size={16} className="mr-2" aria-hidden="true" />
-                    {tab.label}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
+          {activeGroup.tabs.map((tabKey) => {
+            const tab = ADMIN_TABS.find((entry) => entry.key === tabKey);
+            if (!tab) return null;
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                id={`admin-tab-${tab.key}`}
+                aria-selected={activeTab === tab.key}
+                aria-controls={`admin-panel-${tab.key}`}
+                onClick={() => selectTab(tab.key)}
+                className={`inline-flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 py-2 text-sm font-medium ${
+                  activeTab === tab.key
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                }`}
+              >
+                <Icon size={16} aria-hidden="true" />
+                {tab.label}
+              </button>
+            );
+          })}
         </nav>
       </div>
 
@@ -460,6 +546,9 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
         )}
         {activeTab === 'marketing' && (
           <UnifiedMarketingDashboard />
+        )}
+        {activeTab === 'newsletter' && (
+          <AdminNewsletter />
         )}
         {activeTab === 'analytics' && (
           <AnalyticsDashboard />

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { requireAdmin } from '@/lib/auth';
+import { requireAdmin, resolvedAdminEmails } from '@/lib/auth';
 import { ApiError } from '@/lib/api-error-handler';
 import { getConfig } from '@/lib/config';
 
@@ -134,14 +134,17 @@ async function getTotalCost(startDate: Date, channels: string[]): Promise<number
 }
 
 async function getActiveCustomers(startDate: Date): Promise<number> {
-  return await db.user.count({
+  const adminEmails = await resolvedAdminEmails();
+  const users = await db.user.findMany({
     where: {
       OR: [
         { orders: { some: { createdAt: { gte: startDate } } } },
         { createdAt: { gte: startDate } }
       ]
-    }
+    },
+    select: { email: true }
   });
+  return users.filter((user) => !user.email || !adminEmails.has(user.email.trim().toLowerCase())).length;
 }
 
 async function getCampaignPerformance(startDate: Date, channels: string[]) {
@@ -280,12 +283,14 @@ async function getTopPerformingChannels(startDate: Date, channels: string[]) {
     channel: 'direct',
     revenue: directRevenue,
     cost: 0,
-    roi: Infinity,
+    roi: 0,
     conversions: await getChannelConversions('direct', startDate)
   });
 
-  // Sort by ROI
-  return channelPerformance.sort((a, b) => b.roi - a.roi);
+  // Sort by revenue, then conversions, then ROI
+  return channelPerformance.sort((a, b) =>
+    (b.revenue - a.revenue) || (b.conversions - a.conversions) || (b.roi - a.roi)
+  );
 }
 
 async function getChannelCost(channel: string, startDate: Date): Promise<number> {

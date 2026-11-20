@@ -45,14 +45,14 @@ export default function ResetPasswordPage() {
   const linkMissing = !email || !token;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-surface-muted flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <h1 className="mt-6 text-center text-3xl font-extrabold text-gray-900">Choose a new password</h1>
         <p className="mt-2 text-center text-sm text-gray-600">Use the reset link from your email to update your password.</p>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+        <div className="bg-surface py-8 px-4 shadow sm:rounded-lg sm:px-10">
           {linkMissing ? (
             <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">This reset link is missing required information.</div>
           ) : (
@@ -78,7 +78,7 @@ export default function ResetPasswordPage() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="flex w-full justify-center rounded-md border border-transparent px-4 py-2 text-sm btn-primary shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50"
+                className="flex w-full justify-center border border-transparent px-4 py-2 text-sm btn-primary shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50"
               >
                 {isLoading ? 'Resetting...' : 'Reset password'}
               </button>

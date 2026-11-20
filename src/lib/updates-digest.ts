@@ -1,47 +1,14 @@
 import 'server-only';
 import { db } from '@/lib/db';
 import { getConfig, setConfig } from '@/lib/config';
-import { sendTemplateEmail } from '@/lib/email';
-import { getSiteContent } from '@/lib/site-content';
+import { brandedEmailHtml, getEmailBrand, sendTemplateEmail } from '@/lib/email';
+import { absoluteUrl } from '@/lib/utils';
+import { getPublishedSiteContent } from '@/lib/site-content';
 import { getAllPosts, getPrivatePostsForViewer } from '@/lib/markdown';
 import { updatesPostPath } from '@/lib/site-content-shared';
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function parseObject(value: unknown): Record<string, unknown> {
-  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
-  if (typeof value !== 'string') return {};
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function parseSegments(value: unknown): string[] {
-  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
-  if (typeof value !== 'string') return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
-function digestOptIn(preferences: Record<string, unknown>): boolean {
-  if (preferences.digest === false) return false;
-  if (preferences.newsletter === false) return false;
-  return true;
-}
+import { escapeHtml } from '@/lib/email-shell';
+import { listNewsletterSubscribers } from '@/lib/newsletter-subscribers';
+import { sendNewsletterEmails } from '@/lib/marketing/campaign-execution';
 
 export type DigestRunSummary = {
   skipped: boolean;
@@ -51,7 +18,7 @@ export type DigestRunSummary = {
 };
 
 export async function processUpdatesDigests(): Promise<DigestRunSummary> {
-  const blog = await getSiteContent('blog');
+  const blog = await getPublishedSiteContent('blog');
   if (!blog.digestEnabled) {
     return { skipped: true, reason: 'disabled', publicSent: 0, collectorSent: 0 };
   }
@@ -67,38 +34,32 @@ export async function processUpdatesDigests(): Promise<DigestRunSummary> {
   }
 
   const since = lastRunRaw ? new Date(lastRunRaw) : new Date(now - intervalDays * 24 * 60 * 60 * 1000);
-  const [identity, publicPosts] = await Promise.all([
-    getSiteContent('identity'),
-    getAllPosts(),
-  ]);
+  const [brand, publicPosts] = await Promise.all([getEmailBrand(), getAllPosts()]);
   const recentPublic = publicPosts.filter((post) => new Date(post.publishedAt) >= since);
-  const siteName = identity.siteName || 'Studio';
-  const baseUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_SITE_URL || '';
+  const { siteName } = brand;
+  const postListHtml = (posts: Array<{ format: string; excerpt?: string | null; title: string; slug: string }>) => `<ul>${posts.map((post) => {
+    const title = post.format === 'short' ? (post.excerpt || post.title) : post.title;
+    return `<li><a href="${escapeHtml(absoluteUrl(updatesPostPath(post.slug), brand.siteUrl))}">${escapeHtml(title)}</a></li>`;
+  }).join('')}</ul>`;
 
   let publicSent = 0;
   if (recentPublic.length > 0) {
-    const profiles = await db.customerProfile.findMany({
-      where: { segments: { contains: 'newsletter_subscriber' } },
-      select: { email: true, preferences: true },
-    });
+    const subscribers = (await listNewsletterSubscribers()).filter((subscriber) => subscriber.digest);
 
-    const listHtml = recentPublic.map((post) => {
-      const title = post.format === 'short' ? (post.excerpt || post.title) : post.title;
-      const url = baseUrl ? `${baseUrl.replace(/\/$/, '')}${updatesPostPath(post.slug)}` : updatesPostPath(post.slug);
-      return `<li><a href="${escapeHtml(url)}">${escapeHtml(title)}</a></li>`;
-    }).join('');
-
-    for (const profile of profiles) {
-      if (!profile.email) continue;
-      const prefs = parseObject(profile.preferences);
-      if (!digestOptIn(prefs)) continue;
-      const delivered = await sendTemplateEmail(profile.email, {
+    const result = await sendNewsletterEmails(
+      {
         subject: blog.digestSubject || `${siteName}: recent updates`,
-        html: `<p>${escapeHtml(blog.digestIntro || 'Here is what has been happening in the studio:')}</p><ul>${listHtml}</ul>`,
-        text: `${blog.digestIntro || 'Recent studio updates:'}\n\n${recentPublic.map((post) => post.title).join('\n')}`,
-      });
-      if (delivered) publicSent += 1;
-    }
+        preheader: '',
+        fromName: '',
+        blocks: [{
+          id: 'updates-digest',
+          type: 'text',
+          html: `<p>${escapeHtml(blog.digestIntro || 'Here is what has been happening in the studio:')}</p>${postListHtml(recentPublic)}`,
+        }],
+      },
+      subscribers.map((subscriber) => ({ email: subscriber.email, firstName: subscriber.firstName, profileId: subscriber.profileId })),
+    );
+    publicSent = result.delivered;
   }
 
   let collectorSent = 0;
@@ -124,15 +85,13 @@ export async function processUpdatesDigests(): Promise<DigestRunSummary> {
     }
 
     for (const [email, posts] of postsByEmail) {
-      const listHtml = posts.map((post) => {
-        const title = post.format === 'short' ? (post.excerpt || post.title) : post.title;
-        const url = baseUrl ? `${baseUrl.replace(/\/$/, '')}${updatesPostPath(post.slug)}` : updatesPostPath(post.slug);
-        return `<li><a href="${escapeHtml(url)}">${escapeHtml(title)}</a></li>`;
-      }).join('');
-
       const delivered = await sendTemplateEmail(email, {
         subject: blog.collectorDigestSubject || `${siteName}: collector studio updates`,
-        html: `<p>${escapeHtml(blog.collectorDigestIntro || 'New private studio notes shared with you:')}</p><ul>${listHtml}</ul>`,
+        html: brandedEmailHtml(brand, {
+          title: blog.privateSectionTitle || 'For collectors',
+          intro: escapeHtml(blog.collectorDigestIntro || 'New private studio notes shared with you:'),
+          sections: [{ html: postListHtml(posts) }],
+        }),
         text: `${blog.collectorDigestIntro || 'Collector updates:'}\n\n${posts.map((post) => post.title).join('\n')}`,
       });
       if (delivered) collectorSent += 1;

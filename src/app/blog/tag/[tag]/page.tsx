@@ -59,8 +59,8 @@ export default async function BlogTagPage({ params }: BlogTagPageProps) {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <section className="bg-white shadow-sm">
+    <div className="min-h-screen bg-surface-muted">
+      <section className="bg-surface shadow-sm">
         <div className="max-w-7xl mx-auto px-6 py-8">
           <div className="text-center mb-8">
             <Link href={UPDATES_PATH} className="mb-6 inline-flex text-sm font-medium text-gray-700 hover:text-gray-900">
@@ -76,7 +76,7 @@ export default async function BlogTagPage({ params }: BlogTagPageProps) {
 
       <div className={`${blog.feedLayout === 'grid' ? 'max-w-6xl' : 'max-w-4xl'} mx-auto px-6 py-12`}>
         {tagged.length === 0 ? (
-          <div className="rounded-lg border border-gray-200 bg-white p-8 text-center text-gray-600">
+          <div className="rounded-lg border border-gray-200 bg-surface p-8 text-center text-gray-600">
             No published updates use this tag yet.
           </div>
         ) : (

@@ -75,6 +75,10 @@ next-env.d.ts
 .env.test.local
 .env.production.local
 .env.local
+.env.fly
+
+# local-development uploads (production uses Azure Blob Storage)
+/public/uploads/
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache

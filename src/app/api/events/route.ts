@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { recordAnalyticsEvent } from '@/lib/analytics/customer-insights'
+import { getServerSession } from 'next-auth'
+import { authOptions, isAdminEmailResolved } from '@/lib/auth'
+import { recordAnalyticsEvent, shouldIgnoreAnalyticsPageUrl } from '@/lib/analytics/customer-insights'
 import { z } from 'zod'
 
 const EventSchema = z.object({
@@ -37,9 +39,25 @@ export async function POST(request: NextRequest) {
     const body = JSON.parse(rawBody)
     const validatedData = EventSchema.parse(body)
 
+    const referer = request.headers.get('referer')
+    if (shouldIgnoreAnalyticsPageUrl(validatedData.page_url) || shouldIgnoreAnalyticsPageUrl(referer)) {
+      return NextResponse.json(
+        { success: true, stored: false, ignored: true },
+        { status: 202, headers: corsHeaders }
+      )
+    }
+
+    const session = await getServerSession(authOptions)
+    if (session?.user?.isAdmin || (session?.user?.email && await isAdminEmailResolved(session.user.email))) {
+      return NextResponse.json(
+        { success: true, stored: false, ignored: true },
+        { status: 202, headers: corsHeaders }
+      )
+    }
+
     const result = await recordAnalyticsEvent({
       eventName: validatedData.event_name,
-      userId: validatedData.user_id,
+      userId: session?.user?.id ?? validatedData.user_id,
       sessionId: validatedData.session_id,
       properties: validatedData.properties,
       pageUrl: validatedData.page_url,
@@ -49,6 +67,7 @@ export async function POST(request: NextRequest) {
       success: true,
       stored: result.stored,
       eventId: result.eventId,
+      ignored: result.ignored,
     }, { 
       status: result.stored ? 201 : 202,
       headers: corsHeaders,

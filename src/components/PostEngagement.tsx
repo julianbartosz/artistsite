@@ -361,14 +361,14 @@ function CommentThread({
             onChange={(event) => setDraft(event.target.value)}
             maxLength={COMMENT_MAX_LENGTH}
             rows={3}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full rounded-input border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             placeholder="Add a comment..."
           />
           <div className="mt-2 flex items-center justify-between gap-3">
             <span className="text-xs text-gray-500">
               {draft.length > COMMENT_MAX_LENGTH * 0.9 ? `${COMMENT_MAX_LENGTH - draft.length} characters left` : ''}
             </span>
-            <button type="submit" disabled={!draft.trim() || submitting} className="btn-primary rounded-md px-4 py-2 text-sm disabled:opacity-50">
+            <button type="submit" disabled={!draft.trim() || submitting} className="btn-primary px-4 py-2 text-sm disabled:opacity-50">
               {submitting ? 'Posting...' : 'Post comment'}
             </button>
           </div>
@@ -441,7 +441,7 @@ function AskArtistDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={headingId}
-        className="w-full max-w-lg rounded-t-2xl bg-white p-5 shadow-xl sm:rounded-xl"
+        className="w-full max-w-lg rounded-t-2xl bg-surface p-5 shadow-xl sm:rounded-xl"
         onClick={(event) => event.stopPropagation()}
       >
         <h3 id={headingId} className="text-lg font-semibold text-gray-900">{label}</h3>
@@ -451,7 +451,7 @@ function AskArtistDialog({
             <p className="text-sm text-green-800">Message sent. Replies will appear in your account messages.</p>
             <div className="flex justify-end gap-2">
               <Link href="/account?tab=messages" className="rounded-md px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">View messages</Link>
-              <button type="button" onClick={onClose} className="btn-primary rounded-md px-4 py-2 text-sm">Done</button>
+              <button type="button" onClick={onClose} className="btn-primary px-4 py-2 text-sm">Done</button>
             </div>
           </div>
         ) : (
@@ -469,13 +469,13 @@ function AskArtistDialog({
               onChange={(event) => setBody(event.target.value)}
               rows={5}
               maxLength={5000}
-              className="mt-3 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              className="mt-3 w-full rounded-input border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               placeholder="Ask about the piece, process, or availability..."
             />
             {error && <p className="mt-2 text-sm text-red-700" role="alert">{error}</p>}
             <div className="mt-4 flex justify-end gap-2">
               <button type="button" onClick={onClose} className="rounded-md px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Cancel</button>
-              <button type="submit" disabled={!body.trim() || sending} className="btn-primary rounded-md px-4 py-2 text-sm disabled:opacity-50">
+              <button type="submit" disabled={!body.trim() || sending} className="btn-primary px-4 py-2 text-sm disabled:opacity-50">
                 {sending ? 'Sending...' : 'Send'}
               </button>
             </div>

@@ -35,7 +35,7 @@ export default function CmsPreviewBanner() {
   return (
     <div
       role="status"
-      className="fixed inset-x-0 top-0 z-[60] border-b border-amber-300 bg-amber-50 px-4 py-2 text-center text-sm text-amber-950"
+      className="relative z-[60] border-b border-amber-300 bg-amber-50 px-4 py-2 text-center text-sm text-amber-950"
     >
       <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
         <span>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiErrorHandler } from '@/lib/api-error-handler';
-import { sendTemplateEmail } from '@/lib/email';
+import { brandedEmailHtml, emailDetailRows, emailQuoteHtml, getEmailBrand, sendTemplateEmail } from '@/lib/email';
+import { escapeHtml } from '@/lib/email-shell';
 import { getConfig } from '@/lib/config';
 import { linkContactSubmissionToInbox } from '@/lib/studio-inbox';
 
@@ -85,12 +86,8 @@ async function handleCommissionRequest(req: NextRequest) {
 
     const inboxBody = [
       `Commission request ${requestId}`,
-      `Type: ${data.type}`,
       data.productId ? `Related product: ${data.productId}` : null,
-      `Medium: ${data.medium}`,
-      `Dimensions: ${data.dimensions}`,
-      `Timeline: ${data.timeline}`,
-      `Budget: $${data.budget?.min ?? 0} - $${data.budget?.max ?? 0}`,
+      ...commissionDetails(data).map(([label, value]) => `${label}: ${value}`),
       `Preferred contact: ${data.customerInfo.preferredContact}`,
       data.customerInfo.phone ? `Phone: ${data.customerInfo.phone}` : null,
       '',
@@ -133,54 +130,62 @@ async function handleCommissionRequest(req: NextRequest) {
   }
 }
 
+function commissionDetails(data: CommissionRequestData): Array<[string, string]> {
+  return [
+    ['Type', String(data.type)],
+    ['Medium', String(data.medium)],
+    ['Dimensions', String(data.dimensions)],
+    ['Timeline', String(data.timeline)],
+    ['Budget', `$${data.budget?.min ?? 0} - $${data.budget?.max ?? 0}`],
+  ];
+}
+
 async function sendCommissionRequestEmails(data: CommissionRequestData, requestId: string) {
   const artistEmail = await getConfig('ARTIST_EMAIL') || await getConfig('CONTACT_EMAIL') || await getConfig('SMTP_FROM') || await getConfig('SMTP_USER');
   if (!artistEmail) {
     throw new Error('Artist email recipient is not configured');
   }
 
+  const brand = await getEmailBrand();
+  const { name, email, preferredContact, phone } = data.customerInfo;
+  const details = commissionDetails(data);
+  const detailText = details.map(([label, value]) => `${label}: ${value}`).join('\n');
+  const escapedRows = (rows: Array<[string, string]>) => emailDetailRows(rows.map(([label, value]) => [label, escapeHtml(value)]));
+
   const customerEmailContent = {
     subject: `Commission Request Confirmation - ${requestId}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2>Commission Request Received</h2>
-        <p>Hello ${data.customerInfo.name},</p>
-        <p>Your commission request <strong>${requestId}</strong> has been received.</p>
-        <p><strong>Type:</strong> ${data.type}</p>
-        <p><strong>Medium:</strong> ${data.medium}</p>
-        <p><strong>Dimensions:</strong> ${data.dimensions}</p>
-        <p><strong>Timeline:</strong> ${data.timeline}</p>
-        <p><strong>Budget:</strong> $${data.budget?.min ?? 0} - $${data.budget?.max ?? 0}</p>
-        <p>Estimated response: 24-48 hours.</p>
-      </div>
-    `,
-    text: `Commission request received\n\nRequest ID: ${requestId}\nType: ${data.type}\nMedium: ${data.medium}\nDimensions: ${data.dimensions}\nTimeline: ${data.timeline}\nBudget: $${data.budget?.min ?? 0} - $${data.budget?.max ?? 0}\nEstimated response: 24-48 hours.`,
+    html: brandedEmailHtml(brand, {
+      title: 'Commission request received',
+      intro: `Hello ${escapeHtml(name)}, your commission request <strong>${escapeHtml(requestId)}</strong> has been received. Expect a reply within 24–48 hours.`,
+      sections: [{ html: escapedRows(details) }],
+    }),
+    text: `Commission request received\n\nRequest ID: ${requestId}\n${detailText}\nEstimated response: 24-48 hours.`,
   };
 
   const artistEmailContent = {
     subject: `New Commission Request - ${requestId}`,
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2>New Commission Request</h2>
-        <p><strong>Request ID:</strong> ${requestId}</p>
-        <p><strong>Customer:</strong> ${data.customerInfo.name} (${data.customerInfo.email})</p>
-        <p><strong>Preferred Contact:</strong> ${data.customerInfo.preferredContact}</p>
-        <p><strong>Type:</strong> ${data.type}</p>
-        <p><strong>Medium:</strong> ${data.medium}</p>
-        <p><strong>Dimensions:</strong> ${data.dimensions}</p>
-        <p><strong>Timeline:</strong> ${data.timeline}</p>
-        <p><strong>Budget:</strong> $${data.budget?.min ?? 0} - $${data.budget?.max ?? 0}</p>
-        <p><strong>Description:</strong></p>
-        <div style="white-space: pre-wrap; border-left: 4px solid #2563eb; padding-left: 12px;">${data.description}</div>
-        ${data.specialRequests ? `<p><strong>Special Requests:</strong> ${data.specialRequests}</p>` : ''}
-      </div>
-    `,
-    text: `New commission request\n\nRequest ID: ${requestId}\nCustomer: ${data.customerInfo.name} <${data.customerInfo.email}>\nPreferred Contact: ${data.customerInfo.preferredContact}\nType: ${data.type}\nMedium: ${data.medium}\nDimensions: ${data.dimensions}\nTimeline: ${data.timeline}\nBudget: $${data.budget?.min ?? 0} - $${data.budget?.max ?? 0}\n\n${data.description}\n\n${data.specialRequests || ''}`,
+    html: brandedEmailHtml(brand, {
+      title: 'New commission request',
+      intro: `${escapeHtml(name)} sent request <strong>${escapeHtml(requestId)}</strong>. Reply to this email to answer them directly.`,
+      sections: [
+        {
+          html: escapedRows([
+            ['Customer', `${name} <${email}>`],
+            ['Preferred contact', String(preferredContact)],
+            ...(phone ? [['Phone', String(phone)] as [string, string]] : []),
+            ...details,
+          ]),
+        },
+        { heading: 'Description', html: emailQuoteHtml(String(data.description), brand) },
+        ...(data.specialRequests ? [{ heading: 'Special requests', html: emailQuoteHtml(String(data.specialRequests), brand) }] : []),
+      ],
+    }),
+    text: `New commission request\n\nRequest ID: ${requestId}\nCustomer: ${name} <${email}>\nPreferred Contact: ${preferredContact}\n${detailText}\n\n${data.description}\n\n${data.specialRequests || ''}`,
   };
 
   const [customerDelivered, artistDelivered] = await Promise.all([
-    sendTemplateEmail(data.customerInfo.email, customerEmailContent),
-    sendTemplateEmail(artistEmail, artistEmailContent),
+    sendTemplateEmail(email, customerEmailContent),
+    sendTemplateEmail(artistEmail, artistEmailContent, { replyTo: email }),
   ]);
 
   if (!customerDelivered || !artistDelivered) {

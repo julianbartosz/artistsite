@@ -4,14 +4,13 @@ import { requireAdmin } from '@/lib/auth';
 import { ApiError } from '@/lib/api-error-handler';
 import {
   getAllAdminSiteContent,
-  setSiteContent,
+  setSiteContentPages,
   SITE_CONTENT_PAGES,
-  type SiteContentPage,
 } from '@/lib/site-content';
 
 const SavePayloadSchema = z.object({
-  page: z.enum(SITE_CONTENT_PAGES),
-  content: z.unknown(),
+  pages: z.partialRecord(z.enum(SITE_CONTENT_PAGES), z.unknown())
+    .refine((pages) => Object.keys(pages).length > 0, 'No pages to save'),
 });
 
 export async function GET() {
@@ -31,8 +30,8 @@ export async function PUT(request: NextRequest) {
   try {
     await requireAdmin();
     const payload = SavePayloadSchema.parse(await request.json());
-    const saved = await setSiteContent(payload.page as SiteContentPage, payload.content);
-    return NextResponse.json({ page: payload.page, content: saved });
+    const saved = await setSiteContentPages(payload.pages);
+    return NextResponse.json({ pages: saved });
   } catch (error) {
     if (error instanceof ApiError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });

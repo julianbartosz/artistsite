@@ -6,6 +6,7 @@ import {
   CartItemVariant,
   formatPrice,
   calculateVariantPrice,
+  defaultCartItemVariant,
   productHasPurchaseOptions,
 } from '@/lib/commerce';
 import { useCart } from './CartContext';
@@ -33,11 +34,13 @@ export default function AddToCartButton({
 }: AddToCartButtonProps) {
   const { addItem, openCart, state } = useCart();
   const { trackAddToCart } = useEcommerceTracking();
-  const [selectedVariant, setSelectedVariant] = useState<CartItemVariant>({});
+  const [selectedVariant, setSelectedVariant] = useState<CartItemVariant>(() => defaultCartItemVariant(product));
   const [customizations, setCustomizations] = useState<Record<string, string>>({});
   const [isAdding, setIsAdding] = useState(false);
   const [showCommissionForm, setShowCommissionForm] = useState(false);
   const [isSubmittingCommission, setIsSubmittingCommission] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [commissionSuccess, setCommissionSuccess] = useState<string | null>(null);
 
   // Check if product is available for purchase
   const isAvailable = product.availability === 'available' && purchasable;
@@ -65,12 +68,18 @@ export default function AddToCartButton({
     return parts.join('|');
   };
 
-  // Check stock for selected variant
-  const isInStock = () => {
-    if (!selectedVariant.size?.id) return true;
-    
-    const sizeVariant = product.variants?.sizes?.find(s => s.id === selectedVariant.size?.id);
-    return !sizeVariant?.stock || sizeVariant.stock > 0;
+  // Variant availability is an option flag; product stock is ProductInventory via `purchasable`.
+  const isVariantAvailable = () => {
+    const groups = [
+      { choice: selectedVariant.size, options: product.variants?.sizes },
+      { choice: selectedVariant.framing, options: product.variants?.framing },
+      { choice: selectedVariant.material, options: product.variants?.materials },
+    ];
+    return groups.every(({ choice, options }) => {
+      if (!choice?.id || !options) return true;
+      const match = options.find((variant) => variant.id === choice.id);
+      return !match || match.available !== false;
+    });
   };
 
   // Check if item is already in cart
@@ -89,6 +98,8 @@ export default function AddToCartButton({
 
   const handleAddToCart = async () => {
     setIsAdding(true);
+    setActionError(null);
+    setCommissionSuccess(null);
     
     try {
       // Validate required customizations
@@ -97,14 +108,13 @@ export default function AddToCartButton({
         const missingRequired = requiredCustomizations.filter(c => !customizations[c.id]?.trim());
         
         if (missingRequired.length > 0) {
-          alert(`Please complete the following required fields: ${missingRequired.map(c => c.name).join(', ')}`);
+          setActionError(`Please complete: ${missingRequired.map(c => c.name).join(', ')}`);
           return;
         }
       }
 
-      // Check stock availability
-      if (!isInStock()) {
-        alert('Sorry, this variant is currently out of stock.');
+      if (!isAvailable || !isVariantAvailable()) {
+        setActionError('This option is currently unavailable.');
         return;
       }
 
@@ -122,7 +132,7 @@ export default function AddToCartButton({
         // eslint-disable-next-line no-console
         console.error('Failed to add item to cart:', error);
       }
-      alert('Sorry, there was an error adding this item to your cart. Please try again.');
+      setActionError('Could not add this item to your cart. Please try again.');
     } finally {
       setIsAdding(false);
     }
@@ -144,6 +154,8 @@ export default function AddToCartButton({
     specialRequests?: string;
   }) => {
     setIsSubmittingCommission(true);
+    setActionError(null);
+    setCommissionSuccess(null);
     
     try {
       const response = await fetch('/api/commission', {
@@ -168,7 +180,11 @@ export default function AddToCartButton({
 
       if (result.success) {
         setShowCommissionForm(false);
-        alert(`Commission request submitted successfully! Request ID: ${result.requestId}\n\nYou will receive a confirmation email shortly.`);
+        setCommissionSuccess(
+          result.requestId
+            ? `Commission request submitted (ID ${result.requestId}). You will receive a confirmation email shortly.`
+            : 'Commission request submitted. You will receive a confirmation email shortly.',
+        );
       } else {
         throw new Error(result.error || 'Failed to submit commission request');
       }
@@ -177,7 +193,7 @@ export default function AddToCartButton({
         // eslint-disable-next-line no-console
         console.error('Commission submission error:', error);
       }
-      alert('Sorry, there was an error submitting your commission request. Please try again.');
+      setActionError('Could not submit your commission request. Please try again.');
     } finally {
       setIsSubmittingCommission(false);
     }
@@ -222,9 +238,19 @@ export default function AddToCartButton({
       )}
 
       <div className="space-y-3">
+        {actionError && (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
+            {actionError}
+          </p>
+        )}
+        {commissionSuccess && (
+          <p className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800" role="status">
+            {commissionSuccess}
+          </p>
+        )}
         {isSoldOut && (
           <p
-            className={`w-full rounded-lg bg-gray-100 text-center font-medium text-gray-600 ${buttonSizes[size]}`}
+            className={`w-full rounded-button bg-gray-100 text-center font-medium text-gray-600 ${buttonSizes[size]}`}
             role="status"
           >
             {statusLabel}
@@ -235,9 +261,9 @@ export default function AddToCartButton({
           <button
             onClick={handleAddToCart}
             data-testid="add-to-cart"
-            disabled={isAdding || !isInStock()}
-            className={`w-full font-medium rounded-lg transition-all duration-200 ${buttonSizes[size]} ${
-              isAdding || !isInStock()
+            disabled={isAdding || !isVariantAvailable()}
+            className={`w-full font-medium rounded-button transition-all duration-200 ${buttonSizes[size]} ${
+              isAdding || !isVariantAvailable()
                 ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 : 'btn-primary shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 motion-reduce:transform-none'
             } ${className}`}
@@ -250,10 +276,10 @@ export default function AddToCartButton({
                 </svg>
                 Adding to Cart...
               </span>
-            ) : !isInStock() ? (
-              'Out of Stock'
+            ) : !isVariantAvailable() ? (
+              'Unavailable'
             ) : itemInCart ? (
-              `Update Cart (${formatPrice(displayPrice)})`
+              `Add another • ${formatPrice(displayPrice)}`
             ) : (
               `Add to Cart • ${formatPrice(displayPrice)}`
             )}
@@ -265,7 +291,7 @@ export default function AddToCartButton({
             <button
               type="button"
               onClick={() => setShowCommissionForm(true)}
-              className={`w-full font-medium rounded-lg transition-all duration-200 ${buttonSizes[size]} ${className} ${
+              className={`w-full font-medium rounded-button transition-all duration-200 ${buttonSizes[size]} ${className} ${
                 isCommissionOnly || isSoldOut
                   ? 'btn-primary shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 motion-reduce:transform-none'
                   : 'btn-primary-outline'

@@ -1,16 +1,29 @@
 import 'server-only';
 import { db } from '@/lib/db';
-import { CustomerInsights } from '@/lib/analytics/customer-insights';
+import { ApiError } from '@/lib/api-error-handler';
 import { getConfig } from '@/lib/config';
-import { sendTemplateEmail } from '@/lib/email';
+import { brandedEmailHtml, getEmailBrand, getEmailDeliveryStatus, sendTemplateEmail } from '@/lib/email';
+import { escapeHtml } from '@/lib/email-shell';
+import { absoluteUrl, parseInternalPath } from '@/lib/utils';
 import { publishSocialPost, type SocialPublishResult } from '@/lib/marketing/social-publishers';
-
-type CampaignContent = {
-  subject?: string;
-  html?: string;
-  text?: string;
-};
-
+import {
+  newsletterDocumentFromContent,
+  newsletterMergeValues,
+  newsletterSendIssues,
+  personalizeNewsletter,
+  renderNewsletter,
+  type NewsletterDocument,
+  type NewsletterRenderContext,
+  type NewsletterSendContext,
+  type NewsletterStatus,
+  type NewsletterSummary,
+  type RenderedNewsletter,
+} from '@/lib/newsletter';
+import {
+  listNewsletterSubscribers,
+  newsletterUnsubscribeHeaders,
+  newsletterUnsubscribeLinks,
+} from '@/lib/newsletter-subscribers';
 type CampaignRecipient = {
   email: string;
   name?: string | null;
@@ -24,6 +37,20 @@ type CampaignSendResult = {
   delivered: number;
   failed: number;
 };
+
+export type NewsletterMetrics = {
+  total: number;
+  delivered: number;
+  failed: number;
+  lastError?: string;
+};
+
+type NewsletterRecipient = { email: string; firstName?: string | null; profileId?: string };
+type NewsletterSender = { fromName: string; replyTo?: string };
+
+/** A send that stopped heartbeating this long ago is treated as interrupted and may be resumed. */
+const SEND_STALE_MS = 15 * 60 * 1000;
+const PROGRESS_INTERVAL = 20;
 
 type CampaignProcessSummary = {
   attempted: number;
@@ -47,45 +74,22 @@ function parseJsonObject(value: unknown): Record<string, any> {
   }
 }
 
-function parseStringArray(value: unknown): string[] {
-  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
-  if (typeof value !== 'string') return [];
-
-  try {
-    const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) return parsed.filter((item): item is string => typeof item === 'string');
-  } catch {
-    return value.split(',').map((item) => item.trim()).filter(Boolean);
-  }
-
-  return [];
-}
-
 function isEnabled(value: string | undefined, defaultValue = false): boolean {
   if (value === undefined) return defaultValue;
   return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
 }
 
-function mergeMetrics(current: unknown, delivered: number, failed: number) {
-  const metrics = parseJsonObject(current);
-  const sent = Number(metrics.sent || 0) + delivered + failed;
-  const deliveredTotal = Number(metrics.delivered || 0) + delivered;
-  const bounced = Number(metrics.bounced || 0) + failed;
-  const opened = Number(metrics.opened || 0);
-  const clicked = Number(metrics.clicked || 0);
-  const converted = Number(metrics.converted || 0);
-
+export function readNewsletterMetrics(value: unknown): NewsletterMetrics {
+  const metrics = parseJsonObject(value);
+  const count = (key: string) => {
+    const parsed = Number(metrics[key] ?? 0);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+  };
   return {
-    ...metrics,
-    sent,
-    delivered: deliveredTotal,
-    bounced,
-    opened,
-    clicked,
-    converted,
-    open_rate: sent > 0 ? (opened / sent) * 100 : 0,
-    click_rate: opened > 0 ? (clicked / opened) * 100 : 0,
-    conversion_rate: sent > 0 ? (converted / sent) * 100 : 0,
+    total: count('total'),
+    delivered: count('delivered'),
+    failed: count('failed'),
+    ...(typeof metrics.lastError === 'string' && metrics.lastError ? { lastError: metrics.lastError } : {}),
   };
 }
 
@@ -109,19 +113,6 @@ function eventActorKey(event: any): string | null {
   if (event.userId) return `user:${event.userId}`;
   if (event.sessionId) return `session:${event.sessionId}`;
   return null;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function replaceToken(content: string, token: string, value: string): string {
-  return content.split(`{{${token}}}`).join(value);
 }
 
 async function applySocialPublishResult(post: any, result: SocialPublishResult) {
@@ -153,157 +144,308 @@ async function applySocialPublishResult(post: any, result: SocialPublishResult) 
   return { ...campaign, publishAssist: result.assist, publishMode: result.mode, publishError: result.error };
 }
 
-async function renderContent(content: CampaignContent, recipient: CampaignRecipient) {
-  const siteUrl = await getConfig('NEXT_PUBLIC_SITE_URL') || await getConfig('NEXT_PUBLIC_BASE_URL') || '';
-  const values = {
-    customer_name: escapeHtml(recipient.name || 'there'),
-    email: escapeHtml(recipient.email),
-    site_url: escapeHtml(siteUrl),
-  };
+// ---------------------------------------------------------------------------
+// Newsletters
+// ---------------------------------------------------------------------------
 
-  let subject = content.subject || 'Update from the studio';
-  let html = content.html || '<p></p>';
-  let text = content.text || subject;
-
-  for (const [token, value] of Object.entries(values)) {
-    subject = replaceToken(subject, token, value);
-    html = replaceToken(html, token, value);
-    text = replaceToken(text, token, value);
-  }
-
-  return { subject, html, text };
-}
-
-async function getAllRecipients(): Promise<CampaignRecipient[]> {
-  const [users, profiles] = await Promise.all([
-    db.user.findMany({
-      where: { email: { not: '' } },
-      select: { id: true, email: true, name: true, firstName: true, lastName: true },
-      take: 1000,
-    }),
-    dbWithMarketing.customerProfile.findMany({
-      where: { email: { not: null } },
-      select: { id: true, email: true },
-      take: 1000,
-    }).catch(() => []),
+export async function getNewsletterRenderContext(): Promise<NewsletterRenderContext> {
+  const [brand, footerAddress] = await Promise.all([
+    getEmailBrand(),
+    getConfig('NEWSLETTER_FOOTER_ADDRESS'),
   ]);
-
-  return [
-    ...users.map((user: any) => ({
-      email: user.email,
-      name: user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || null,
-      userId: user.id,
-    })),
-    ...profiles.map((profile: any) => ({
-      email: profile.email,
-      customerProfileId: profile.id,
-    })),
-  ];
+  return { ...brand, footerAddress: footerAddress || '' };
 }
 
-async function getSegmentRecipients(segments: string[]): Promise<CampaignRecipient[]> {
-  if (segments.length === 0 || segments.includes('all')) return getAllRecipients();
-
-  const segmentRecipients = await Promise.all(
-    segments.map(async (segment) => {
-      try {
-        const customers = await CustomerInsights.getSegmentCustomers(segment, 1000);
-        return customers.map((customer: any) => ({
-          email: customer.email,
-          customerProfileId: customer.id,
-        }));
-      } catch {
-        return [];
-      }
-    })
-  );
-
-  return segmentRecipients.flat();
+export async function getNewsletterSendContext(): Promise<NewsletterSendContext & { fromAddress: string; replyTo: string }> {
+  const [context, delivery, subscribers, replyTo] = await Promise.all([
+    getNewsletterRenderContext(),
+    getEmailDeliveryStatus(),
+    listNewsletterSubscribers(),
+    newsletterReplyTo(),
+  ]);
+  return {
+    ...context,
+    subscriberCount: subscribers.length,
+    deliveryMode: delivery.mode,
+    fromAddress: delivery.fromAddress,
+    replyTo: replyTo || '',
+  };
 }
 
-function dedupeRecipients(recipients: CampaignRecipient[]): CampaignRecipient[] {
-  const seen = new Set<string>();
-  return recipients.filter((recipient) => {
-    const email = recipient.email?.trim().toLowerCase();
-    if (!email || seen.has(email)) return false;
-    seen.add(email);
-    return true;
+async function newsletterReplyTo(): Promise<string | undefined> {
+  return await getConfig('ARTIST_EMAIL') || await getConfig('CONTACT_EMAIL') || undefined;
+}
+
+async function newsletterSender(document: NewsletterDocument, context: NewsletterRenderContext): Promise<NewsletterSender> {
+  return { fromName: document.fromName.trim() || context.siteName, replyTo: await newsletterReplyTo() };
+}
+
+async function deliverNewsletter(
+  rendered: RenderedNewsletter,
+  recipient: NewsletterRecipient,
+  context: NewsletterRenderContext,
+  sender: NewsletterSender,
+): Promise<boolean> {
+  const links = newsletterUnsubscribeLinks(recipient.email, context.siteUrl);
+  const personalized = personalizeNewsletter(rendered, newsletterMergeValues(recipient, context, links.pageUrl));
+  return sendTemplateEmail(recipient.email, personalized, {
+    fromName: sender.fromName,
+    replyTo: sender.replyTo,
+    headers: newsletterUnsubscribeHeaders(links.oneClickUrl),
   });
 }
 
-export async function sendEmailCampaign(campaignId: string): Promise<CampaignSendResult> {
-  const campaign = await dbWithMarketing.emailCampaign.findUnique({ where: { id: campaignId } });
-  if (!campaign) throw new Error('Campaign not found');
-  if (campaign.status === 'completed') throw new Error('Campaign has already been completed');
-
-  const claimed = await dbWithMarketing.emailCampaign.updateMany({
-    where: { id: campaign.id, status: { not: 'completed' } },
-    data: { status: 'active' },
-  });
-  if (!claimed.count) throw new Error('Campaign is already being processed');
-
-  const content = parseJsonObject(campaign.content) as CampaignContent;
-  if (!content.subject || (!content.html && !content.text)) {
-    throw new Error('Campaign content is incomplete');
-  }
-
-  const recipients = dedupeRecipients(await getSegmentRecipients(parseStringArray(campaign.segments)));
+/** Renders and sends one newsletter-styled email to each subscriber the caller passes in. */
+export async function sendNewsletterEmails(
+  document: NewsletterDocument,
+  recipients: NewsletterRecipient[],
+  onResult?: (recipient: NewsletterRecipient, ok: boolean) => Promise<void>,
+): Promise<{ delivered: number; failed: number }> {
+  const context = await getNewsletterRenderContext();
+  const rendered = renderNewsletter(document, context);
+  const sender = await newsletterSender(document, context);
   let delivered = 0;
   let failed = 0;
-
   for (const recipient of recipients) {
-    const rendered = await renderContent(content, recipient);
-    const ok = await sendTemplateEmail(recipient.email, rendered);
+    const ok = await deliverNewsletter(rendered, recipient, context, sender);
     if (ok) delivered += 1;
     else failed += 1;
-
-    await db.analyticsEvent.create({
-      data: {
-        eventName: ok ? 'email_sent' : 'email_failed',
-        userId: recipient.customerProfileId,
-        properties: JSON.stringify({
-          campaign_id: campaign.id,
-          campaign_name: campaign.name,
-          recipient_email: recipient.email,
-          user_id: recipient.userId,
-          delivery_success: ok,
-        }),
-        timestamp: new Date(),
-      },
-    }).catch(() => undefined);
+    await onResult?.(recipient, ok);
   }
-
-  const metrics = mergeMetrics(campaign.metrics, delivered, failed);
-  await dbWithMarketing.emailCampaign.update({
-    where: { id: campaign.id },
-    data: {
-      metrics: JSON.stringify(metrics),
-      status: failed > 0 && delivered === 0 ? 'paused' : 'completed',
-    },
-  });
-
-  return { campaignId: campaign.id, attempted: recipients.length, delivered, failed };
+  return { delivered, failed };
 }
 
+export async function sendNewsletterTest(document: NewsletterDocument, emails: string[]) {
+  const users = await db.user.findMany({
+    where: { email: { in: emails, mode: 'insensitive' } },
+    select: { email: true, firstName: true, name: true },
+  });
+  const usersByEmail = new Map(users.map((user) => [user.email.toLowerCase(), user]));
+  const delivered: string[] = [];
+  const failed: string[] = [];
+  await sendNewsletterEmails(
+    { ...document, subject: `[Test] ${document.subject.trim()}` },
+    emails.map((email) => {
+      const user = usersByEmail.get(email);
+      return { email, firstName: user?.firstName || user?.name?.trim().split(' ')[0] || null };
+    }),
+    async (recipient, ok) => {
+      (ok ? delivered : failed).push(recipient.email);
+    },
+  );
+  return { delivered, failed };
+}
+
+/**
+ * Validates and atomically moves a newsletter into `active`. Sent newsletters can only be
+ * claimed again to retry recipients whose delivery failed.
+ */
+export async function claimEmailCampaign(campaignId: string): Promise<'send' | 'retry'> {
+  const campaign = await db.emailCampaign.findUnique({ where: { id: campaignId } });
+  if (!campaign) throw new ApiError(404, 'Newsletter not found', 'NOT_FOUND');
+
+  const staleBefore = new Date(Date.now() - SEND_STALE_MS);
+  const mode = campaign.sentAt ? 'retry' : 'send';
+  if (mode === 'retry') {
+    const failed = await db.emailCampaignDelivery.count({ where: { campaignId, status: 'failed' } });
+    if (failed === 0) {
+      await db.emailCampaign.updateMany({
+        where: { id: campaignId, status: 'active', updatedAt: { lt: staleBefore } },
+        data: { status: 'completed' },
+      });
+      throw new ApiError(409, 'This newsletter has already been sent.', 'ALREADY_SENT');
+    }
+  }
+
+  const issues = newsletterSendIssues(newsletterDocumentFromContent(campaign.content), await getNewsletterSendContext());
+  if (issues.length > 0) throw new ApiError(400, issues[0].message, 'NOT_READY', issues);
+
+  const metrics = readNewsletterMetrics(campaign.metrics);
+  const claimed = await db.emailCampaign.updateMany({
+    where: {
+      id: campaignId,
+      OR: [
+        { status: { in: mode === 'retry' ? ['completed', 'paused'] : ['draft', 'scheduled', 'paused'] } },
+        { status: 'active', updatedAt: { lt: staleBefore } },
+      ],
+    },
+    data: {
+      status: 'active',
+      metrics: JSON.stringify({ total: metrics.total, delivered: metrics.delivered, failed: metrics.failed }),
+    },
+  });
+  if (!claimed.count) throw new ApiError(409, 'This newsletter is already sending.', 'ALREADY_SENDING');
+  return mode;
+}
+
+/**
+ * Sends a claimed newsletter to current subscribers who have not received it. The delivery
+ * ledger makes this safe to resume after an interruption and to re-run for failed recipients.
+ */
+export async function deliverEmailCampaign(campaignId: string, mode: 'send' | 'retry'): Promise<CampaignSendResult> {
+  const campaign = await db.emailCampaign.findUniqueOrThrow({ where: { id: campaignId } });
+  try {
+    const subscribers = await listNewsletterSubscribers();
+    const subscribedEmails = subscribers.map((subscriber) => subscriber.email);
+    await db.emailCampaignDelivery.updateMany({
+      where: { campaignId, status: 'failed', email: { notIn: subscribedEmails } },
+      data: { status: 'skipped', error: 'Unsubscribed before retry' },
+    });
+
+    const ledger = await db.emailCampaignDelivery.findMany({ where: { campaignId }, select: { email: true, status: true } });
+    const sent = new Set(ledger.filter((entry) => entry.status === 'sent').map((entry) => entry.email));
+    const failedBefore = new Set(ledger.filter((entry) => entry.status === 'failed').map((entry) => entry.email));
+    const queue = subscribers.filter((subscriber) => (
+      !sent.has(subscriber.email) && (mode === 'send' || failedBefore.has(subscriber.email))
+    ));
+
+    const total = sent.size + queue.length;
+    let delivered = sent.size;
+    let failed = 0;
+    let processed = 0;
+    await db.emailCampaign.update({
+      where: { id: campaignId },
+      data: { metrics: JSON.stringify({ total, delivered, failed }) },
+    });
+
+    const result = await sendNewsletterEmails(
+      newsletterDocumentFromContent(campaign.content),
+      queue.map((subscriber) => ({ email: subscriber.email, firstName: subscriber.firstName, profileId: subscriber.profileId })),
+      async (recipient, ok) => {
+        if (ok) delivered += 1;
+        else failed += 1;
+        await db.emailCampaignDelivery.upsert({
+          where: { campaignId_email: { campaignId, email: recipient.email } },
+          create: { campaignId, email: recipient.email, status: ok ? 'sent' : 'failed', error: ok ? null : 'Delivery failed' },
+          update: { status: ok ? 'sent' : 'failed', error: ok ? null : 'Delivery failed', attemptedAt: new Date() },
+        });
+        await db.analyticsEvent.create({
+          data: {
+            eventName: ok ? 'email_sent' : 'email_failed',
+            userId: recipient.profileId,
+            properties: JSON.stringify({
+              campaign_id: campaign.id,
+              campaign_name: campaign.name,
+              recipient_email: recipient.email,
+              delivery_success: ok,
+            }),
+            timestamp: new Date(),
+          },
+        }).catch(() => undefined);
+        processed += 1;
+        if (processed % PROGRESS_INTERVAL === 0) {
+          await db.emailCampaign.update({
+            where: { id: campaignId },
+            data: { metrics: JSON.stringify({ total, delivered, failed }) },
+          });
+        }
+      },
+    );
+
+    const counts = await db.emailCampaignDelivery.groupBy({
+      by: ['status'],
+      where: { campaignId },
+      _count: { _all: true },
+    });
+    const countFor = (status: string) => counts.find((entry) => entry.status === status)?._count._all ?? 0;
+    const finalDelivered = countFor('sent');
+    const finalFailed = countFor('failed');
+    const metrics: NewsletterMetrics = {
+      total: finalDelivered + finalFailed,
+      delivered: finalDelivered,
+      failed: finalFailed,
+      ...(finalDelivered === 0
+        ? {
+          lastError: finalFailed > 0
+            ? 'No emails could be delivered. Check Email delivery in Settings, then send again.'
+            : 'There were no subscribers to send to.',
+        }
+        : {}),
+    };
+    await db.emailCampaign.update({
+      where: { id: campaignId },
+      data: {
+        metrics: JSON.stringify(metrics),
+        status: finalDelivered > 0 ? 'completed' : 'paused',
+        sentAt: finalDelivered > 0 ? campaign.sentAt ?? new Date() : campaign.sentAt,
+      },
+    });
+
+    return { campaignId, attempted: queue.length, delivered: result.delivered, failed: result.failed };
+  } catch (error) {
+    await markCampaignNeedsAttention(campaignId, error instanceof Error ? error.message : 'Sending stopped unexpectedly');
+    throw error;
+  }
+}
+
+async function markCampaignNeedsAttention(campaignId: string, message: string): Promise<void> {
+  const current = await db.emailCampaign.findUnique({ where: { id: campaignId }, select: { metrics: true, status: true } });
+  if (!current || current.status === 'completed') return;
+  await db.emailCampaign.update({
+    where: { id: campaignId },
+    data: { status: 'paused', metrics: JSON.stringify({ ...readNewsletterMetrics(current.metrics), lastError: message }) },
+  }).catch(() => undefined);
+}
+
+const NEWSLETTER_STATUSES = new Set<NewsletterStatus>(['draft', 'scheduled', 'active', 'paused', 'completed']);
+
+export async function listNewsletterSummaries(ids?: string[]): Promise<NewsletterSummary[]> {
+  const campaigns = await db.emailCampaign.findMany({
+    where: { type: 'broadcast', ...(ids ? { id: { in: ids } } : {}) },
+    orderBy: { updatedAt: 'desc' },
+    take: 100,
+  });
+  const sentCounts = campaigns.length
+    ? await db.emailCampaignDelivery.groupBy({
+      by: ['campaignId'],
+      where: { status: 'sent', campaignId: { in: campaigns.map((campaign) => campaign.id) } },
+      _count: { _all: true },
+    })
+    : [];
+  const sentByCampaign = new Map(sentCounts.map((entry) => [entry.campaignId, entry._count._all]));
+
+  return campaigns.map((campaign) => {
+    const status = NEWSLETTER_STATUSES.has(campaign.status as NewsletterStatus) ? campaign.status as NewsletterStatus : 'draft';
+    return {
+      id: campaign.id,
+      status,
+      document: newsletterDocumentFromContent(campaign.content),
+      scheduledAt: campaign.scheduledAt?.toISOString() ?? null,
+      sentAt: campaign.sentAt?.toISOString() ?? null,
+      updatedAt: campaign.updatedAt.toISOString(),
+      metrics: readNewsletterMetrics(campaign.metrics),
+      editable: status !== 'active' && status !== 'completed' && !sentByCampaign.get(campaign.id),
+    };
+  });
+}
+
+export async function getNewsletterSummary(id: string): Promise<NewsletterSummary> {
+  const [summary] = await listNewsletterSummaries([id]);
+  if (!summary) throw new ApiError(404, 'Newsletter not found', 'NOT_FOUND');
+  return summary;
+}
+
+/** Sends due scheduled newsletters and resumes sends that were interrupted mid-run. */
 export async function processDueEmailCampaigns(now = new Date()): Promise<CampaignSendResult[]> {
-  const dueCampaigns = await dbWithMarketing.emailCampaign.findMany({
+  const dueCampaigns = await db.emailCampaign.findMany({
     where: {
       type: 'broadcast',
-      status: 'scheduled',
-      scheduledAt: { lte: now },
+      OR: [
+        { status: 'scheduled', scheduledAt: { lte: now } },
+        { status: 'active', updatedAt: { lt: new Date(now.getTime() - SEND_STALE_MS) } },
+      ],
     },
+    select: { id: true },
     take: 10,
   }).catch(() => []);
 
   const results: CampaignSendResult[] = [];
   for (const campaign of dueCampaigns) {
     try {
-      results.push(await sendEmailCampaign(campaign.id));
+      results.push(await deliverEmailCampaign(campaign.id, await claimEmailCampaign(campaign.id)));
     } catch (error) {
-      await dbWithMarketing.emailCampaign.update({
-        where: { id: campaign.id },
-        data: { status: 'paused' },
-      }).catch(() => undefined);
+      if (error instanceof ApiError && error.status === 409) continue;
+      await markCampaignNeedsAttention(campaign.id, error instanceof Error ? error.message : 'Scheduled send failed');
     }
   }
 
@@ -386,8 +528,7 @@ export async function processDueCartRecovery(now = new Date()): Promise<Campaign
   for (const user of users as any[]) if (user.email) recipientsById.set(user.id, { email: user.email, name: user.name, userId: user.id });
   for (const profile of profiles as any[]) if (profile.email && !recipientsById.has(profile.id)) recipientsById.set(profile.id, { email: profile.email, customerProfileId: profile.id });
 
-  const siteUrl = await getConfig('NEXT_PUBLIC_SITE_URL') || await getConfig('NEXT_PUBLIC_BASE_URL') || '';
-  const promoCode = await getConfig('CART_RECOVERY_PROMO_CODE');
+  const [brand, promoCode] = await Promise.all([getEmailBrand(), getConfig('CART_RECOVERY_PROMO_CODE')]);
   const summary: CampaignProcessSummary = { attempted: 0, completed: 0, needsAttention: 0, failed: 0 };
   const processedActors = new Set<string>();
 
@@ -402,13 +543,17 @@ export async function processDueCartRecovery(now = new Date()): Promise<Campaign
 
     processedActors.add(key);
     summary.attempted += 1;
-    const recoveryPath = typeof properties.recovery_path === 'string' && properties.recovery_path.trim()
-      ? properties.recovery_path.trim()
-      : '/checkout';
-    const checkoutUrl = siteUrl ? `${siteUrl.replace(/\/$/, '')}${recoveryPath.startsWith('/') ? recoveryPath : `/${recoveryPath}`}` : recoveryPath;
+    const requestedPath = typeof properties.recovery_path === 'string' ? parseInternalPath(properties.recovery_path.trim()) : null;
+    const recoveryPath = requestedPath ? `${requestedPath.pathname}${requestedPath.search}` : '/checkout';
+    const checkoutUrl = absoluteUrl(recoveryPath, brand.siteUrl);
     const template = {
       subject: 'Complete your artwork selection',
-      html: `<p>Hi ${escapeHtml(recipient.name || 'there')},</p><p>You recently selected artwork but did not finish checkout.</p>${promoCode ? `<p>Use code <strong>${escapeHtml(promoCode)}</strong> when you return.</p>` : ''}<p><a href="${escapeHtml(checkoutUrl)}">Return to checkout</a></p>`,
+      html: brandedEmailHtml(brand, {
+        title: 'Your artwork is still waiting',
+        intro: `Hi ${escapeHtml(recipient.name || 'there')}, you recently selected artwork but did not finish checkout.`,
+        sections: promoCode ? [{ html: `Use code <strong>${escapeHtml(promoCode)}</strong> when you return.` }] : [],
+        cta: { label: 'Return to checkout', href: checkoutUrl },
+      }),
       text: `Hi ${recipient.name || 'there'}, you recently selected artwork but did not finish checkout.${promoCode ? ` Use code ${promoCode} when you return.` : ''} Return to checkout: ${checkoutUrl}`,
     };
     const ok = await sendTemplateEmail(recipient.email, template);

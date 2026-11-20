@@ -1,14 +1,49 @@
 import { CONTACT_INQUIRY_KEYS } from '@/lib/site-content-shared';
+
 export interface ContactFormData {
   name: string;
   email: string;
   subject: string;
   message: string;
   inquiryType: string;
+  /** Required when inquiryType is commission — size and medium together. */
+  commissionSizeMedium: string;
+  /** Required when inquiryType is commission. */
+  commissionTimeline: string;
+  /** Required when inquiryType is commission — subject matter or theme. */
+  commissionTheme: string;
+  /** Required when inquiryType is commission. */
+  commissionBudget: string;
 }
 
 export interface ValidationErrors {
   [key: string]: string;
+}
+
+export function isCommissionInquiry(inquiryType: string): boolean {
+  return inquiryType === 'commission';
+}
+
+const COMMISSION_FIELD_MAX = 300;
+
+function requireCommissionText(
+  value: string,
+  fieldLabel: string,
+  errors: ValidationErrors,
+  errorKey: keyof ContactFormData,
+): void {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    errors[errorKey] = `${fieldLabel} is required for commission requests`;
+    return;
+  }
+  if (trimmed.length < 3) {
+    errors[errorKey] = `${fieldLabel} must be at least 3 characters`;
+    return;
+  }
+  if (trimmed.length > COMMISSION_FIELD_MAX) {
+    errors[errorKey] = `${fieldLabel} must be less than ${COMMISSION_FIELD_MAX} characters`;
+  }
 }
 
 export const validateEmail = (email: string): boolean => {
@@ -22,7 +57,6 @@ export const validateEmail = (email: string): boolean => {
 export const validateContactForm = (data: ContactFormData): ValidationErrors => {
   const errors: ValidationErrors = {};
 
-  // Name validation
   if (!data.name.trim()) {
     errors.name = 'Name is required';
   } else if (data.name.trim().length < 2) {
@@ -31,14 +65,12 @@ export const validateContactForm = (data: ContactFormData): ValidationErrors => 
     errors.name = 'Name must be less than 100 characters';
   }
 
-  // Email validation
   if (!data.email.trim()) {
     errors.email = 'Email is required';
   } else if (!validateEmail(data.email)) {
     errors.email = 'Please enter a valid email address';
   }
 
-  // Subject validation
   if (!data.subject.trim()) {
     errors.subject = 'Subject is required';
   } else if (data.subject.trim().length < 5) {
@@ -47,7 +79,6 @@ export const validateContactForm = (data: ContactFormData): ValidationErrors => 
     errors.subject = 'Subject must be less than 200 characters';
   }
 
-  // Message validation
   if (!data.message.trim()) {
     errors.message = 'Message is required';
   } else if (data.message.trim().length < 20) {
@@ -56,50 +87,79 @@ export const validateContactForm = (data: ContactFormData): ValidationErrors => 
     errors.message = 'Message must be less than 2000 characters';
   }
 
-  // Inquiry type validation
   if (!(CONTACT_INQUIRY_KEYS as readonly string[]).includes(data.inquiryType)) {
     errors.inquiryType = 'Please select a valid inquiry type';
+  }
+
+  if (isCommissionInquiry(data.inquiryType)) {
+    requireCommissionText(data.commissionSizeMedium || '', 'Desired size and medium', errors, 'commissionSizeMedium');
+    requireCommissionText(data.commissionTimeline || '', 'Timeline and deadline', errors, 'commissionTimeline');
+    requireCommissionText(data.commissionTheme || '', 'Subject matter or theme', errors, 'commissionTheme');
+    requireCommissionText(data.commissionBudget || '', 'Budget range', errors, 'commissionBudget');
   }
 
   return errors;
 };
 
 export const sanitizeFormData = (data: ContactFormData): ContactFormData => {
-  return {
+  const inquiryType = data.inquiryType;
+  const base: ContactFormData = {
     name: data.name.trim(),
     email: data.email.trim().toLowerCase(),
     subject: data.subject.trim(),
     message: data.message.trim(),
-    inquiryType: data.inquiryType,
+    inquiryType,
+    commissionSizeMedium: '',
+    commissionTimeline: '',
+    commissionTheme: '',
+    commissionBudget: '',
+  };
+
+  if (!isCommissionInquiry(inquiryType)) {
+    return base;
+  }
+
+  return {
+    ...base,
+    commissionSizeMedium: String(data.commissionSizeMedium || '').trim(),
+    commissionTimeline: String(data.commissionTimeline || '').trim(),
+    commissionTheme: String(data.commissionTheme || '').trim(),
+    commissionBudget: String(data.commissionBudget || '').trim(),
   };
 };
+
+/** Structured commission details for email / inbox bodies. */
+export function formatCommissionInquiryDetails(data: ContactFormData): string | null {
+  if (!isCommissionInquiry(data.inquiryType)) return null;
+  return [
+    `Desired size and medium: ${data.commissionSizeMedium}`,
+    `Timeline and deadline: ${data.commissionTimeline}`,
+    `Subject matter or theme: ${data.commissionTheme}`,
+    `Budget range: ${data.commissionBudget}`,
+  ].join('\n');
+}
 
 // Rate limiting utilities
 export const isRateLimited = (identifier: string, windowMs = 60000, maxRequests = 3): boolean => {
   const key = `contact_rate_limit_${identifier}`;
   const now = Date.now();
   
-  // Get existing requests from localStorage (client-side) or implement server-side storage
   const storage = typeof window !== 'undefined' ? window.localStorage : undefined;
   const stored = storage?.getItem(key) || null;
   let requests;
   
   try {
     requests = stored ? JSON.parse(stored) : [];
-  } catch (error) {
-    // Handle malformed JSON gracefully
+  } catch {
     requests = [];
   }
   
-  // Filter out requests outside the time window
   const recentRequests = requests.filter((timestamp: number) => now - timestamp < windowMs);
   
-  // Check if rate limit exceeded
   if (recentRequests.length >= maxRequests) {
     return true;
   }
   
-  // Add current request and update storage
   recentRequests.push(now);
   if (storage) {
     storage.setItem(key, JSON.stringify(recentRequests));

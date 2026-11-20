@@ -74,7 +74,7 @@ export default function UpdateQuickLook({
       onClick={onClose}
     >
       <div
-        className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-t-2xl bg-white shadow-xl sm:rounded-2xl"
+        className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b px-4 py-3">
@@ -99,7 +99,7 @@ export default function UpdateQuickLook({
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
             {actions}
-            <Link href={updatesPostPath(post.slug)} className="btn-primary inline-flex rounded-md px-4 py-2 text-sm">
+            <Link href={updatesPostPath(post.slug)} className="btn-primary inline-flex px-4 py-2 text-sm">
               View full post
             </Link>
           </div>

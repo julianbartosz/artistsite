@@ -4,7 +4,7 @@ import OrderTracking from '@/components/OrderTracking';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Order Status - Artist Site',
+  title: 'Order Status',
   robots: { index: false, follow: false },
 };
 
@@ -20,7 +20,7 @@ export default async function OrderStatusPage({
   const accessToken = Array.isArray(t) ? t[0] : t;
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
+    <div className="min-h-screen bg-surface-muted py-12">
       <OrderTracking orderId={id} accessToken={accessToken} />
     </div>
   );

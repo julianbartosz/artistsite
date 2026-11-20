@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, ReactNode } from 'react'
 import { GA4Analytics, type EcommerceItem } from '@/lib/analytics/ga4'
 import { ConversionFunnels } from '@/lib/analytics/funnels'
 import { useSession } from 'next-auth/react'
@@ -22,6 +22,7 @@ interface AnalyticsContextType {
   trackEcommerceFunnel: typeof ConversionFunnels.trackEcommerceFunnel
   trackNewsletterFunnel: typeof ConversionFunnels.trackNewsletterFunnel
   trackPortfolioFunnel: typeof ConversionFunnels.trackPortfolioFunnel
+  isTrackingEnabled: boolean
 }
 
 const AnalyticsContext = createContext<AnalyticsContextType | null>(null)
@@ -31,19 +32,31 @@ interface AnalyticsProviderProps {
 }
 
 export function AnalyticsProvider({ children }: AnalyticsProviderProps) {
-  const { data: session } = useSession()
+  const { data: session, status } = useSession()
   const pathname = usePathname()
+  const lastTrackedPathRef = useRef<string | null>(null)
+
+  const isAdminSession = Boolean(session?.user?.isAdmin)
+  const isTrackingEnabled = status !== 'loading' && !isAdminSession && !pathname.startsWith('/admin')
+
+  // Keep funnel suppression synchronously aligned with session/route state so
+  // child mount effects never fire events for admin sessions or Studio previews.
+  ConversionFunnels.setSuppressed(!isTrackingEnabled)
 
   useEffect(() => {
-    // Initialize GA4 if measurement ID is available
-    const measurementId = process.env.NEXT_PUBLIC_GA4_MEASUREMENT_ID
-    if (measurementId) {
-      GA4Analytics.initialize(measurementId)
-    }
+    ConversionFunnels.setSuppressed(!isTrackingEnabled)
+    if (!isTrackingEnabled || ConversionFunnels.isTrackingSuppressed()) return
 
     fetch('/api/config/public')
       .then((response) => response.json())
       .then((config) => {
+        const measurementId = typeof config.NEXT_PUBLIC_GA4_MEASUREMENT_ID === 'string'
+          ? config.NEXT_PUBLIC_GA4_MEASUREMENT_ID.trim()
+          : ''
+        if (measurementId) {
+          GA4Analytics.initialize(measurementId)
+        }
+
         const pixelId = typeof config.FACEBOOK_PIXEL_ID === 'string' ? config.FACEBOOK_PIXEL_ID.trim() : ''
         if (!pixelId || typeof window === 'undefined') return
 
@@ -72,45 +85,64 @@ export function AnalyticsProvider({ children }: AnalyticsProviderProps) {
     // Initialize ConversionFunnels system
     ConversionFunnels.initialize()
 
-    // Set user properties if user is logged in
+    // Set user properties if a non-admin collector is logged in
     if (session?.user) {
       GA4Analytics.setUserProperties({
         user_id: session.user.id,
         user_type: 'authenticated',
       })
     }
-  }, [session])
+  }, [isTrackingEnabled, session?.user])
 
   useEffect(() => {
-    // Track page views on route changes
+    if (!isTrackingEnabled || ConversionFunnels.isTrackingSuppressed()) return
+    if (lastTrackedPathRef.current === pathname) return
+    lastTrackedPathRef.current = pathname
+
+    const userId = session?.user?.id
+
+    // Track page views on route changes (GA4, Meta Pixel, and internal analytics)
     GA4Analytics.trackPageView(pathname)
+    ConversionFunnels.trackPageView(userId)
+
     const w = window as typeof window & { fbq?: (...args: unknown[]) => void }
     if (w.fbq) {
       w.fbq('track', 'PageView')
     }
-    
+
     // Track specific page types for funnels
     if (pathname === '/portfolio') {
-      ConversionFunnels.trackPortfolioFunnel.portfolioView(session?.user?.id)
+      ConversionFunnels.trackPortfolioFunnel.portfolioView(userId)
     } else if (pathname.startsWith('/portfolio/')) {
       const artworkId = pathname.split('/').pop()
-      ConversionFunnels.trackPortfolioFunnel.artworkView(artworkId || '', session?.user?.id)
+      ConversionFunnels.trackPortfolioFunnel.artworkView(artworkId || '', userId)
     } else if (pathname === '/shop') {
-      // Track shop page view
       GA4Analytics.trackEvent('shop_page_view', {
         event_category: 'ecommerce',
         page_path: pathname,
       })
     }
-  }, [pathname, session?.user?.id])
+  }, [isTrackingEnabled, pathname, session?.user?.id])
 
-  const contextValue: AnalyticsContextType = {
+  const sessionUserId = session?.user?.id
+
+  const contextValue = useMemo<AnalyticsContextType>(() => ({
     trackEvent: GA4Analytics.trackEvent,
     trackPageView: GA4Analytics.trackPageView,
     trackPurchase: GA4Analytics.trackPurchase,
     trackAddToCart: GA4Analytics.trackAddToCart,
     trackViewItem: GA4Analytics.trackViewItem,
-    trackBeginCheckout: GA4Analytics.trackBeginCheckout,
+    trackBeginCheckout: (items, value, metadata) => {
+      if (!isTrackingEnabled) return
+      GA4Analytics.trackBeginCheckout(items, value, metadata)
+      ConversionFunnels.trackFunnelStep('ecommerce', 'begin_checkout', sessionUserId, {
+        currency: 'USD',
+        value,
+        items,
+        email: metadata?.email,
+        recovery_path: metadata?.recovery_path,
+      })
+    },
     trackNewsletterSignup: GA4Analytics.trackNewsletterSignup,
     trackSocialShare: GA4Analytics.trackSocialShare,
     trackSearch: GA4Analytics.trackSearch,
@@ -119,7 +151,8 @@ export function AnalyticsProvider({ children }: AnalyticsProviderProps) {
     trackEcommerceFunnel: ConversionFunnels.trackEcommerceFunnel,
     trackNewsletterFunnel: ConversionFunnels.trackNewsletterFunnel,
     trackPortfolioFunnel: ConversionFunnels.trackPortfolioFunnel,
-  }
+    isTrackingEnabled,
+  }), [isTrackingEnabled, sessionUserId])
 
   return (
     <AnalyticsContext.Provider value={contextValue}>
@@ -140,9 +173,11 @@ export function useAnalytics() {
 export function useEcommerceTracking() {
   const analytics = useAnalytics()
   const { data: session } = useSession()
+  const userId = session?.user?.id
 
-  return {
+  return useMemo(() => ({
     trackProductView: (productId: string, productName: string, category: string, price: number) => {
+      if (!analytics.isTrackingEnabled) return
       analytics.trackViewItem({
         item_id: productId,
         item_name: productName,
@@ -150,10 +185,11 @@ export function useEcommerceTracking() {
         price,
         quantity: 1,
       })
-      analytics.trackEcommerceFunnel.productView(productId, session?.user?.id)
+      analytics.trackEcommerceFunnel.productView(productId, userId)
     },
-    
+
     trackAddToCart: (productId: string, productName: string, category: string, price: number, quantity: number = 1) => {
+      if (!analytics.isTrackingEnabled) return
       analytics.trackAddToCart({
         item_id: productId,
         item_name: productName,
@@ -161,15 +197,16 @@ export function useEcommerceTracking() {
         price,
         quantity,
       })
-      analytics.trackEcommerceFunnel.addToCart(productId, session?.user?.id)
+      analytics.trackEcommerceFunnel.addToCart(productId, userId)
     },
-    
+
     trackBeginCheckout: (items: EcommerceItem[], total: number) => {
+      if (!analytics.isTrackingEnabled) return
       analytics.trackBeginCheckout(items, total)
-      analytics.trackEcommerceFunnel.beginCheckout(session?.user?.id)
     },
-    
+
     trackPurchase: (transactionId: string, items: EcommerceItem[], total: number, shipping?: number, tax?: number) => {
+      if (!analytics.isTrackingEnabled) return
       analytics.trackPurchase({
         transaction_id: transactionId,
         value: total,
@@ -178,57 +215,65 @@ export function useEcommerceTracking() {
         shipping,
         tax,
       })
-      analytics.trackEcommerceFunnel.purchase(transactionId, session?.user?.id)
+      analytics.trackEcommerceFunnel.purchase(transactionId, userId)
     },
-  }
+  }), [analytics, userId])
 }
 
 export function useNewsletterTracking() {
   const analytics = useAnalytics()
   const { data: session } = useSession()
+  const userId = session?.user?.id
 
-  return {
+  return useMemo(() => ({
+    isTrackingEnabled: analytics.isTrackingEnabled,
     trackFormView: () => {
+      if (!analytics.isTrackingEnabled) return
       analytics.trackEvent('newsletter_form_view', {
         event_category: 'engagement',
       })
-      analytics.trackNewsletterFunnel.formView(session?.user?.id)
+      analytics.trackNewsletterFunnel.formView(userId)
     },
-    
+
     trackSignup: (method: string = 'form') => {
+      if (!analytics.isTrackingEnabled) return
       analytics.trackNewsletterSignup(method)
-      analytics.trackNewsletterFunnel.signup(session?.user?.id)
+      analytics.trackNewsletterFunnel.signup(userId)
     },
-  }
+  }), [analytics, userId])
 }
 
 export function usePortfolioTracking() {
   const analytics = useAnalytics()
   const { data: session } = useSession()
+  const userId = session?.user?.id
 
-  return {
+  return useMemo(() => ({
     trackArtworkView: (artworkId: string, artworkTitle: string) => {
+      if (!analytics.isTrackingEnabled) return
       analytics.trackEvent('artwork_view', {
         event_category: 'content',
         artwork_id: artworkId,
         artwork_title: artworkTitle,
       })
-      analytics.trackPortfolioFunnel.artworkView(artworkId, session?.user?.id)
+      analytics.trackPortfolioFunnel.artworkView(artworkId, userId)
     },
-    
+
     trackContactFormView: () => {
+      if (!analytics.isTrackingEnabled) return
       analytics.trackEvent('contact_form_view', {
         event_category: 'engagement',
       })
-      analytics.trackPortfolioFunnel.contactFormView(session?.user?.id)
+      analytics.trackPortfolioFunnel.contactFormView(userId)
     },
-    
+
     trackCommissionInquiry: (artworkId?: string) => {
+      if (!analytics.isTrackingEnabled) return
       analytics.trackEvent('commission_inquiry', {
         event_category: 'conversion',
         artwork_id: artworkId,
       })
-      analytics.trackPortfolioFunnel.commissionInquiry(session?.user?.id)
+      analytics.trackPortfolioFunnel.commissionInquiry(userId)
     },
-  }
+  }), [analytics, userId])
 }

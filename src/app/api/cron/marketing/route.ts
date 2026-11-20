@@ -1,16 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { processDueCartRecovery, processDueEmailCampaigns, processDueSocialPosts } from '@/lib/marketing/campaign-execution';
-import { InventoryService } from '@/lib/inventory';
-import { getConfig, setConfig } from '@/lib/config';
+import { resolveCronSecret, runScheduledAutomations } from '@/lib/scheduled-automations';
 
-async function resolveCronSecret(): Promise<string | undefined> {
-  return (await getConfig('CRON_SECRET')) || process.env.CRON_SECRET;
-}
-
-async function isAuthorized(request: NextRequest): Promise<boolean> {
-  const secret = await resolveCronSecret();
-  if (!secret) return false;
-
+function isAuthorized(request: NextRequest, secret: string): boolean {
   const authorization = request.headers.get('authorization') || '';
   const bearer = authorization.startsWith('Bearer ') ? authorization.slice('Bearer '.length) : '';
   const headerSecret = request.headers.get('x-cron-secret') || '';
@@ -24,27 +15,16 @@ async function runScheduledMarketing(request: NextRequest) {
     return NextResponse.json({ error: 'CRON_SECRET is not configured' }, { status: 503 });
   }
 
-  if (!(await isAuthorized(request))) {
+  if (!isAuthorized(request, secret)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const [email, social, cartRecovery, expiredReservationsReleased, updatesDigest] = await Promise.all([
-    processDueEmailCampaigns(),
-    processDueSocialPosts(),
-    processDueCartRecovery(),
-    InventoryService.releaseExpiredReservations(),
-    import('@/lib/updates-digest').then((mod) => mod.processUpdatesDigests()),
-  ]);
+  const run = await runScheduledAutomations();
+  if (!run) {
+    return NextResponse.json({ error: 'Automations are already running. Try again in a few minutes.' }, { status: 409 });
+  }
 
-  await setConfig('CRON_LAST_RUN_AT', new Date().toISOString(), { encrypt: false });
-  const lastRunAt = await getConfig('CRON_LAST_RUN_AT');
-
-  return NextResponse.json({
-    success: true,
-    processed: email.length + social.attempted + cartRecovery.attempted,
-    lastRunAt,
-    results: { email, social, cartRecovery, inventory: { expiredReservationsReleased }, updatesDigest },
-  });
+  return NextResponse.json({ success: true, ...run });
 }
 
 export async function GET(request: NextRequest) {

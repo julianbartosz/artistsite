@@ -16,6 +16,12 @@ const nextConfig: NextConfig = {
   
   // Enable standalone output for Docker deployment
   output: 'standalone',
+
+  // Generated brand images read these fonts from disk at runtime.
+  outputFileTracingIncludes: {
+    '/api/og': ['./src/app/fonts/og/**'],
+    '/api/brand/icon': ['./src/app/fonts/og/**'],
+  },
   
   // Server external packages
   serverExternalPackages: ['@vercel/otel', 'web-vitals'],

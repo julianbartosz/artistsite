@@ -124,11 +124,6 @@ export class GA4Analytics {
     }
 
     window.gtag('event', eventName, eventData)
-    
-    // Also store in our local analytics with better error handling
-    GA4Analytics.storeLocalEvent(eventName, eventData).catch(() => {
-      // Silently fail for analytics - don't interrupt user experience
-    })
   }
 
   /**
@@ -145,26 +140,18 @@ export class GA4Analytics {
       tax: purchaseData.tax,
       items: purchaseData.items,
     })
-
-    GA4Analytics.storeLocalEvent('purchase', purchaseData)
   }
 
   /**
    * Track add to cart
    */
   static trackAddToCart(item: EcommerceItem): void {
-    const eventData = {
+    if (!GA4Analytics.isReady()) return
+
+    window.gtag('event', 'add_to_cart', {
       currency: item.currency || 'USD',
       value: item.price * item.quantity,
       items: [item],
-    }
-
-    if (GA4Analytics.isReady()) {
-      window.gtag('event', 'add_to_cart', eventData)
-    }
-
-    GA4Analytics.storeLocalEvent('add_to_cart', eventData).catch(() => {
-      // Analytics must never block checkout flows.
     })
   }
 
@@ -176,20 +163,14 @@ export class GA4Analytics {
     value: number,
     metadata?: { email?: string; recovery_path?: string },
   ): void {
-    const eventData = {
+    if (!GA4Analytics.isReady()) return
+
+    window.gtag('event', 'begin_checkout', {
       currency: 'USD',
       value,
       items,
       email: metadata?.email,
       recovery_path: metadata?.recovery_path,
-    }
-
-    if (GA4Analytics.isReady()) {
-      window.gtag('event', 'begin_checkout', eventData)
-    }
-
-    GA4Analytics.storeLocalEvent('begin_checkout', eventData).catch(() => {
-      // Analytics must never block checkout flows.
     })
   }
 
@@ -288,68 +269,5 @@ export class GA4Analytics {
     return typeof window !== 'undefined' && 
            this.isInitialized && 
            typeof window.gtag === 'function'
-  }
-
-  /**
-   * Store event in local analytics database
-   */
-  private static async storeLocalEvent(eventName: string, properties: Record<string, unknown>): Promise<void> {
-    // Skip if running on server
-    if (typeof window === 'undefined') return
-
-    try {
-      const sessionId = GA4Analytics.getSessionId()
-      const userId = GA4Analytics.getUserId()
-
-      const response = await fetch('/api/analytics/events', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          event_name: eventName,
-          user_id: userId,
-          session_id: sessionId,
-          properties: properties,
-          page_url: window.location.href,
-        }),
-      })
-
-      // Don't throw errors for analytics failures
-      if (!response.ok && process.env.NODE_ENV === 'development') {
-        console.warn(`Analytics API returned ${response.status}: ${response.statusText}`)
-      }
-    } catch (error) {
-      // Only log in development, never throw
-      if (process.env.NODE_ENV === 'development') {
-        console.warn('Failed to store local analytics event:', error)
-      }
-    }
-  }
-
-  /**
-   * Get or create session ID
-   */
-  private static getSessionId(): string {
-    // Return empty string if running on server
-    if (typeof window === 'undefined' || typeof sessionStorage === 'undefined') {
-      return ''
-    }
-
-    let sessionId = sessionStorage.getItem('analytics_session_id')
-    if (!sessionId) {
-      sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-      sessionStorage.setItem('analytics_session_id', sessionId)
-    }
-    return sessionId
-  }
-
-  /**
-   * Get user ID (if authenticated)
-   */
-  private static getUserId(): string | undefined {
-    // This would integrate with your authentication system
-    // For now, return undefined for anonymous users
-    return undefined
   }
 }

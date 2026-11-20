@@ -6,7 +6,6 @@ import type { SiteFooterContent, SiteIdentityContent } from '@/lib/site-content-
 import { DEFAULT_SITE_IDENTITY, footerNavItems } from '@/lib/site-content-shared';
 import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
 
-const DEFAULT_CONTACT_EMAIL = 'hello@artistsite.com';
 const DEFAULT_FOOTER = DEFAULT_SITE_IDENTITY.footer;
 
 type FooterProps = {
@@ -24,7 +23,7 @@ type FooterProps = {
 export function Footer({
   siteIdentity = DEFAULT_SITE_IDENTITY,
   footerContent = DEFAULT_FOOTER,
-  contactEmail = DEFAULT_CONTACT_EMAIL,
+  contactEmail = '',
   socialUrls = { instagram: '', facebook: '', twitter: '', pinterest: '' },
 }: FooterProps) {
   const currentYear = new Date().getFullYear();
@@ -40,7 +39,9 @@ export function Footer({
       socialUrls.facebook ? { name: 'Facebook', href: socialUrls.facebook, icon: 'facebook' } : null,
       socialUrls.twitter ? { name: 'X', href: socialUrls.twitter, icon: 'twitter' } : null,
       socialUrls.pinterest ? { name: 'Pinterest', href: socialUrls.pinterest, icon: 'pinterest' } : null,
-      { name: 'Email', href: `mailto:${contactEmail}`, icon: 'email' },
+      contactEmail
+        ? { name: 'Email', href: `mailto:${contactEmail}`, icon: 'email' }
+        : { name: 'Contact', href: '/contact', icon: 'email' },
     ].filter(Boolean) as Array<{ name: string; href: string; icon: string }>,
   };
 
@@ -56,8 +57,8 @@ export function Footer({
     switch (icon) {
       case 'instagram':
         return (
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12.017 0C5.396 0 .029 5.367.029 11.987c0 6.62 5.367 11.987 11.988 11.987c6.62 0 11.987-5.367 11.987-11.987C24.014 5.367 18.647.001 12.017.001zM8.449 16.988c-1.297 0-2.448-.49-3.331-1.297C4.236 14.394 3.746 13.243 3.746 11.946s.49-2.448 1.372-3.331c.883-.807 2.034-1.297 3.331-1.297s2.448.49 3.331 1.297c.883.883 1.372 2.034 1.372 3.331s-.49 2.448-1.372 3.331c-.883.807-2.034 1.297-3.331 1.297zm7.072 0c-1.297 0-2.448-.49-3.331-1.297c-.883-.883-1.372-2.034-1.372-3.331s.49-2.448 1.372-3.331c.883-.807 2.034-1.297 3.331-1.297s2.448.49 3.331 1.297c.883.883 1.372 2.034 1.372 3.331s-.49 2.448-1.372 3.331c-.883.807-2.034 1.297-3.331 1.297z"/>
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 11-2.88 0 1.44 1.44 0 012.88 0z" />
           </svg>
         );
       case 'twitter':

@@ -2,6 +2,12 @@ import { z } from 'zod';
 import { sanitizeRichHtml } from '@/lib/content-sanitize';
 import { normalizeProduct, PRODUCT_IMAGE_FALLBACK } from '@/lib/commerce';
 import { resolvePublicAssetUrl } from '@/lib/public-asset';
+import {
+  NEWSLETTER_SEGMENT,
+  NEWSLETTER_TEMPLATE_ID,
+  type NewsletterBlock,
+  type NewsletterDocument,
+} from '@/lib/newsletter';
 
 const ARTWORK_IMAGE_FALLBACK = PRODUCT_IMAGE_FALLBACK;
 
@@ -53,6 +59,10 @@ export const productPayloadSchema = z.object({
   relatedProducts: stringArray.optional(),
   bundle: z.unknown().optional(),
   commissionInfo: z.unknown().optional(),
+  edition: z.object({
+    total: z.coerce.number().int().min(1),
+    remaining: z.coerce.number().int().min(0).optional(),
+  }).nullable().optional(),
 });
 
 export function isPublishableContentTitle(title: string): boolean {
@@ -206,16 +216,6 @@ export const blogPostPayloadSchema = z.object({
   }
 });
 
-export const emailCampaignPayloadSchema = z.object({
-  name: z.string().min(1),
-  subject: z.string().min(1),
-  htmlContent: z.string().default(''),
-  textContent: z.string().optional(),
-  segments: stringArray.default(['all']),
-  status: z.enum(['draft', 'scheduled', 'active', 'paused', 'completed']).default('draft'),
-  scheduledAt: z.coerce.date().optional().nullable(),
-});
-
 export const socialPostPayloadSchema = z.object({
   platform: z.enum(['facebook', 'instagram', 'twitter', 'linkedin', 'tiktok', 'pinterest']).default('instagram'),
   content: z.string().min(1),
@@ -335,35 +335,45 @@ export function sanitizeBlogPostPayload(payload: z.infer<typeof blogPostPayloadS
   };
 }
 
-export function sanitizeEmailCampaignPayload(payload: z.infer<typeof emailCampaignPayloadSchema>) {
-  const html = sanitizeRichHtml(payload.htmlContent);
-  const text = (payload.textContent || html.replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
-  const scheduledAt = payload.scheduledAt || null;
-
+export function sanitizeNewsletterDocument(document: NewsletterDocument): NewsletterDocument {
   return {
-    name: payload.name.trim(),
-    type: 'broadcast',
-    templateId: 'admin-authored',
-    segments: JSON.stringify(payload.segments.length > 0 ? payload.segments : ['all']),
-    content: {
-      subject: payload.subject.trim(),
-      html,
-      text,
-    },
-    metrics: JSON.stringify({
-      sent: 0,
-      delivered: 0,
-      opened: 0,
-      clicked: 0,
-      converted: 0,
-      bounced: 0,
-      unsubscribed: 0,
-      open_rate: 0,
-      click_rate: 0,
-      conversion_rate: 0,
+    subject: document.subject.trim(),
+    preheader: document.preheader.trim(),
+    fromName: document.fromName.trim(),
+    blocks: document.blocks.map((block): NewsletterBlock => {
+      switch (block.type) {
+        case 'text':
+          return { ...block, html: sanitizeRichHtml(block.html) };
+        case 'image':
+          return { ...block, url: block.url.trim(), alt: block.alt.trim(), caption: block.caption.trim(), href: block.href.trim() };
+        case 'button':
+          return { ...block, label: block.label.trim(), href: block.href.trim() };
+        case 'product':
+          return {
+            ...block,
+            productId: block.productId.trim(),
+            title: block.title.trim(),
+            imageUrl: block.imageUrl.trim(),
+            priceLabel: block.priceLabel.trim(),
+            href: block.href.trim(),
+            ctaLabel: block.ctaLabel.trim(),
+          };
+        case 'divider':
+          return block;
+      }
     }),
-    status: scheduledAt && scheduledAt > new Date() ? 'scheduled' : payload.status,
-    scheduledAt,
+  };
+}
+
+/** EmailCampaign columns for a newsletter draft; status and scheduling are owned by send actions. */
+export function newsletterCampaignData(document: NewsletterDocument) {
+  const sanitized = sanitizeNewsletterDocument(document);
+  return {
+    name: sanitized.subject || 'Untitled newsletter',
+    type: 'broadcast',
+    templateId: NEWSLETTER_TEMPLATE_ID,
+    segments: JSON.stringify([NEWSLETTER_SEGMENT]),
+    content: sanitized,
   };
 }
 
@@ -449,6 +459,12 @@ export function normalizeProductPayload(payload: z.infer<typeof productPayloadSc
     && (payload.commissionInfo as { available?: boolean }).available
     ? payload.commissionInfo
     : null;
+  const edition = normalized.edition
+    ? {
+        total: normalized.edition.total,
+        remaining: normalized.edition.remaining,
+      }
+    : null;
 
   return {
     ...payload,
@@ -458,6 +474,7 @@ export function normalizeProductPayload(payload: z.infer<typeof productPayloadSc
     variants: normalized.variants ?? null,
     customizations: normalized.customizations ?? [],
     commissionInfo,
+    edition,
     relatedProducts: payload.relatedProducts || [],
   };
 }

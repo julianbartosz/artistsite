@@ -4,9 +4,17 @@ import ContactPageClient from '@/app/contact/ContactPageClient';
 
 export const dynamic = 'force-dynamic';
 
-const DEFAULT_CONTACT_EMAIL = 'hello@artistsite.com';
+type ContactPageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
 
-export default async function ContactPage() {
+function firstParam(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return value[0] || '';
+  return value || '';
+}
+
+export default async function ContactPage({ searchParams }: ContactPageProps) {
+  const params = searchParams ? await searchParams : {};
   const [pageContent, contactEmailSetting, artistEmail, supportEmail] = await Promise.all([
     getSiteContent('contact'),
     getConfig('CONTACT_EMAIL'),
@@ -14,7 +22,14 @@ export default async function ContactPage() {
     getConfig('SUPPORT_EMAIL'),
   ]);
 
-  const contactEmail = contactEmailSetting || artistEmail || supportEmail || DEFAULT_CONTACT_EMAIL;
+  const contactEmail = contactEmailSetting || artistEmail || supportEmail || '';
 
-  return <ContactPageClient pageContent={pageContent} contactEmail={contactEmail} />;
+  return (
+    <ContactPageClient
+      pageContent={pageContent}
+      contactEmail={contactEmail}
+      initialSubject={firstParam(params.subject)}
+      initialInquiryType={firstParam(params.inquiryType) || undefined}
+    />
+  );
 }

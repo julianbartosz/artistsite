@@ -7,12 +7,16 @@ import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
 import MediaPickerModal from '@/components/admin/MediaPickerModal';
 
+export type RichTextMergeField = { token: string; label: string };
+
 interface RichTextEditorProps {
   value: string;
   onChange: (html: string) => void;
+  /** Personalization tokens offered in an "Insert field" toolbar menu. */
+  mergeFields?: RichTextMergeField[];
 }
 
-export function RichTextEditorInner({ value, onChange }: RichTextEditorProps) {
+export function RichTextEditorInner({ value, onChange, mergeFields }: RichTextEditorProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const extensions = useMemo(() => [
     StarterKit.configure({ link: { openOnClick: false } }),
@@ -61,6 +65,21 @@ export function RichTextEditorInner({ value, onChange }: RichTextEditorProps) {
         <button type="button" className={buttonClass} onClick={() => editor.chain().focus().toggleBulletList().run()}>Bullets</button>
         <button type="button" className={buttonClass} onClick={setLink}>Link</button>
         <button type="button" className={buttonClass} onClick={addImage}>Image</button>
+        {mergeFields && mergeFields.length > 0 && (
+          <select
+            aria-label="Insert personalization field"
+            className={`${buttonClass} ml-auto`}
+            value=""
+            onChange={(event) => {
+              if (event.target.value) editor.chain().focus().insertContent(event.target.value).run();
+            }}
+          >
+            <option value="">Insert field…</option>
+            {mergeFields.map((field) => (
+              <option key={field.token} value={field.token}>{field.label}</option>
+            ))}
+          </select>
+        )}
       </div>
       <EditorContent editor={editor} />
       <MediaPickerModal

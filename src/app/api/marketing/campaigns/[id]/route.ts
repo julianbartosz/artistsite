@@ -4,20 +4,17 @@ import { ApiError } from '@/lib/api-error-handler';
 import { requireAdmin } from '@/lib/auth';
 import {
   adCampaignPayloadSchema,
-  emailCampaignPayloadSchema,
   normalizeAdCampaignPayload,
-  sanitizeEmailCampaignPayload,
   sanitizeSocialPostPayload,
   socialPostPayloadSchema,
 } from '@/lib/admin-content';
 import { db } from '@/lib/db';
-import { publishRecordedCampaign, sendEmailCampaign } from '@/lib/marketing/campaign-execution';
+import { publishRecordedCampaign } from '@/lib/marketing/campaign-execution';
 
 const dbWithMarketing = db as any;
 
-async function resolveKind(id: string, requested?: string | null): Promise<'email' | 'social' | 'ad' | null> {
-  if (requested === 'email' || requested === 'social' || requested === 'ad') return requested;
-  if (await dbWithMarketing.emailCampaign.findUnique({ where: { id }, select: { id: true } })) return 'email';
+async function resolveKind(id: string, requested?: string | null): Promise<'social' | 'ad' | null> {
+  if (requested === 'social' || requested === 'ad') return requested;
   if (await dbWithMarketing.socialMediaPost.findUnique({ where: { id }, select: { id: true } })) return 'social';
   if (await dbWithMarketing.adCampaign.findUnique({ where: { id }, select: { id: true } })) return 'ad';
   return null;
@@ -59,12 +56,6 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           notes: body.notes || undefined,
         },
       });
-      return NextResponse.json({ campaign });
-    }
-
-    if (kind === 'email') {
-      const payload = sanitizeEmailCampaignPayload(emailCampaignPayloadSchema.parse(body));
-      const campaign = await dbWithMarketing.emailCampaign.update({ where: { id }, data: payload });
       return NextResponse.json({ campaign });
     }
 
@@ -114,11 +105,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return DELETE(request, { params: Promise.resolve({ id }) });
     }
 
-    if (kind === 'email') {
-      const result = await sendEmailCampaign(id);
-      return NextResponse.json({ success: true, result });
-    }
-
     const campaign = await publishRecordedCampaign(kind, id);
     return NextResponse.json({ success: true, campaign });
   } catch (error) {
@@ -135,7 +121,6 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
     const kind = await resolveKind(id);
     if (!kind) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
 
-    if (kind === 'email') await dbWithMarketing.emailCampaign.delete({ where: { id } });
     if (kind === 'social') await dbWithMarketing.socialMediaPost.delete({ where: { id } });
     if (kind === 'ad') await dbWithMarketing.adCampaign.delete({ where: { id } });
 

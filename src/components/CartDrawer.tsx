@@ -22,10 +22,17 @@ export function CartDrawer() {
     if (!state.isOpen || drawerBlocked) return undefined;
     const previous = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeCart();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
     return () => {
       document.body.style.overflow = previous;
+      document.removeEventListener('keydown', onKeyDown);
     };
-  }, [state.isOpen, drawerBlocked]);
+  }, [state.isOpen, drawerBlocked, closeCart]);
 
   if (!state.isOpen || drawerBlocked) return null;
 
@@ -38,7 +45,7 @@ export function CartDrawer() {
       />
 
       <div
-        className="fixed right-0 top-0 h-full w-full max-w-sm sm:max-w-md bg-white shadow-xl z-50 transition-transform duration-300 ease-out"
+        className="fixed right-0 top-0 h-full w-full max-w-sm sm:max-w-md bg-surface shadow-xl z-50 transition-transform duration-300 ease-out"
         role="dialog"
         aria-modal="true"
         aria-label="Shopping cart"
@@ -70,7 +77,7 @@ export function CartDrawer() {
                 <Link
                   href="/shop"
                   onClick={closeCart}
-                  className="inline-flex min-h-11 items-center btn-primary px-6 py-2 rounded-lg transition-colors"
+                  className="inline-flex min-h-11 items-center btn-primary px-6 py-2 transition-colors"
                 >
                   Continue Shopping
                 </Link>
@@ -106,7 +113,7 @@ export function CartDrawer() {
                   href="/checkout"
                   onClick={closeCart}
                   data-testid="proceed-to-checkout"
-                  className="w-full min-h-11 inline-flex items-center justify-center btn-primary py-3 px-4 rounded-lg transition-colors font-medium"
+                  className="w-full min-h-11 inline-flex items-center justify-center btn-primary py-3 px-4 transition-colors font-medium"
                 >
                   Proceed to Checkout
                 </Link>

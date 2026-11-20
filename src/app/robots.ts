@@ -1,7 +1,11 @@
 import { MetadataRoute } from 'next';
+import { getSiteUrl } from '@/lib/config';
+import { absoluteUrl } from '@/lib/utils';
 
-export default function robots(): MetadataRoute.Robots {
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://artistsite.com';
+export const dynamic = 'force-dynamic';
+
+export default async function robots(): Promise<MetadataRoute.Robots> {
+  const baseUrl = await getSiteUrl();
   const isProduction = process.env.NODE_ENV === 'production' && !baseUrl.includes('staging');
 
   if (!isProduction) {
@@ -43,7 +47,7 @@ export default function robots(): MetadataRoute.Robots {
         disallow: '/',
       },
     ],
-    sitemap: `${baseUrl}/sitemap.xml`,
+    sitemap: absoluteUrl('/sitemap.xml', baseUrl),
     host: baseUrl,
   };
 }

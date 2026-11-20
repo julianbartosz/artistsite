@@ -37,12 +37,14 @@ export type LaunchReadinessInput = {
 
 export function isSiteCustomizationComplete(content: SiteContentByPage): boolean {
   const defaults = SITE_CONTENT_DEFAULTS;
+  const theme = content.identity.theme;
+  const defaultTheme = defaults.identity.theme;
   const identityChanged =
     content.identity.siteName !== defaults.identity.siteName
     || content.identity.tagline !== defaults.identity.tagline
-    || content.identity.theme.primaryColor !== defaults.identity.theme.primaryColor
-    || content.identity.theme.accentColor !== defaults.identity.theme.accentColor
-    || content.identity.theme.fontPreset !== defaults.identity.theme.fontPreset;
+    || Boolean(content.identity.logoImage)
+    || (['primaryColor', 'accentColor', 'fontPreset', 'cardStyle', 'spacingDensity', 'pageTone'] as const)
+      .some((key) => theme[key] !== defaultTheme[key]);
 
   const homeChanged =
     content.home.hero.titleLine1 !== defaults.home.hero.titleLine1
@@ -52,9 +54,24 @@ export function isSiteCustomizationComplete(content: SiteContentByPage): boolean
   return identityChanged || homeChanged;
 }
 
-function hasConfigured(settings: Map<string, 'configured' | 'not_set'> | undefined, keys: string[]): boolean {
+function isConfigured(settings: Map<string, 'configured' | 'not_set'> | undefined, key: string): boolean {
+  return settings?.get(key) === 'configured';
+}
+
+function hasAllConfigured(settings: Map<string, 'configured' | 'not_set'> | undefined, keys: string[]): boolean {
+  if (!settings) return false;
+  return keys.every((key) => settings.get(key) === 'configured');
+}
+
+function hasAnyConfigured(settings: Map<string, 'configured' | 'not_set'> | undefined, keys: string[]): boolean {
   if (!settings) return false;
   return keys.some((key) => settings.get(key) === 'configured');
+}
+
+function isEmailDeliveryReady(settings: Map<string, 'configured' | 'not_set'> | undefined): boolean {
+  if (!isConfigured(settings, 'CONTACT_EMAIL')) return false;
+  if (isConfigured(settings, 'EMAIL_DELIVERY_MODE')) return true;
+  return hasAllConfigured(settings, ['SMTP_FROM', 'SMTP_USER']);
 }
 
 export function buildLaunchReadinessItems(input: LaunchReadinessInput): LaunchReadinessItem[] {
@@ -70,13 +87,13 @@ export function buildLaunchReadinessItems(input: LaunchReadinessInput): LaunchRe
       complete: input.databaseHealthy !== false,
       tab: 'settings',
       action: 'Open settings',
-      helpText: 'Your site cannot save orders or content until the database connection works. Check DATABASE_URL with your host.',
-      settingKey: 'CRON_SECRET',
+      helpText: 'Your site cannot save orders or content until the database connection works. Check DATABASE_URL with your host — it is set in the server environment, not in this form.',
+      // No settingKey: DATABASE_URL is env-only; deep-linking to CRON_SECRET was misleading.
     },
     {
       key: 'pages',
       label: 'Customize site page copy and branding',
-      complete: hasConfigured(settings, Object.values(SITE_CONTENT_KEYS))
+      complete: hasAnyConfigured(settings, Object.values(SITE_CONTENT_KEYS))
         || (input.content ? isSiteCustomizationComplete(input.content) : false),
       tab: 'pages',
       action: 'Open site pages',
@@ -109,7 +126,7 @@ export function buildLaunchReadinessItems(input: LaunchReadinessInput): LaunchRe
     {
       key: 'payments',
       label: 'Configure Stripe checkout',
-      complete: hasConfigured(settings, ['STRIPE_SECRET_KEY', 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY']),
+      complete: hasAllConfigured(settings, ['STRIPE_SECRET_KEY', 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY']),
       tab: 'settings',
       action: 'Open Stripe settings',
       helpText: 'Paste Stripe keys from dashboard.stripe.com under Settings → Payments.',
@@ -118,11 +135,11 @@ export function buildLaunchReadinessItems(input: LaunchReadinessInput): LaunchRe
     {
       key: 'email',
       label: 'Configure contact and email delivery',
-      complete: hasConfigured(settings, ['CONTACT_EMAIL', 'SMTP_FROM', 'SMTP_USER', 'EMAIL_DELIVERY_MODE']),
+      complete: isEmailDeliveryReady(settings),
       tab: 'settings',
       action: 'Open email settings',
-      helpText: 'Set SMTP for order emails, or use log mode while testing locally.',
-      settingKey: 'EMAIL_DELIVERY_MODE',
+      helpText: 'Set a contact email plus SMTP for order emails, or use log mode while testing locally.',
+      settingKey: 'CONTACT_EMAIL',
     },
     {
       key: 'storage',
@@ -136,7 +153,7 @@ export function buildLaunchReadinessItems(input: LaunchReadinessInput): LaunchRe
     {
       key: 'marketing',
       label: 'Connect or prepare marketing channels',
-      complete: hasConfigured(settings, ['NEWSLETTER_DELIVERY_MODE', 'SOCIAL_PUBLISH_MODE', 'NEXT_PUBLIC_GA4_MEASUREMENT_ID']),
+      complete: hasAnyConfigured(settings, ['NEWSLETTER_FOOTER_ADDRESS', 'NEWSLETTER_DELIVERY_MODE', 'SOCIAL_PUBLISH_MODE', 'NEXT_PUBLIC_GA4_MEASUREMENT_ID']),
       tab: 'marketing',
       action: 'Open marketing',
       helpText: 'Add analytics or newsletter settings when you are ready to promote. Safe to finish after launch.',
