@@ -1,5 +1,8 @@
 import { prisma } from '@/lib/db'
 import { CustomerProfile } from '@/lib/db'
+import { shouldIgnoreAnalyticsPageUrl } from '@/lib/analytics/funnels'
+
+export { shouldIgnoreAnalyticsPageUrl }
 
 export interface CustomerSegment {
   id: string
@@ -72,22 +75,6 @@ export interface AnalyticsEventRecordResult {
   stored: boolean
   eventId?: string
   ignored?: boolean
-}
-
-export function shouldIgnoreAnalyticsPageUrl(pageUrl?: string | null): boolean {
-  if (!pageUrl) return false
-  try {
-    const parsed = new URL(pageUrl, 'http://localhost')
-    if (parsed.pathname.startsWith('/admin') || parsed.pathname.startsWith('/api')) {
-      return true
-    }
-    if (parsed.searchParams.has('cmsPreview') || parsed.searchParams.has('preview')) {
-      return true
-    }
-    return false
-  } catch {
-    return false
-  }
 }
 
 function isForeignKeyConstraintError(error: unknown): boolean {

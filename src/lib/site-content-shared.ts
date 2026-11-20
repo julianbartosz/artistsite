@@ -1321,7 +1321,7 @@ export const DEFAULT_HOME_PAGE: HomePageContent = {
     ctaShop: 'Shop',
     ctaPortfolio: 'View Portfolio',
     ctaContact: 'Get in Touch',
-    portraitImage: '/images/artist-portrait.jpg',
+    portraitImage: '',
     height: 'compact',
     imagePlacement: 'inline',
     primaryCta: 'shop',
@@ -1344,7 +1344,7 @@ export const DEFAULT_HOME_PAGE: HomePageContent = {
     paragraph1: 'I make art to explore ideas — color, texture, memory, and the feeling of a place.',
     paragraph2: 'Working in acrylic, watercolor, and digital illustration from Milwaukee, I treat the studio like a journal and always find my way back to the work.',
     cta: 'Get in Touch',
-    studioImage: '/images/artist-studio.jpg',
+    studioImage: '',
     showSection: false,
   },
   blog: {
@@ -1448,7 +1448,7 @@ export const DEFAULT_CONTACT_PAGE: ContactPageContent = {
       </ul>
     `.trim(),
   },
-  portraitImage: '/images/artist-portrait.jpg',
+  portraitImage: '',
 };
 
 export const DEFAULT_PORTFOLIO_PAGE: PortfolioPageContent = {

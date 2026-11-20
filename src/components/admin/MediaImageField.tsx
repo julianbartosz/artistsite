@@ -110,7 +110,19 @@ export default function MediaImageField({ label, value, onChange, help }: MediaI
       {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
       {help && <p className="mt-1 text-xs text-gray-500">{help}</p>}
       {value && (
-        <img src={value} alt="" className="mt-2 h-24 w-24 rounded object-cover border border-gray-200" />
+        <div className="mt-2 flex items-center gap-3">
+          <img src={value} alt="" className="h-24 w-24 rounded object-cover border border-gray-200" />
+          <button
+            type="button"
+            onClick={() => {
+              onChange('');
+              setError(null);
+            }}
+            className="rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 hover:text-red-700"
+          >
+            Remove image
+          </button>
+        </div>
       )}
       {libraryOpen && (
         <div className="mt-3 rounded-md border border-gray-200 p-3">

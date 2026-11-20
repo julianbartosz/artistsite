@@ -12,6 +12,9 @@ import { linkContactSubmissionToInbox } from '@/lib/studio-inbox';
 import { getConfig } from '@/lib/config';
 import { sendTemplateEmail } from '@/lib/email';
 import { POST as engagementPost } from '@/app/api/updates/[slug]/engagement/route';
+import { GET as monitoringSecurityGet } from '@/app/api/monitoring/security/route';
+import { POST as monitoringPerformancePost } from '@/app/api/monitoring/performance/route';
+import { GET as performanceGet } from '@/app/api/performance/route';
 import { getServerSession } from 'next-auth';
 import { getSiteContent } from '@/lib/site-content';
 import { addPostComment, removeOwnComment, setPostLike } from '@/lib/update-engagement';
@@ -27,9 +30,11 @@ jest.mock('@/lib/db', () => {
       )),
     },
     analyticsEvent: {
+      findFirst: jest.fn().mockResolvedValue(null),
       findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockResolvedValue({ id: '1' }),
     },
+    $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]),
     contactSubmission: {
       create: jest.fn().mockResolvedValue({ id: '1' }),
     },
@@ -89,6 +94,11 @@ jest.mock('@/lib/auth', () => {
   const { getServerSession } = jest.requireMock('next-auth');
   return {
     authOptions: {},
+    requireAdmin: jest.fn(async () => {
+      const session = await getServerSession();
+      if (!session?.user?.isAdmin) throw new ApiError(401, 'Admin required', 'UNAUTHORIZED');
+      return session;
+    }),
     requireUser: jest.fn(async () => {
       const session = await getServerSession();
       if (!session?.user?.id) throw new ApiError(401, 'Authentication required', 'UNAUTHENTICATED');
@@ -435,16 +445,21 @@ describe('Analytics filtering & finite math', () => {
   it.each([
     ['https://studio.example/admin', true],
     ['https://studio.example/admin?tab=analytics', true],
+    ['https://studio.example/api/events', true],
+    ['https://studio.example/auth', true],
+    ['https://studio.example/auth/signin', true],
+    ['https://studio.example/auth/signup?callbackUrl=/admin', true],
     ['https://studio.example/?cmsPreview=1', true],
     ['https://studio.example/portfolio?preview=draft', true],
     ['https://studio.example/', false],
+    ['https://studio.example/author', false],
     ['https://studio.example/portfolio', false],
     ['https://studio.example/shop/print-1', false],
   ])('shouldIgnoreAnalyticsPageUrl(%p) -> %p', (url, ignored) => {
     expect(shouldIgnoreAnalyticsPageUrl(url)).toBe(ignored);
   });
 
-  it('ignores admin sessions and preview URLs on POST /api/events while recording visitor events', async () => {
+  it('ignores admin sessions, auth pages, and preview URLs on POST /api/events while recording visitor events', async () => {
     (getServerSession as jest.Mock).mockResolvedValueOnce({
       user: { id: 'admin-1', email: 'artist@artistsite.com', isAdmin: true },
     });
@@ -456,6 +471,16 @@ describe('Analytics filtering & finite math', () => {
     const adminRes = await eventsPost(adminReq);
     expect(adminRes.status).toBe(202);
     expect((await adminRes.json()).ignored).toBe(true);
+    expect(db.analyticsEvent.create).not.toHaveBeenCalled();
+
+    const authReq = new NextRequest('http://localhost:3000/api/events', {
+      method: 'POST',
+      body: JSON.stringify({ event_name: 'page_view', session_id: 's-auth', page_url: 'http://localhost:3000/auth/signin' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const authRes = await eventsPost(authReq);
+    expect(authRes.status).toBe(202);
+    expect((await authRes.json()).ignored).toBe(true);
     expect(db.analyticsEvent.create).not.toHaveBeenCalled();
 
     const previewReq = new NextRequest('http://localhost:3000/api/events', {
@@ -503,5 +528,32 @@ describe('Analytics filtering & finite math', () => {
     const result = await CustomerInsights.analyzeEngagementTrends();
     expect(result.averageEngagement).toBe(0);
     expect(Number.isFinite(result.averageEngagement)).toBe(true);
+  });
+});
+
+describe('Monitoring & performance route hardening', () => {
+  beforeEach(() => {
+    (getServerSession as jest.Mock).mockResolvedValue(null);
+  });
+
+  it.each([
+    ['GET /api/monitoring/security', () => monitoringSecurityGet()],
+    ['POST /api/monitoring/performance', () => monitoringPerformancePost()],
+    ['GET /api/performance', () => performanceGet()],
+  ])('rejects unauthenticated %s with 401', async (_label, invoke) => {
+    const response = await invoke();
+    expect(response.status).toBe(401);
+  });
+
+  it('returns null score/lastAudit when no security audit has been run', async () => {
+    (getServerSession as jest.Mock).mockResolvedValueOnce({
+      user: { id: 'admin-1', email: 'artist@artistsite.com', isAdmin: true },
+    });
+    const response = await monitoringSecurityGet();
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data.overallScore).toBeNull();
+    expect(data.criticalIssues).toBeNull();
+    expect(data.lastAudit).toBeNull();
   });
 });

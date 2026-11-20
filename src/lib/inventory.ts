@@ -837,34 +837,38 @@ export class InventoryService {
     ]);
 
     const products = await getAllProducts();
-    const productMap = new Map(products.map(p => [p.id, p]));
+    const inventoryMap = new Map(inventories.map((inv) => [inv.productId, inv]));
 
     let totalValue = 0;
     let inStock = 0;
     let lowStock = 0;
     let outOfStock = 0;
 
-    inventories.forEach(inv => {
-      const product = productMap.get(inv.productId);
-      if (product) {
+    products.forEach((product) => {
+      const inv = inventoryMap.get(product.id);
+      if (inv) {
         totalValue += inv.currentStock * product.price;
-      }
-
-      switch (inv.stockStatus) {
-        case 'in_stock':
-          inStock++;
-          break;
-        case 'low_stock':
-          lowStock++;
-          break;
-        case 'out_of_stock':
-          outOfStock++;
-          break;
+        switch (inv.stockStatus) {
+          case 'in_stock':
+            inStock++;
+            break;
+          case 'low_stock':
+            lowStock++;
+            break;
+          case 'out_of_stock':
+            outOfStock++;
+            break;
+        }
+      } else if (product.availability === 'sold') {
+        outOfStock++;
+      } else {
+        inStock++;
+        totalValue += product.price;
       }
     });
 
     return {
-      totalProducts: inventories.length,
+      totalProducts: products.length,
       inStock,
       lowStock,
       outOfStock,

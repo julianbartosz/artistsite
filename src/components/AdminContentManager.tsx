@@ -598,7 +598,14 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
           value={artworkForm.images?.main || ''}
           onChange={(value) => setArtworkForm({
             ...artworkForm,
-            images: { ...artworkForm.images, main: value, thumbnail: artworkForm.images.thumbnail || value },
+            images: {
+              ...artworkForm.images,
+              main: value,
+              thumbnail:
+                !artworkForm.images.thumbnail || artworkForm.images.thumbnail === artworkForm.images.main
+                  ? value
+                  : artworkForm.images.thumbnail,
+            },
           })}
         />
         <GalleryField
@@ -610,7 +617,7 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
           label="Categories (comma-separated)"
           value={csv(artworkForm.category)}
           onChange={(value) => setArtworkForm({ ...artworkForm, category: list(value) })}
-          help="Match keys from Site Content → Portfolio → Categories (for example: paintings, works-on-paper)."
+          help="Match keys from Pages → Portfolio → Categories (for example: paintings, works-on-paper)."
         />
         <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
           <CheckboxField label="Featured" checked={Boolean(artworkForm.featured)} onChange={(checked) => setArtworkForm({ ...artworkForm, featured: checked })} />

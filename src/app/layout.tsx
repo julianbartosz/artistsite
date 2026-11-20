@@ -153,8 +153,6 @@ export default async function RootLayout({
         <meta name="theme-color" content={siteShell.identity.theme.primaryColor} />
         <meta name="color-scheme" content="light" />
         <meta name="format-detection" content="telephone=no" />
-        {/* Preconnect to external domains for performance */}
-        <link rel="preconnect" href="https://images.unsplash.com" />
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){try{if(!('serviceWorker'in navigator))return;var key='sw-cleanup-v4';navigator.serviceWorker.getRegistrations().then(function(regs){var hadRegs=regs.length>0;return Promise.all(regs.map(function(r){return r.unregister();})).then(function(){if('caches'in window){return caches.keys().then(function(keys){return Promise.all(keys.map(function(k){return caches.delete(k);}));});}}).then(function(){if(hadRegs&&!sessionStorage.getItem(key)){sessionStorage.setItem(key,'1');location.reload();}});});}catch(e){}})();`,

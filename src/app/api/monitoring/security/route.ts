@@ -17,11 +17,10 @@ export async function GET() {
     });
 
     if (!latestAudit) {
-      // Return default values if no audit has been run
       return NextResponse.json({
-        overallScore: 85,
-        criticalIssues: 0,
-        lastAudit: new Date().toISOString(),
+        overallScore: null,
+        criticalIssues: null,
+        lastAudit: null,
         recommendations: ['Run initial security audit']
       });
     }
@@ -29,10 +28,10 @@ export async function GET() {
     const auditData = JSON.parse(latestAudit.properties);
     
     return NextResponse.json({
-      overallScore: auditData.overall_score || 85,
-      criticalIssues: auditData.critical_issues || 0,
+      overallScore: typeof auditData.overall_score === 'number' ? auditData.overall_score : null,
+      criticalIssues: typeof auditData.critical_issues === 'number' ? auditData.critical_issues : 0,
       lastAudit: latestAudit.timestamp.toISOString(),
-      recommendations: auditData.recommendations || []
+      recommendations: Array.isArray(auditData.recommendations) ? auditData.recommendations : []
     });
   } catch (error) {
     if (error instanceof ApiError) {

@@ -115,8 +115,8 @@ function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
       if (!home.about.showSection) return null;
       return (
         <section key="about" className="section-space-tight bg-surface-muted">
-          <div className="max-w-6xl mx-auto px-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
+          <div className={`${home.about.studioImage ? 'max-w-6xl' : 'max-w-3xl'} mx-auto px-6`}>
+            <div className={home.about.studioImage ? 'grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center' : ''}>
               <div>
                 <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-6">{home.about.title}</h2>
                 <p className="text-lg text-gray-700 mb-6 leading-relaxed">{home.about.paragraph1}</p>
@@ -194,14 +194,14 @@ function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
     case 'newsletter':
       if (!home.newsletter.showSection) return null;
       return (
-        <section key="newsletter" className="section-space-tight bg-primary text-white">
+        <section key="newsletter" className="section-space-tight bg-surface border-t border-gray-200">
           <div className="max-w-4xl mx-auto px-6 text-center">
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">{home.newsletter.title}</h2>
-            <p className="text-lg md:text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
+            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">{home.newsletter.title}</h2>
+            <p className="text-lg md:text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
               {home.newsletter.description}
             </p>
             <NewsletterSignup
-              variant="onDark"
+              variant="onLight"
               placeholder={home.newsletter.placeholder}
               buttonLabel={home.newsletter.buttonLabel}
               disclaimer={home.newsletter.disclaimer}

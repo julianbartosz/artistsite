@@ -23,6 +23,7 @@ const ADMIN_API_RULES: readonly AdminApiRule[] = [
   { prefix: '/api/analytics/dashboard' },
   { prefix: '/api/analytics/events', methods: ['GET'] },
   { prefix: '/api/errors', methods: ['GET'] },
+  { prefix: '/api/performance', methods: ['GET'] },
   { prefix: '/api/monitoring/security' },
   { prefix: '/api/monitoring/performance' },
   { prefix: '/api/monitoring', methods: ['GET'] },

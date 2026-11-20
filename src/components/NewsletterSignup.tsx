@@ -106,9 +106,16 @@ export function NewsletterSignup({
     setMessage('');
   };
 
-  const buttonClass = variant === 'onDark'
+  const isDark = variant === 'onDark';
+  const buttonClass = isDark
     ? 'bg-white text-primary px-6 py-3 rounded-button hover:bg-gray-100 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed'
     : 'btn-primary px-6 py-3 disabled:opacity-50 disabled:cursor-not-allowed';
+  const successTextClass = isDark ? 'text-green-300' : 'text-green-700';
+  const errorTextClass = isDark ? 'text-red-300' : 'text-red-700';
+  const resetButtonClass = isDark
+    ? 'text-green-200 hover:text-white underline mt-2 text-xs'
+    : 'text-green-800 hover:text-green-950 underline mt-2 text-xs';
+  const disclaimerTextClass = isDark ? 'text-gray-300' : 'text-gray-600';
 
   return (
     <div className={className}>
@@ -137,7 +144,7 @@ export function NewsletterSignup({
       
       {message && (
         <div className={`text-sm mt-4 text-center ${
-          status === 'success' ? 'text-green-400' : 'text-red-400'
+          status === 'success' ? successTextClass : errorTextClass
         }`} data-testid={status === 'success' ? 'newsletter-success' : 'newsletter-error'}>
           <p>{message}</p>
           {status === 'success' && (
@@ -146,7 +153,7 @@ export function NewsletterSignup({
                 setStatus('idle');
                 setMessage('');
               }}
-              className="text-green-300 hover:text-green-200 underline mt-2 text-xs"
+              className={resetButtonClass}
             >
               Subscribe another email
             </button>
@@ -155,7 +162,7 @@ export function NewsletterSignup({
       )}
       
       {status === 'idle' && disclaimer && (
-        <p className="text-sm text-gray-400 mt-4 text-center">
+        <p className={`text-sm ${disclaimerTextClass} mt-4 text-center`}>
           {disclaimer}
         </p>
       )}

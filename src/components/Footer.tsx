@@ -106,12 +106,12 @@ export function Footer({
             <p className="text-gray-300 mb-5 sm:mb-6 text-sm sm:text-base leading-relaxed">
               {siteIdentity.tagline}
             </p>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1 -ml-3">
               {footerLinks.social.map((item) => (
                 <a
                   key={item.name}
                   href={item.href}
-                  className="tap-target rounded-md text-gray-400 hover:text-white transition-colors"
+                  className="tap-target rounded-md text-gray-300 hover:text-white transition-colors"
                   aria-label={item.name}
                 >
                   <SocialIcon icon={item.icon} />
@@ -124,8 +124,8 @@ export function Footer({
             <div className={`md:col-span-7 ${linkGridClass}`}>
               {footerLinks.main.length > 0 && (
                 <div className="min-w-0">
-                  <h4 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">{footerContent.quickLinksHeading}</h4>
-                  <ul className="space-y-2">
+                  <h4 className="text-base sm:text-lg font-semibold mb-2 sm:mb-3">{footerContent.quickLinksHeading}</h4>
+                  <ul className="space-y-0.5 -ml-3">
                     {footerLinks.main.map((item) => (
                       <li key={item.key}>
                         <Link
@@ -142,8 +142,8 @@ export function Footer({
 
               {footerContent.showLegal && (
                 <div className="min-w-0">
-                  <h4 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">{footerContent.legalHeading}</h4>
-                  <ul className="space-y-2">
+                  <h4 className="text-base sm:text-lg font-semibold mb-2 sm:mb-3">{footerContent.legalHeading}</h4>
+                  <ul className="space-y-0.5 -ml-3">
                     {footerLinks.legal.map((item) => (
                       <li key={item.name}>
                         <Link

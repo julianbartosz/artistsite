@@ -436,7 +436,7 @@ export default function AdminSettings() {
               <p className="text-sm text-gray-700">{setupCompleteCount} of {setupSteps.length} essentials configured.</p>
             </div>
             <Link href="/admin?tab=pages" className="text-sm font-medium text-primary hover:opacity-80">
-              Open Site Pages
+              Open Pages
             </Link>
           </div>
           <ul className="mt-4 space-y-2">

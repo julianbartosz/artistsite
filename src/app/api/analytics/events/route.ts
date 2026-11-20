@@ -5,6 +5,7 @@ import { recordAnalyticsEvent, shouldIgnoreAnalyticsPageUrl } from '@/lib/analyt
 import { z } from 'zod'
 import { authOptions, isAdminEmailResolved, requireAdmin } from '@/lib/auth'
 import { ApiError } from '@/lib/api-error-handler'
+import { getSiteUrl } from '@/lib/config'
 
 const AnalyticsEventSchema = z.object({
   event_name: z.string().min(1).max(100),
@@ -14,21 +15,24 @@ const AnalyticsEventSchema = z.object({
   page_url: z.string().url().optional(),
 })
 
-// Add CORS headers to handle cross-origin requests
-const corsHeaders = {
-  'Access-Control-Allow-Origin': process.env.NEXT_PUBLIC_SITE_URL || 'http://127.0.0.1:3000',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+async function buildCorsHeaders(): Promise<Record<string, string>> {
+  const origin = await getSiteUrl()
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  }
 }
 
 export async function OPTIONS(_request: NextRequest) {
   return new Response(null, {
     status: 200,
-    headers: corsHeaders,
+    headers: await buildCorsHeaders(),
   })
 }
 
 export async function POST(request: NextRequest) {
+  const corsHeaders = await buildCorsHeaders()
   try {
     const body = await request.json()
     const validatedData = AnalyticsEventSchema.parse(body)

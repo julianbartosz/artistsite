@@ -612,7 +612,9 @@ describe('site theme utilities', () => {
     expect(DEFAULT_HOME_PAGE.blog.showSection).toBe(false);
     expect(DEFAULT_HOME_PAGE.about.showSection).toBe(false);
     expect(DEFAULT_HOME_PAGE.hero.showSecondaryCtas).toBe(false);
-    expect(DEFAULT_HOME_PAGE.hero.portraitImage).toBe('/images/artist-portrait.jpg');
+    expect(DEFAULT_HOME_PAGE.hero.portraitImage).toBe('');
+    expect(DEFAULT_HOME_PAGE.about.studioImage).toBe('');
+    expect(DEFAULT_CONTACT_PAGE.portraitImage).toBe('');
     expect(DEFAULT_SHOP_PAGE.showRecommendations).toBe(false);
     expect(DEFAULT_SHOP_PAGE.showRecentlyViewed).toBe(false);
     expect(DEFAULT_SHOP_PAGE.showPurchaseInfo).toBe(false);

@@ -167,11 +167,21 @@ describe('NewsletterSignup Component', () => {
     expect(container).toHaveClass('custom-class');
   });
 
-  it('uses contrasting button styles on dark backgrounds', () => {
-    render(<NewsletterSignup variant="onDark" />);
+  it.each([
+    { variant: 'onLight' as const, buttonPattern: /btn-primary/, disclaimerPattern: /text-gray-600/, errorPattern: /text-red-700/ },
+    { variant: 'onDark' as const, buttonPattern: /bg-white.*text-primary/, disclaimerPattern: /text-gray-300/, errorPattern: /text-red-300/ },
+  ])('uses contrasting styles for $variant variant', async ({ variant, buttonPattern, disclaimerPattern, errorPattern }) => {
+    const user = userEvent.setup();
+    render(<NewsletterSignup variant={variant} />);
+
     const button = screen.getByTestId('newsletter-submit');
-    expect(button.className).toMatch(/bg-white/);
-    expect(button.className).toMatch(/text-primary/);
+    expect(button.className).toMatch(buttonPattern);
+    expect(screen.getByText('No spam, unsubscribe at any time.').className).toMatch(disclaimerPattern);
+
+    await user.click(button);
+    await waitFor(() => {
+      expect(screen.getByTestId('newsletter-error').className).toMatch(errorPattern);
+    });
   });
 
   it('tracks newsletter form view at most once across typing re-renders', async () => {

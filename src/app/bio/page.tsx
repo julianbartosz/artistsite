@@ -12,11 +12,12 @@ import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
 export const dynamic = 'force-dynamic';
 
 function BioHero({ bio }: { bio: BioPageContent }) {
+  const hasPortrait = Boolean(bio.hero.portraitImage);
   return (
     <section className="relative group bg-surface-muted section-space">
       <CmsEditAnchor targetKey="bio:hero" />
-      <div className="max-w-6xl mx-auto px-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-12 items-center">
+      <div className={`${hasPortrait ? 'max-w-6xl' : 'max-w-3xl'} mx-auto px-6`}>
+        <div className={hasPortrait ? 'grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-12 items-center' : ''}>
           <div>
             <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-6">
               {bio.hero.title}
@@ -144,12 +145,13 @@ function BioAchievements({ bio }: { bio: BioPageContent }) {
 
 function BioStudio({ bio }: { bio: BioPageContent }) {
   if (!bio.showStudio || (!htmlHasVisibleText(bio.studioPracticeHtml) && !bio.studioImage)) return null;
+  const hasStudioImage = Boolean(bio.studioImage);
   return (
     <section className="relative group section-space-tight">
       <CmsEditAnchor targetKey="bio:studio" />
-      <div className="max-w-6xl mx-auto px-6">
+      <div className={`${hasStudioImage ? 'max-w-6xl' : 'max-w-4xl'} mx-auto px-6`}>
         <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">{bio.studioTitle}</h2>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-12 items-center">
+        <div className={hasStudioImage ? 'grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-12 items-center' : ''}>
           {bio.studioImage && (
             <div className="relative w-full aspect-[4/3] rounded-lg overflow-hidden shadow-lg">
               <Image
@@ -278,7 +280,7 @@ export default async function BioPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface">
+    <div className="bg-surface">
       <BioHero bio={bio} />
       {sections}
     </div>

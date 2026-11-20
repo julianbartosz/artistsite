@@ -48,7 +48,7 @@ export default function SiteShell({ topBanner, header, footer, adminTools, child
   }
 
   return (
-    <div className={shellOffsetClass}>
+    <div className={`min-h-screen flex flex-col ${shellOffsetClass}`}>
       {topBanner ? (
         <div key="site-banner" className="contents">
           {topBanner}
@@ -57,7 +57,7 @@ export default function SiteShell({ topBanner, header, footer, adminTools, child
       <div key="site-header" className="contents">
         {header}
       </div>
-      <main key="site-main">{page}</main>
+      <main key="site-main" className="flex-1">{page}</main>
       <div key="site-footer" className="contents">
         {footer}
       </div>

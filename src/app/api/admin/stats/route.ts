@@ -14,12 +14,12 @@ export async function GET(request: NextRequest) {
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    const [posts, products, totalArtworks, productViews, monthlyProductViews, totalOrders] = await Promise.all([
+    const [posts, products, totalArtworks, totalViews, monthlyViews, totalOrders] = await Promise.all([
       getAllPosts(true),
       getAllProducts(),
       db.artwork.count(),
-      db.productView.count(),
-      db.productView.count({ where: { createdAt: { gte: monthStart } } }),
+      db.analyticsEvent.count({ where: { eventName: 'page_view' } }),
+      db.analyticsEvent.count({ where: { eventName: 'page_view', timestamp: { gte: monthStart } } }),
       db.order.count(),
     ]);
 
@@ -31,8 +31,8 @@ export async function GET(request: NextRequest) {
       draftPosts: posts.filter((post) => post.isDraft).length,
       totalProducts: products.length,
       totalArtworks,
-      totalViews: productViews,
-      monthlyViews: monthlyProductViews,
+      totalViews,
+      monthlyViews,
       totalOrders,
       latestCelebration,
     };

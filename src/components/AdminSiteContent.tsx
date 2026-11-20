@@ -681,7 +681,12 @@ export default function AdminSiteContent() {
               <TextField label="Header name" value={content.identity.headerName} onChange={(value) => setContent({ ...content, identity: { ...content.identity, headerName: value } })} help="Optional shorter name for the navigation bar. Leave blank to use the full site name." />
               <TextField label="Copyright name" value={content.identity.copyrightName} onChange={(value) => setContent({ ...content, identity: { ...content.identity, copyrightName: value } })} />
               <div className="md:col-span-2">
-                <TextAreaField label="Header/footer tagline" value={content.identity.tagline} onChange={(value) => setContent({ ...content, identity: { ...content.identity, tagline: value } })} />
+                <TextAreaField
+                  label="Tagline"
+                  value={content.identity.tagline}
+                  onChange={(value) => setContent({ ...content, identity: { ...content.identity, tagline: value } })}
+                  help="Shown in the footer and search previews."
+                />
               </div>
               <div className="md:col-span-2">
                 <TextField label="Footer note" value={content.identity.footerTagline} onChange={(value) => setContent({ ...content, identity: { ...content.identity, footerTagline: value } })} />
@@ -887,12 +892,6 @@ export default function AdminSiteContent() {
                 }}
                 help="Between 1 and 12."
               />
-              <TextField
-                label="Empty section message"
-                value={content.home.featured.emptyMessage}
-                onChange={(value) => setContent({ ...content, home: { ...content.home, featured: { ...content.home.featured, emptyMessage: value } } })}
-                help="Shown when no works match your selection."
-              />
               {content.home.featured.selectionMode === 'manual' && (
                 <div className="space-y-2">
                   <span className="block text-sm font-medium text-gray-700">Selected works (in order)</span>
@@ -944,7 +943,6 @@ export default function AdminSiteContent() {
               <CheckboxField label="Show this section" checked={content.home.blog.showSection} onChange={(value) => setContent({ ...content, home: { ...content.home, blog: { ...content.home.blog, showSection: value } } })} />
               <TextField label="Section title" value={content.home.blog.title} onChange={(value) => setContent({ ...content, home: { ...content.home, blog: { ...content.home.blog, title: value } } })} />
               <TextAreaField label="Section description" value={content.home.blog.description} onChange={(value) => setContent({ ...content, home: { ...content.home, blog: { ...content.home.blog, description: value } } })} />
-              <TextField label="Empty section message" value={content.home.blog.emptyMessage} onChange={(value) => setContent({ ...content, home: { ...content.home, blog: { ...content.home.blog, emptyMessage: value } } })} help="Shown when there are no public updates yet." />
               <TextField label="View-all link text" value={content.home.blog.cta} onChange={(value) => setContent({ ...content, home: { ...content.home, blog: { ...content.home.blog, cta: value } } })} />
             </EditorSection>
             <EditorSection title="Newsletter" id={cmsSectionElementId('home', 'newsletter')}>

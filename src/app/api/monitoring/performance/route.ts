@@ -80,12 +80,10 @@ export async function GET() {
 
 export async function POST() {
   try {
-    // Run a quick performance test
+    await requireAdmin();
+    // Measure real database round-trip latency instead of a simulated delay
     const startTime = Date.now();
-    
-    // Simulate some work
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
+    await db.$queryRaw`SELECT 1`;
     const responseTime = Date.now() - startTime;
     
     // Store the test result
@@ -106,6 +104,12 @@ export async function POST() {
       message: 'Performance test completed'
     });
   } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status }
+      );
+    }
     console.error('Error running performance test:', error);
     return NextResponse.json(
       { error: 'Failed to run performance test' },

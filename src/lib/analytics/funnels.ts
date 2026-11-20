@@ -29,6 +29,27 @@ export interface DropoffReport {
   }>
 }
 
+const IGNORED_ANALYTICS_PREFIXES = ['/admin', '/api', '/auth'] as const
+
+export function isIgnoredAnalyticsRoute(pathname: string, search: string = ''): boolean {
+  if (IGNORED_ANALYTICS_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
+    return true
+  }
+  if (!search) return false
+  const params = new URLSearchParams(search)
+  return params.has('cmsPreview') || params.has('preview')
+}
+
+export function shouldIgnoreAnalyticsPageUrl(pageUrl?: string | null): boolean {
+  if (!pageUrl) return false
+  try {
+    const parsed = new URL(pageUrl, 'http://localhost')
+    return isIgnoredAnalyticsRoute(parsed.pathname, parsed.search)
+  } catch {
+    return false
+  }
+}
+
 export class ConversionFunnels {
   // Predefined funnel configurations
   private static funnels = {
@@ -67,10 +88,7 @@ export class ConversionFunnels {
       return true
     }
     const { pathname, search } = window.location
-    if (pathname.startsWith('/admin') || pathname.startsWith('/api')) return true
-    const params = new URLSearchParams(search)
-    if (params.has('cmsPreview') || params.has('preview')) return true
-    return false
+    return isIgnoredAnalyticsRoute(pathname, search)
   }
 
   /**
@@ -354,17 +372,21 @@ export class ConversionFunnels {
    * Sync pending events from localStorage
    */
   private static async syncPendingEvents(): Promise<void> {
-    if (typeof window === 'undefined' || !window.localStorage) return
+    if (this.isTrackingSuppressed() || typeof window === 'undefined' || !window.localStorage) return
 
     try {
       const pendingEvents = JSON.parse(localStorage.getItem('pending_events') || '[]')
-      if (pendingEvents.length === 0) return
+      if (!Array.isArray(pendingEvents) || pendingEvents.length === 0) return
 
       const endpoints = ['/api/events', '/api/analytics/events']
-      const successfulEvents: number[] = []
+      const resolvedEvents: number[] = []
 
       for (let i = 0; i < pendingEvents.length; i++) {
         const event = pendingEvents[i]
+        if (shouldIgnoreAnalyticsPageUrl(typeof event?.page_url === 'string' ? event.page_url : undefined)) {
+          resolvedEvents.push(i)
+          continue
+        }
         
         for (const endpoint of endpoints) {
           try {
@@ -377,7 +399,7 @@ export class ConversionFunnels {
             })
             
             if (response.ok) {
-              successfulEvents.push(i)
+              resolvedEvents.push(i)
               break // Move to next event
             }
           } catch {
@@ -387,9 +409,9 @@ export class ConversionFunnels {
         }
       }
 
-      // Remove successfully sent events
-      if (successfulEvents.length > 0) {
-        const remainingEvents = pendingEvents.filter((_: unknown, index: number) => !successfulEvents.includes(index))
+      // Remove successfully sent or ignored events
+      if (resolvedEvents.length > 0) {
+        const remainingEvents = pendingEvents.filter((_: unknown, index: number) => !resolvedEvents.includes(index))
         localStorage.setItem('pending_events', JSON.stringify(remainingEvents))
       }
 

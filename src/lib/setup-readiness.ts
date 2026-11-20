@@ -96,8 +96,8 @@ export function buildLaunchReadinessItems(input: LaunchReadinessInput): LaunchRe
       complete: hasAnyConfigured(settings, Object.values(SITE_CONTENT_KEYS))
         || (input.content ? isSiteCustomizationComplete(input.content) : false),
       tab: 'pages',
-      action: 'Open site pages',
-      helpText: 'Update your studio name, colors, and homepage copy under Site Pages.',
+      action: 'Open Pages',
+      helpText: 'Update your studio name, colors, and homepage copy under Pages.',
     },
     {
       key: 'products',

@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, ReactNode } from 'react'
 import { GA4Analytics, type EcommerceItem } from '@/lib/analytics/ga4'
-import { ConversionFunnels } from '@/lib/analytics/funnels'
+import { ConversionFunnels, isIgnoredAnalyticsRoute } from '@/lib/analytics/funnels'
 import { useSession } from 'next-auth/react'
 import { usePathname } from 'next/navigation'
 
@@ -37,7 +37,7 @@ export function AnalyticsProvider({ children }: AnalyticsProviderProps) {
   const lastTrackedPathRef = useRef<string | null>(null)
 
   const isAdminSession = Boolean(session?.user?.isAdmin)
-  const isTrackingEnabled = status !== 'loading' && !isAdminSession && !pathname.startsWith('/admin')
+  const isTrackingEnabled = status !== 'loading' && !isAdminSession && !isIgnoredAnalyticsRoute(pathname)
 
   // Keep funnel suppression synchronously aligned with session/route state so
   // child mount effects never fire events for admin sessions or Studio previews.

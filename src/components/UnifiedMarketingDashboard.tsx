@@ -109,11 +109,14 @@ export function UnifiedMarketingDashboard() {
   }
 
   return (
-    <div data-testid="marketing-dashboard" className="max-w-7xl mx-auto p-6 space-y-6">
+    <div data-testid="marketing-dashboard" className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900">Marketing Dashboard</h1>
-        <div className="flex space-x-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Marketing</h1>
+          <p className="text-sm text-gray-600">Revenue, channel attribution, campaigns, and collector follow-up.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
           <DateRangeSelector value={filters.dateRange} onChange={(range) => 
             setFilters({ ...filters, dateRange: range })
           } />
@@ -126,7 +129,7 @@ export function UnifiedMarketingDashboard() {
 
       {/* Tab Navigation */}
       <div className="border-b border-gray-200">
-        <nav className="-mb-px flex space-x-8">
+        <nav className="-mb-px flex gap-6 overflow-x-auto whitespace-nowrap">
           {[
             { key: 'overview', label: 'Overview', Icon: BarChart3 },
             { key: 'campaigns', label: 'Campaigns', Icon: Target },
@@ -136,7 +139,7 @@ export function UnifiedMarketingDashboard() {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key as any)}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              className={`shrink-0 py-2 px-1 border-b-2 font-medium text-sm ${
                 activeTab === tab.key
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -175,10 +178,18 @@ function OverviewTab({ overview, onReload }: { overview: MarketingOverview | nul
     );
   }
 
+  const hasRevenue = (overview.totalRevenue || 0) > 0;
+  const hasSpend = (overview.totalCost || 0) > 0;
+  const overviewRoiLabel = hasSpend && Number.isFinite(overview.roi)
+    ? `${overview.roi.toFixed(1)}x`
+    : hasRevenue
+      ? 'Organic'
+      : '—';
+
   return (
     <div className="space-y-6">
       {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
           title="Total Revenue"
           value={`$${(overview.totalRevenue || 0).toLocaleString()}`}
@@ -186,7 +197,7 @@ function OverviewTab({ overview, onReload }: { overview: MarketingOverview | nul
         />
         <MetricCard
           title="Marketing ROI"
-          value={`${(overview.roi || 0).toFixed(1)}x`}
+          value={overviewRoiLabel}
           icon={LineChart}
         />
         <MetricCard

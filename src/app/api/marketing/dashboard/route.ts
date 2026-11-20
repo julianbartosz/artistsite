@@ -33,14 +33,16 @@ export async function POST(request: NextRequest) {
         startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     }
 
+    const paidOrderSummary = await getPaidOrderSummary(startDate);
+
     // Aggregate data from all marketing channels
     const overview = {
-      totalRevenue: await getTotalRevenue(startDate),
+      totalRevenue: paidOrderSummary.totalRevenue,
       totalCost: await getTotalCost(startDate, channels),
       roi: 0, // Will be calculated below
       activeCustomers: await getActiveCustomers(startDate),
       campaignPerformance: await getCampaignPerformance(startDate, channels),
-      topPerformingChannels: await getTopPerformingChannels(startDate, channels),
+      topPerformingChannels: await getTopPerformingChannels(startDate, channels, paidOrderSummary),
       automation: await getAutomationSummary(startDate),
       analytics: await getJourneyAnalytics(startDate)
     };
@@ -65,16 +67,20 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function getTotalRevenue(startDate: Date): Promise<number> {
-  // Get revenue from orders within date range
+async function getPaidOrderSummary(startDate: Date): Promise<{ totalRevenue: number; count: number }> {
+  // Get revenue and count from paid orders within date range
   const orders = await db.order.findMany({
     where: {
       createdAt: { gte: startDate },
       paymentStatus: 'paid'
-    }
+    },
+    select: { total: true }
   });
-  
-  return orders.reduce((sum, order) => sum + order.total, 0);
+
+  return {
+    totalRevenue: orders.reduce((sum, order) => sum + order.total, 0),
+    count: orders.length,
+  };
 }
 
 async function getTotalCost(startDate: Date, channels: string[]): Promise<number> {
@@ -234,7 +240,11 @@ async function getCampaignPerformance(startDate: Date, channels: string[]) {
   return performance;
 }
 
-async function getTopPerformingChannels(startDate: Date, channels: string[]) {
+async function getTopPerformingChannels(
+  startDate: Date,
+  channels: string[],
+  paidOrderSummary: { totalRevenue: number; count: number },
+) {
   const channelPerformance = [];
 
   // Get marketing attribution data for accurate channel performance
@@ -245,28 +255,35 @@ async function getTopPerformingChannels(startDate: Date, channels: string[]) {
   });
 
   // Group attributions by channel
+  const trackedChannels = new Set([...channels, 'direct']);
+  let attributedRevenueTotal = 0;
   const channelRevenue = attributions.reduce((acc: Record<string, number>, attr: any) => {
     try {
       const attribution = JSON.parse(attr.attribution || '{}');
       Object.entries(attribution).forEach(([channel, weight]) => {
-        if (channels.includes(channel)) {
-          acc[channel] = (acc[channel] || 0) + (attr.attributedRevenue * (weight as number));
+        if (trackedChannels.has(channel)) {
+          const share = attr.attributedRevenue * (weight as number);
+          acc[channel] = (acc[channel] || 0) + share;
+          attributedRevenueTotal += share;
         }
       });
     } catch {
       // If attribution parsing fails, use primary channel
-      if (channels.includes(attr.primaryChannel)) {
+      if (trackedChannels.has(attr.primaryChannel)) {
         acc[attr.primaryChannel] = (acc[attr.primaryChannel] || 0) + attr.attributedRevenue;
+        attributedRevenueTotal += attr.attributedRevenue;
       }
     }
     return acc;
   }, {});
 
   // Calculate performance for each requested channel
+  let attributedConversionsTotal = 0;
   for (const channel of channels) {
     const revenue = channelRevenue[channel] || 0;
     const cost = await getChannelCost(channel, startDate);
     const conversions = await getChannelConversions(channel, startDate);
+    attributedConversionsTotal += conversions;
 
     channelPerformance.push({
       channel,
@@ -277,14 +294,18 @@ async function getTopPerformingChannels(startDate: Date, channels: string[]) {
     });
   }
 
-  // Add direct/organic channel
-  const directRevenue = channelRevenue['direct'] || 0;
+  // Roll unattributed paid orders into direct/organic so channel totals reconcile with Total Revenue.
+  const attributedDirectConversions = await getChannelConversions('direct', startDate);
+  attributedConversionsTotal += attributedDirectConversions;
+  const unattributedRevenue = Math.max(0, paidOrderSummary.totalRevenue - attributedRevenueTotal);
+  const unattributedConversions = Math.max(0, paidOrderSummary.count - attributedConversionsTotal);
+
   channelPerformance.push({
     channel: 'direct',
-    revenue: directRevenue,
+    revenue: (channelRevenue['direct'] || 0) + unattributedRevenue,
     cost: 0,
     roi: 0,
-    conversions: await getChannelConversions('direct', startDate)
+    conversions: attributedDirectConversions + unattributedConversions,
   });
 
   // Sort by revenue, then conversions, then ROI

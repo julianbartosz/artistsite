@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getConfig } from '@/lib/config';
+import { requireAdmin } from '@/lib/auth';
+import { ApiError } from '@/lib/api-error-handler';
 
 interface WebVitalsMetric {
   name: string;
@@ -84,6 +86,7 @@ async function sendToGA4(metric: WebVitalsMetric) {
 // GET endpoint for retrieving performance data
 export async function GET() {
   try {
+    await requireAdmin();
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const events = await db.analyticsEvent.findMany({
       where: {
@@ -128,6 +131,9 @@ export async function GET() {
       lastUpdated: new Date().toISOString(),
     });
   } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    }
     console.error('Error reading performance metrics:', error);
     return NextResponse.json({ error: 'Failed to load performance metrics' }, { status: 500 });
   }

@@ -17,9 +17,9 @@ interface PerformanceMetrics {
 }
 
 interface SecurityStatus {
-  overallScore: number;
-  criticalIssues: number;
-  lastAudit: string;
+  overallScore: number | null;
+  criticalIssues: number | null;
+  lastAudit: string | null;
   recommendations: string[];
 }
 
@@ -269,19 +269,21 @@ export default function MonitoringDashboard() {
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
                     <span>Overall Security Score:</span>
-                    <Badge variant={securityStatus.overallScore >= 80 ? 'default' : 'destructive'}>
-                      {securityStatus.overallScore}%
+                    <Badge variant={securityStatus.overallScore === null || securityStatus.overallScore >= 80 ? 'default' : 'destructive'}>
+                      {securityStatus.overallScore === null ? 'Not run' : `${securityStatus.overallScore}%`}
                     </Badge>
                   </div>
                   <div className="flex justify-between items-center">
                     <span>Critical Issues:</span>
-                    <Badge variant={securityStatus.criticalIssues === 0 ? 'default' : 'destructive'}>
-                      {securityStatus.criticalIssues}
+                    <Badge variant={!securityStatus.criticalIssues ? 'default' : 'destructive'}>
+                      {securityStatus.criticalIssues ?? '—'}
                     </Badge>
                   </div>
                   <div className="flex justify-between">
                     <span>Last Audit:</span>
-                    <span className="font-semibold">{new Date(securityStatus.lastAudit).toLocaleString()}</span>
+                    <span className="font-semibold">
+                      {securityStatus.lastAudit ? new Date(securityStatus.lastAudit).toLocaleString() : 'Never'}
+                    </span>
                   </div>
                   
                   {securityStatus.recommendations.length > 0 && (
