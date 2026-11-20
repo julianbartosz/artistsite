@@ -8,22 +8,37 @@ module.exports = {
   ],
   theme: {
     extend: {
+      // Theme colors are RGB channel variables so opacity modifiers (bg-primary/10) compile.
       colors: {
         primary: {
-          DEFAULT: 'var(--color-primary)',
-          hover: 'var(--color-primary-hover)',
+          DEFAULT: 'rgb(var(--color-primary-rgb) / <alpha-value>)',
+          hover: 'rgb(var(--color-primary-hover-rgb) / <alpha-value>)',
         },
-        accent: 'var(--color-accent)',
+        accent: 'rgb(var(--color-accent-rgb) / <alpha-value>)',
+        surface: {
+          DEFAULT: 'rgb(var(--surface-page-rgb) / <alpha-value>)',
+          muted: 'rgb(var(--surface-muted-rgb) / <alpha-value>)',
+          sunken: 'rgb(var(--surface-sunken-rgb) / <alpha-value>)',
+        },
+      },
+      borderRadius: {
+        button: 'var(--radius-button)',
+        input: 'var(--radius-input)',
+        card: 'var(--radius-card)',
       },
       fontFamily: {
-        sans: ['var(--font-site)', 'var(--font-geist-sans)', 'Arial', 'Helvetica', 'sans-serif'],
-        mono: ['var(--font-geist-mono)', 'monospace'],
+        sans: ['var(--font-site)', 'ui-sans-serif', 'system-ui', 'Arial', 'sans-serif'],
+        heading: ['var(--font-heading)', 'var(--font-site)', 'Georgia', 'serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Consolas', 'monospace'],
       },
       typography: {
         DEFAULT: {
           css: {
             maxWidth: 'none',
             color: '#374151',
+            'h1, h2, h3, h4': {
+              fontFamily: 'var(--font-heading)',
+            },
             h1: {
               color: '#111827',
               fontWeight: '700',
@@ -43,8 +58,8 @@ module.exports = {
               content: '""',
             },
             code: {
-              backgroundColor: '#eff6ff',
-              color: '#1e40af',
+              backgroundColor: 'var(--surface-sunken)',
+              color: 'var(--color-primary)',
               paddingLeft: '0.25rem',
               paddingRight: '0.25rem',
               borderRadius: '0.25rem',
@@ -57,20 +72,19 @@ module.exports = {
               content: '""',
             },
             blockquote: {
-              borderLeftColor: '#111827',
+              borderLeftColor: 'var(--color-primary)',
               borderLeftWidth: '4px',
               fontStyle: 'italic',
               color: '#4b5563',
             },
             a: {
-              color: '#111827',
+              color: 'var(--color-primary)',
               textDecoration: 'underline',
-              textDecorationColor: '#d1d5db',
+              textDecorationColor: 'rgb(var(--color-primary-rgb) / 0.35)',
               textUnderlineOffset: '2px',
               fontWeight: '500',
               '&:hover': {
-                color: '#374151',
-                textDecorationColor: '#9ca3af',
+                textDecorationColor: 'var(--color-primary)',
               },
             },
             strong: {

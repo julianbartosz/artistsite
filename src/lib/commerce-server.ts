@@ -1,7 +1,7 @@
 import 'server-only';
 import { unstable_cache } from 'next/cache';
 import { db } from '@/lib/db';
-import { normalizeProduct, Product, ProductInput } from './commerce';
+import { applyEditionInventory, normalizeProduct, Product, ProductInput } from './commerce';
 
 type ProductRecord = {
   id: string;
@@ -25,6 +25,7 @@ type ProductRecord = {
   relatedProducts?: unknown;
   bundle?: unknown;
   commissionInfo?: unknown;
+  edition?: unknown;
 };
 
 function asArray<T>(value: unknown): T[] {
@@ -58,9 +59,24 @@ function toProduct(record: ProductRecord): Product {
     relatedProducts: asArray(record.relatedProducts),
     bundle: record.bundle as Product['bundle'],
     commissionInfo: record.commissionInfo as Product['commissionInfo'],
+    edition: record.edition as Product['edition'],
   };
 
   return normalizeProduct(input);
+}
+
+async function withLiveEditionStock(products: Product[]): Promise<Product[]> {
+  const tracked = products.filter((product) => product.edition);
+  if (tracked.length === 0) return products;
+  const rows = await db.productInventory.findMany({
+    where: { productId: { in: tracked.map((product) => product.id) } },
+    select: { productId: true, availableStock: true },
+  });
+  const stockByProduct = new Map(rows.map((row) => [row.productId, row.availableStock]));
+  return products.map((product) => {
+    if (!product.edition) return product;
+    return applyEditionInventory(product, stockByProduct.get(product.id));
+  });
 }
 
 const getCachedProducts = unstable_cache(
@@ -68,9 +84,12 @@ const getCachedProducts = unstable_cache(
     const records = await db.product.findMany({
       orderBy: [{ featured: 'desc' }, { updatedAt: 'desc' }],
     });
-    return records
-      .map((record) => toProduct(record as ProductRecord))
-      .sort((left, right) => availabilityRank(left.availability) - availabilityRank(right.availability));
+    const products = await withLiveEditionStock(
+      records.map((record) => toProduct(record as ProductRecord)),
+    );
+    return products.sort(
+      (left, right) => availabilityRank(left.availability) - availabilityRank(right.availability),
+    );
   },
   ['products'],
   { tags: ['products'], revalidate: 300 }
@@ -112,7 +131,27 @@ export async function getProductById(id: string): Promise<Product | undefined> {
       OR: [{ id }, { slug: id }],
     },
   });
-  return product ? toProduct(product as ProductRecord) : undefined;
+  if (!product) return undefined;
+  const normalized = toProduct(product as ProductRecord);
+  if (!normalized.edition) return normalized;
+  const [withStock] = await withLiveEditionStock([normalized]);
+  return withStock;
+}
+
+/** Match a portfolio piece to a shop listing by shared title or slug (no separate join table). */
+export async function findShopProductForArtwork(artwork: {
+  title: string;
+  slug: string;
+}): Promise<Product | undefined> {
+  const products = await getAllProducts();
+  const titleNorm = artwork.title.trim().toLowerCase();
+  const slugNorm = artwork.slug.trim().toLowerCase();
+
+  return products.find((product) => {
+    const productTitle = product.title.trim().toLowerCase();
+    const productSlug = (product.slug || product.id).trim().toLowerCase();
+    return productTitle === titleNorm || productSlug === slugNorm || product.id === artwork.slug;
+  });
 }
 
 export async function getProductsByTag(tag: string): Promise<Product[]> {

@@ -1,7 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Product, ProductVariant, ProductCustomization, CartItemVariant, validateCustomizations, formatPrice } from '@/lib/commerce';
+import {
+  Product,
+  ProductVariant,
+  ProductCustomization,
+  CartItemVariant,
+  defaultCartItemVariant,
+  validateCustomizations,
+  formatPrice,
+} from '@/lib/commerce';
 
 interface ProductVariantSelectorProps {
   product: Product;
@@ -9,6 +17,8 @@ interface ProductVariantSelectorProps {
   onPriceChange: (totalPrice: number) => void;
   initialVariant?: CartItemVariant;
   initialCustomizations?: Record<string, string>;
+  /** compact hides optional free-text fields so quick look stays short; required/select options remain. */
+  density?: 'full' | 'compact';
 }
 
 export default function ProductVariantSelector({
@@ -16,12 +26,23 @@ export default function ProductVariantSelector({
   onVariantChange,
   onPriceChange,
   initialVariant,
-  initialCustomizations = {}
+  initialCustomizations = {},
+  density = 'full',
 }: ProductVariantSelectorProps) {
-  const [selectedVariant, setSelectedVariant] = useState<CartItemVariant>(initialVariant || {});
+  const [selectedVariant, setSelectedVariant] = useState<CartItemVariant>(() => (
+    defaultCartItemVariant(product, initialVariant)
+  ));
   const [customizations, setCustomizations] = useState<Record<string, string>>(initialCustomizations);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [currentPrice, setCurrentPrice] = useState(product.price);
+
+  // Keep defaults in sync when the product identity changes (e.g. another quick-look target).
+  useEffect(() => {
+    setSelectedVariant(defaultCartItemVariant(product, initialVariant));
+    setCustomizations(initialCustomizations);
+    // Intentionally keyed on product.id — parent often passes fresh object identities each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only when the listed product changes
+  }, [product.id]);
 
   // Calculate total price including variants and customizations
   useEffect(() => {
@@ -102,9 +123,13 @@ export default function ProductVariantSelector({
           return (
             <button
               key={variant.id}
+              type="button"
+              disabled={variant.available === false}
               onClick={() => handleVariantSelection(type, variant)}
               className={`p-3 border rounded-lg text-left transition-colors ${
-                isSelected
+                variant.available === false
+                  ? 'cursor-not-allowed border-gray-200 bg-surface-muted text-gray-400'
+                  : isSelected
                   ? 'border-primary bg-primary/10 text-gray-900'
                   : 'border-gray-300 hover:border-gray-400'
               }`}
@@ -112,19 +137,16 @@ export default function ProductVariantSelector({
               <div className="flex justify-between items-center">
                 <span className="font-medium">{variant.name}</span>
                 <span className={`text-sm ${
+                  variant.available === false ? 'text-gray-400' :
                   variant.priceModifier === 0 ? 'text-gray-500' : 
                   variant.priceModifier > 0 ? 'text-green-600' : 'text-red-600'
                 }`}>
-                  {variant.priceModifier === 0 ? 'Included' : 
+                  {variant.available === false ? 'Unavailable' :
+                   variant.priceModifier === 0 ? 'Included' : 
                    variant.priceModifier > 0 ? `+${formatPrice(variant.priceModifier)}` : 
                    formatPrice(variant.priceModifier)}
                 </span>
               </div>
-              {variant.stock !== undefined && (
-                <div className="text-xs text-gray-500 mt-1">
-                  {variant.stock > 0 ? `${variant.stock} available` : 'Out of stock'}
-                </div>
-              )}
             </button>
           );
         })}
@@ -147,7 +169,7 @@ export default function ProductVariantSelector({
             <select
               value={value}
               onChange={(e) => handleCustomizationChange(customization.id, e.target.value)}
-              className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
+              className={`w-full p-3 border rounded-input focus:ring-2 focus:ring-primary focus:border-primary ${
                 hasError ? 'border-red-300' : 'border-gray-300'
               }`}
               required={customization.required}
@@ -174,7 +196,7 @@ export default function ProductVariantSelector({
               onChange={(e) => handleCustomizationChange(customization.id, e.target.value)}
               placeholder={customization.placeholder}
               maxLength={customization.maxLength}
-              className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
+              className={`w-full p-3 border rounded-input focus:ring-2 focus:ring-primary focus:border-primary ${
                 hasError ? 'border-red-300' : 'border-gray-300'
               }`}
               rows={4}
@@ -201,7 +223,7 @@ export default function ProductVariantSelector({
               onChange={(e) => handleCustomizationChange(customization.id, e.target.value)}
               placeholder={customization.placeholder}
               maxLength={customization.maxLength}
-              className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
+              className={`w-full p-3 border rounded-input focus:ring-2 focus:ring-primary focus:border-primary ${
                 hasError ? 'border-red-300' : 'border-gray-300'
               }`}
               required={customization.required}
@@ -254,15 +276,21 @@ export default function ProductVariantSelector({
       }
 
       {/* Custom Configurations */}
-      {product.customizations && product.customizations.length > 0 && (
-        <div>
-          <h4 className="text-lg font-medium text-gray-900 mb-4">Customization Options</h4>
-          {product.customizations.map(renderCustomization)}
-        </div>
-      )}
+      {(() => {
+        const customizationsToShow = (product.customizations || []).filter((customization) => (
+          density === 'full' || customization.type === 'select' || customization.required
+        ));
+        if (customizationsToShow.length === 0) return null;
+        return (
+          <div>
+            <h4 className="text-lg font-medium text-gray-900 mb-4">Customization Options</h4>
+            {customizationsToShow.map(renderCustomization)}
+          </div>
+        );
+      })()}
 
       {/* Price Display */}
-      <div className="bg-gray-50 p-4 rounded-lg">
+      <div className="bg-surface-muted p-4 rounded-lg">
         <div className="flex justify-between items-center">
           <span className="text-sm text-gray-600">Total Price:</span>
           <span className="text-xl font-bold text-gray-900">

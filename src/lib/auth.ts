@@ -30,7 +30,7 @@ function configuredAdminEmails(): Set<string> {
   return emails;
 }
 
-async function resolvedAdminEmails(): Promise<Set<string>> {
+export async function resolvedAdminEmails(): Promise<Set<string>> {
   const emails = configuredAdminEmails();
   const settingEmails = await getConfig('ADMIN_EMAILS');
   (settingEmails || '')
@@ -101,6 +101,20 @@ async function tryBootstrapLocalAdmin(email: string, password: string) {
   });
 }
 
+function isConfiguredOAuthValue(value: string | undefined): boolean {
+  const trimmed = value?.trim();
+  if (!trimmed) return false;
+  const lower = trimmed.toLowerCase();
+  return !lower.startsWith('your-') && !lower.startsWith('your_') && lower !== 'placeholder';
+}
+
+export function isGoogleAuthEnabled(): boolean {
+  return (
+    isConfiguredOAuthValue(process.env.GOOGLE_CLIENT_ID) &&
+    isConfiguredOAuthValue(process.env.GOOGLE_CLIENT_SECRET)
+  );
+}
+
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as any,
   providers: [
@@ -158,12 +172,14 @@ export const authOptions: NextAuthOptions = {
         };
       }
     }),
-    
-    // Google OAuth
-    GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-    }),
+    ...(isGoogleAuthEnabled()
+      ? [
+          GoogleProvider({
+            clientId: process.env.GOOGLE_CLIENT_ID!.trim(),
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET!.trim(),
+          }),
+        ]
+      : []),
   ],
   
   session: {
@@ -223,7 +239,7 @@ export const authOptions: NextAuthOptions = {
   
   pages: {
     signIn: '/auth/signin',
-    error: '/auth/error',
+    error: '/auth/signin',
   },
   
   events: {

@@ -33,6 +33,9 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [listQuery, setListQuery] = useState('');
+  const [stageFilter, setStageFilter] = useState<'all' | CrmStage>('all');
+  const [tagFilter, setTagFilter] = useState<'all' | 'commission' | 'unread'>('all');
   const streamRef = useRef<EventSource | null>(null);
 
   async function loadThreads() {
@@ -94,24 +97,38 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
   async function saveCrm() {
     if (mode !== 'admin' || !selectedId) return;
     const tags = tagsInput.split(',').map((tag) => tag.trim()).filter(Boolean);
-    await fetch(`${apiBase}/${selectedId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ crmStage, tags }),
-    });
-    await loadThreads();
-    await loadThread(selectedId);
+    try {
+      const response = await fetch(`${apiBase}/${selectedId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ crmStage, tags }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to save CRM details');
+      setError(null);
+      await loadThreads();
+      await loadThread(selectedId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save CRM details');
+    }
   }
 
   async function closeThread() {
     if (mode !== 'admin' || !selectedId) return;
-    await fetch(`${apiBase}/${selectedId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'closed' }),
-    });
-    await loadThreads();
-    await loadThread(selectedId);
+    try {
+      const response = await fetch(`${apiBase}/${selectedId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'closed' }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to close conversation');
+      setError(null);
+      await loadThreads();
+      await loadThread(selectedId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to close conversation');
+    }
   }
 
   useEffect(() => {
@@ -145,6 +162,22 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
     };
   }, [selectedId]);
 
+  const filteredThreads = threads.filter((entry) => {
+    if (stageFilter !== 'all' && entry.crmStage !== stageFilter) return false;
+    if (tagFilter === 'unread' && !entry.unread) return false;
+    if (tagFilter === 'commission' && !(entry.tags || []).includes('commission')) return false;
+    const needle = listQuery.trim().toLowerCase();
+    if (!needle) return true;
+    const haystack = [
+      entry.subject,
+      entry.userEmail,
+      entry.userName || '',
+      entry.lastPreview,
+      ...(entry.tags || []),
+    ].join(' ').toLowerCase();
+    return haystack.includes(needle);
+  });
+
   if (loading) {
     return <p className="text-sm text-gray-500">Loading messages...</p>;
   }
@@ -153,10 +186,55 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
       <div className="space-y-2 lg:col-span-1">
         <h2 className="text-sm font-semibold text-gray-900">{mode === 'admin' ? 'Inbox' : 'Messages'}</h2>
+        {mode === 'admin' && threads.length > 0 && (
+          <div className="space-y-2 rounded-lg border border-gray-200 p-2">
+            <input
+              type="search"
+              value={listQuery}
+              onChange={(event) => setListQuery(event.target.value)}
+              placeholder="Search subject, email, tags…"
+              className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <select
+                value={stageFilter}
+                onChange={(event) => setStageFilter(event.target.value as 'all' | CrmStage)}
+                className="rounded-md border border-gray-300 px-2 py-1.5 text-xs"
+                aria-label="Filter by CRM stage"
+              >
+                <option value="all">All stages</option>
+                {CRM_STAGES.map((stage) => (
+                  <option key={stage} value={stage}>{stage}</option>
+                ))}
+              </select>
+              <select
+                value={tagFilter}
+                onChange={(event) => setTagFilter(event.target.value as 'all' | 'commission' | 'unread')}
+                className="rounded-md border border-gray-300 px-2 py-1.5 text-xs"
+                aria-label="Filter by focus"
+              >
+                <option value="all">All threads</option>
+                <option value="unread">Unread</option>
+                <option value="commission">Commissions</option>
+              </select>
+            </div>
+          </div>
+        )}
         {threads.length === 0 ? (
-          <p className="text-sm text-gray-500">No conversations yet.</p>
+          <div className="rounded-lg border border-dashed border-gray-200 px-3 py-5">
+            <p className="text-sm font-medium text-gray-900">No conversations yet</p>
+            <p className="mt-1 text-xs text-gray-500">
+              {mode === 'admin'
+                ? 'Messages from the contact form, order chat, and update questions land here.'
+                : 'When you message the studio, the conversation appears here.'}
+            </p>
+          </div>
+        ) : filteredThreads.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-gray-200 px-3 py-5 text-sm text-gray-500">
+            No conversations match these filters.
+          </p>
         ) : (
-          threads.map((entry) => (
+          filteredThreads.map((entry) => (
             <button
               key={entry.id}
               type="button"
@@ -171,6 +249,9 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
                   <span>{entry.userName || entry.userEmail}</span>
                   <span className="rounded bg-gray-100 px-1.5 py-0.5 capitalize">{entry.crmStage}</span>
+                  {(entry.tags || []).slice(0, 2).map((tag) => (
+                    <span key={tag} className="rounded bg-gray-100 px-1.5 py-0.5">{tag}</span>
+                  ))}
                 </div>
               )}
               <p className="mt-1 text-xs text-gray-600 line-clamp-2">{entry.lastPreview}</p>
@@ -253,7 +334,7 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
                   placeholder={mode === 'admin' ? 'Write a reply to the collector...' : 'Write a reply to the artist...'}
                 />
                 <div className="mt-2 flex justify-end">
-                  <button type="button" disabled={saving || !reply.trim()} onClick={() => void sendReply()} className="btn-primary rounded-md px-4 py-2 text-sm disabled:opacity-50">
+                  <button type="button" disabled={saving || !reply.trim()} onClick={() => void sendReply()} className="btn-primary px-4 py-2 text-sm disabled:opacity-50">
                     {saving ? 'Sending...' : 'Send reply'}
                   </button>
                 </div>
@@ -305,7 +386,7 @@ function HiddenCommentsPanel() {
     const response = await fetch(`/api/admin/comments/${encodeURIComponent(commentId)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ visible: true }),
+      body: JSON.stringify({ status: 'visible' }),
     });
     const data = await response.json();
     if (!response.ok) {
@@ -319,7 +400,7 @@ function HiddenCommentsPanel() {
   return (
     <section className="mt-6 rounded-lg border bg-white p-5">
       <h3 className="text-lg font-semibold text-gray-900">Hidden comments</h3>
-      <p className="mt-1 text-sm text-gray-600">Comments you hid from public updates appear here.</p>
+      <p className="mt-1 text-sm text-gray-600">Comments you hid from public updates appear here. Comments their authors deleted are not restorable.</p>
       {message && <p className="mt-3 text-sm text-blue-800">{message}</p>}
       {loading ? (
         <p className="mt-4 text-sm text-gray-500">Loading...</p>
@@ -329,7 +410,10 @@ function HiddenCommentsPanel() {
         <ul className="mt-4 divide-y">
           {comments.map((comment) => (
             <li key={comment.id} className="py-3 text-sm">
-              <p className="font-medium text-gray-900">{comment.authorName} on {comment.postSlug}</p>
+              <p className="font-medium text-gray-900">
+                {comment.authorName} on{' '}
+                <Link href={updatesPostPath(comment.postSlug)} className="text-primary hover:opacity-80">{comment.postSlug}</Link>
+              </p>
               <p className="mt-1 text-gray-700">{comment.body}</p>
               <button type="button" onClick={() => void restoreComment(comment.id)} className="mt-2 rounded border px-2 py-1 text-xs">
                 Restore

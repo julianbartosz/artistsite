@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { useCart } from '@/components/CartContext';
 import { cartItemLineTotal, formatPrice } from '@/lib/commerce';
@@ -7,10 +8,21 @@ import { cartItemLineTotal, formatPrice } from '@/lib/commerce';
 export default function CheckoutCancelPage() {
   const { state, getItemKey } = useCart();
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const orderId = params.get('order');
+    if (!orderId) return;
+    void fetch('/api/checkout', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId, token: params.get('t') }),
+    }).catch(() => undefined);
+  }, []);
+
   return (
-    <div className="min-h-screen bg-gray-50 py-16">
+    <div className="min-h-screen bg-surface-muted py-16">
       <div className="max-w-3xl mx-auto px-6">
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
+        <div className="bg-surface rounded-lg shadow-sm border border-gray-200 p-8">
           {/* Cancel Icon */}
           <div className="text-center mb-8">
             <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-gray-100 mb-4">
@@ -27,13 +39,13 @@ export default function CheckoutCancelPage() {
               No worries! Your items are still in your cart and no payment was processed.
             </p>
             <p className="text-sm text-gray-500">
-              You can continue shopping or try the checkout process again whenever you&apos;re ready.
+              You can try again anytime, or continue browsing the shop.
             </p>
           </div>
 
           {/* Cart Summary */}
           {state.items.length > 0 && (
-            <div className="bg-gray-50 rounded-lg p-6 mb-8">
+            <div className="bg-surface-muted rounded-lg p-6 mb-8">
               <h3 className="font-semibold text-gray-900 mb-4">Your Cart</h3>
               <div className="space-y-2 text-sm">
                 {state.items.map((item) => {
@@ -57,7 +69,7 @@ export default function CheckoutCancelPage() {
           <div className="flex flex-col sm:flex-row gap-4">
             <Link
               href="/checkout"
-              className="flex-1 bg-gray-900 text-white py-3 px-6 rounded-lg hover:bg-gray-800 transition-colors font-medium text-center"
+              className="btn-primary flex-1 py-3 px-6 transition-colors font-medium text-center"
             >
               Try Checkout Again
             </Link>

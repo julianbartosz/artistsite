@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNewsletterTracking } from '@/components/AnalyticsProvider';
 
 interface NewsletterSignupProps {
@@ -21,45 +21,30 @@ export function NewsletterSignup({
   const [email, setEmail] = useState('');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
-  
-  // Use a flag to prevent tracking on initial render
-  const [isClient, setIsClient] = useState(false);
-  
+  const hasTrackedViewRef = useRef(false);
+
   // Get tracking functions but handle potential errors
   const tracking = useNewsletterTracking();
 
-  // Ensure component is mounted on client before tracking
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
-
-  // Safe tracking wrapper with error handling
-  const safeTrackFormView = useCallback(() => {
-    if (!isClient) return;
-    
-    try {
-      tracking?.trackFormView?.();
-    } catch (error) {
-      console.warn('Analytics tracking error:', error);
-    }
-  }, [isClient, tracking]);
-
   const safeTrackSignup = useCallback((method: string) => {
-    if (!isClient) return;
-    
     try {
       tracking?.trackSignup?.(method);
     } catch (error) {
       console.warn('Analytics tracking error:', error);
     }
-  }, [isClient, tracking]);
+  }, [tracking]);
 
-  // Track form view when component mounts and is ready
+  // Track form view at most once per mount when tracking is enabled
   useEffect(() => {
-    if (isClient) {
-      safeTrackFormView();
+    if (hasTrackedViewRef.current) return;
+    if (tracking && 'isTrackingEnabled' in tracking && !tracking.isTrackingEnabled) return;
+    hasTrackedViewRef.current = true;
+    try {
+      tracking?.trackFormView?.();
+    } catch (error) {
+      console.warn('Analytics tracking error:', error);
     }
-  }, [isClient, safeTrackFormView]);
+  }, [tracking]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,8 +107,8 @@ export function NewsletterSignup({
   };
 
   const buttonClass = variant === 'onDark'
-    ? 'bg-white text-primary px-6 py-3 rounded-lg hover:bg-gray-100 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed'
-    : 'btn-primary px-6 py-3 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed';
+    ? 'bg-white text-primary px-6 py-3 rounded-button hover:bg-gray-100 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed'
+    : 'btn-primary px-6 py-3 disabled:opacity-50 disabled:cursor-not-allowed';
 
   return (
     <div className={className}>
@@ -137,7 +122,7 @@ export function NewsletterSignup({
             if (status === 'error') resetForm();
           }}
           placeholder={placeholder}
-          className="flex-1 px-4 py-3 rounded-lg bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary border border-gray-300"
+          className="flex-1 px-4 py-3 rounded-input bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary border border-gray-300"
           disabled={status === 'loading'}
         />
         <button

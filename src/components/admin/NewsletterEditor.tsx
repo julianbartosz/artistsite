@@ -1,0 +1,814 @@
+'use client';
+
+import React, { FormEvent, useEffect, useMemo, useState } from 'react';
+import { adminSettingFieldHref } from '@/components/AdminSettings';
+import MediaImageField from '@/components/admin/MediaImageField';
+import { EditorSection, HtmlField, TextField, reorder } from '@/components/admin/EditorFields';
+import { formatPrice } from '@/lib/commerce';
+import { pickVariantUrl } from '@/lib/image-variant-url';
+import {
+  NEWSLETTER_BLOCK_LABELS,
+  NEWSLETTER_MERGE_FIELDS,
+  applyMergeFields,
+  createNewsletterBlock,
+  createNewsletterDraft,
+  mergeFieldToken,
+  newsletterContentIssues,
+  newsletterMergeValues,
+  newsletterSendIssues,
+  personalizeNewsletter,
+  renderNewsletter,
+  type NewsletterAdminContext,
+  type NewsletterBlock,
+  type NewsletterBlockType,
+  type NewsletterDocument,
+  type NewsletterIssue,
+  type NewsletterStatus,
+  type NewsletterSummary,
+} from '@/lib/newsletter';
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+export class NewsletterRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
+
+export async function newsletterRequest<T>(url: string, init?: { method?: string; body?: unknown }): Promise<T> {
+  const response = await fetch(url, {
+    method: init?.method ?? 'GET',
+    headers: init?.body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: init?.body === undefined ? undefined : JSON.stringify(init.body),
+    cache: 'no-store',
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new NewsletterRequestError(typeof data.error === 'string' ? data.error : 'Something went wrong. Try again.', response.status);
+  }
+  return data as T;
+}
+
+type Notice = { tone: 'success' | 'error' | 'info'; text: string } | null;
+
+/** Runs one action at a time; a 409 means the newsletter changed elsewhere (cron send, another tab), so `onStale` reloads it. */
+function useNewsletterAction<A extends string>(onStale: () => void, initialNotice: Notice = null) {
+  const [busy, setBusy] = useState<A | null>(null);
+  const [notice, setNotice] = useState<Notice>(initialNotice);
+
+  async function run(action: A, task: () => Promise<void>) {
+    setBusy(action);
+    setNotice(null);
+    try {
+      await task();
+    } catch (error) {
+      setNotice({ tone: 'error', text: errorText(error) });
+      if (error instanceof NewsletterRequestError && error.status === 409) onStale();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return { busy, notice, setNotice, run };
+}
+
+const NOTICE_CLASSES = {
+  success: 'border-green-200 bg-green-50 text-green-800',
+  error: 'border-red-200 bg-red-50 text-red-800',
+  info: 'border-blue-200 bg-blue-50 text-blue-800',
+} as const;
+
+function NoticeBanner({ notice }: { notice: Notice }) {
+  if (!notice) return null;
+  return <div role="status" className={`rounded border p-3 text-sm ${NOTICE_CLASSES[notice.tone]}`}>{notice.text}</div>;
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : 'Something went wrong. Try again.';
+}
+
+const STATUS_BADGES: Record<NewsletterStatus, { label: string; className: string }> = {
+  draft: { label: 'Draft', className: 'bg-gray-100 text-gray-700' },
+  scheduled: { label: 'Scheduled', className: 'bg-blue-50 text-blue-800' },
+  active: { label: 'Sending', className: 'bg-amber-100 text-amber-800' },
+  paused: { label: 'Needs attention', className: 'bg-red-50 text-red-700' },
+  completed: { label: 'Sent', className: 'bg-green-50 text-green-800' },
+};
+
+export function NewsletterStatusBadge({ status }: { status: NewsletterStatus }) {
+  const badge = STATUS_BADGES[status];
+  return <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}>{badge.label}</span>;
+}
+
+export function formatNewsletterDate(value: string): string {
+  return new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function subscriberLabel(count: number): string {
+  return `${count.toLocaleString()} subscriber${count === 1 ? '' : 's'}`;
+}
+
+const SETTING_FOR_ISSUE: Record<string, string> = {
+  'site-url': 'NEXT_PUBLIC_SITE_URL',
+  address: 'NEWSLETTER_FOOTER_ADDRESS',
+  delivery: 'EMAIL_DELIVERY_MODE',
+};
+
+function blockElementId(blockId: string): string {
+  return `newsletter-block-${blockId}`;
+}
+
+// ---------------------------------------------------------------------------
+// Inbox preview
+// ---------------------------------------------------------------------------
+
+function renderPreviewHtml(document: NewsletterDocument, context: NewsletterAdminContext) {
+  const rendered = personalizeNewsletter(
+    renderNewsletter(document, context),
+    newsletterMergeValues(context.testRecipient, context, '#'),
+  );
+  return { ...rendered, html: rendered.html.replace('<head>', '<head><base target="_blank">') };
+}
+
+export function NewsletterPreview({ document, context, dirty = false }: { document: NewsletterDocument; context: NewsletterAdminContext; dirty?: boolean }) {
+  const [open, setOpen] = useState(true);
+  const [width, setWidth] = useState<'desktop' | 'mobile'>('desktop');
+  const [rendered, setRendered] = useState(() => renderPreviewHtml(document, context));
+
+  useEffect(() => {
+    const timer = setTimeout(() => setRendered(renderPreviewHtml(document, context)), 250);
+    return () => clearTimeout(timer);
+  }, [document, context]);
+
+  const viewer = context.testRecipient.firstName || context.testRecipient.email;
+  const preheader = applyMergeFields(document.preheader.trim(), newsletterMergeValues(context.testRecipient, context, '#'), 'text');
+
+  return (
+    <div className="rounded-lg border bg-white overflow-hidden xl:sticky xl:top-4">
+      <div className="border-b px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">Inbox preview</h3>
+          <p className="text-xs text-gray-500">{viewer ? `Personalized as ${viewer}.` : 'Updates as you edit.'}</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {dirty && <span className="text-xs font-medium text-amber-700">Unsaved changes</span>}
+          {open && (
+            <div className="flex rounded-md border border-gray-300 text-xs" role="group" aria-label="Preview width">
+              {(['desktop', 'mobile'] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setWidth(option)}
+                  aria-pressed={width === option}
+                  className={`px-2.5 py-1 capitalize first:rounded-l-md last:rounded-r-md ${width === option ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-50'}`}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setOpen((current) => !current)}
+            className="text-sm font-medium text-gray-700 hover:text-gray-900"
+            aria-expanded={open}
+          >
+            {open ? 'Hide preview' : 'Show preview'}
+          </button>
+        </div>
+      </div>
+      {open && (
+        <>
+          <div className="border-b bg-gray-50 px-4 py-3 text-sm">
+            <p className="font-semibold text-gray-900">{document.fromName.trim() || context.siteName}</p>
+            <p className="truncate text-gray-900">{rendered.subject || <span className="text-gray-400">No subject</span>}</p>
+            {preheader && <p className="truncate text-gray-500">{preheader}</p>}
+          </div>
+          <div className="bg-gray-100">
+            <iframe
+              title="Newsletter preview"
+              srcDoc={rendered.html}
+              sandbox="allow-popups allow-popups-to-escape-sandbox"
+              className={`mx-auto block h-[min(70vh,720px)] bg-white transition-[width] ${width === 'mobile' ? 'w-[375px] max-w-full' : 'w-full'}`}
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Blocks
+// ---------------------------------------------------------------------------
+
+const BLOCK_ORDER: NewsletterBlockType[] = ['text', 'image', 'button', 'product', 'divider'];
+const MAX_BLOCKS = 40;
+const RICH_TEXT_FIELDS = NEWSLETTER_MERGE_FIELDS.map((field) => ({ token: mergeFieldToken(field.key), label: field.label }));
+
+type ProductOption = { id: string; title: string; price: number; currency: string; availability: string; images: unknown };
+
+function productImage(images: unknown): string {
+  const record = typeof images === 'string' ? safeJson(images) : images;
+  if (!record || typeof record !== 'object') return '';
+  const { thumbnail, gallery } = record as { thumbnail?: unknown; gallery?: unknown };
+  const first = typeof thumbnail === 'string' && thumbnail.trim()
+    ? thumbnail
+    : Array.isArray(gallery) ? gallery.find((item): item is string => typeof item === 'string' && Boolean(item.trim())) ?? '' : '';
+  return first ? pickVariantUrl(first, 'md') : '';
+}
+
+function safeJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function MergeFieldMenu({ onInsert }: { onInsert: (token: string) => void }) {
+  return (
+    <select
+      aria-label="Insert personalization field"
+      value=""
+      onChange={(event) => {
+        if (event.target.value) onInsert(event.target.value);
+      }}
+      className="rounded border border-gray-300 bg-white px-2 py-0.5 text-xs text-gray-700"
+    >
+      <option value="">Insert field…</option>
+      {RICH_TEXT_FIELDS.map((field) => <option key={field.token} value={field.token}>{field.label}</option>)}
+    </select>
+  );
+}
+
+function appendToken(value: string, token: string): string {
+  return value && !value.endsWith(' ') ? `${value} ${token}` : `${value}${token}`;
+}
+
+function BlockFields({
+  block,
+  onChange,
+  products,
+}: {
+  block: NewsletterBlock;
+  onChange: (block: NewsletterBlock) => void;
+  products: ProductOption[] | null;
+}) {
+  switch (block.type) {
+    case 'text':
+      return <HtmlField label="Text" value={block.html} onChange={(html) => onChange({ ...block, html })} mergeFields={RICH_TEXT_FIELDS} />;
+    case 'image':
+      return (
+        <div className="space-y-4">
+          <MediaImageField label="Image" value={block.url} onChange={(url) => onChange({ ...block, url })} />
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <TextField label="Description for screen readers" value={block.alt} onChange={(alt) => onChange({ ...block, alt })} maxLength={300} />
+            <TextField label="Caption" value={block.caption} onChange={(caption) => onChange({ ...block, caption })} maxLength={300} placeholder="Optional" />
+          </div>
+          <TextField label="Link" value={block.href} onChange={(href) => onChange({ ...block, href })} placeholder="Optional — https://… or /shop" />
+        </div>
+      );
+    case 'button':
+      return (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <TextField label="Button label" value={block.label} onChange={(label) => onChange({ ...block, label })} maxLength={80} placeholder="See the new work" />
+          <TextField label="Link" value={block.href} onChange={(href) => onChange({ ...block, href })} placeholder="https://… or /portfolio" />
+        </div>
+      );
+    case 'product': {
+      const selected = products?.find((product) => product.id === block.productId);
+      return (
+        <div className="space-y-4">
+          <label className="block text-sm font-medium text-gray-700">
+            Artwork
+            <select
+              value={block.productId}
+              disabled={products === null}
+              onChange={(event) => {
+                const product = products?.find((option) => option.id === event.target.value);
+                if (!product) {
+                  onChange({ ...block, productId: '', title: '', imageUrl: '', priceLabel: '', href: '' });
+                  return;
+                }
+                onChange({
+                  ...block,
+                  productId: product.id,
+                  title: product.title,
+                  imageUrl: productImage(product.images),
+                  priceLabel: product.availability === 'available' ? formatPrice(product.price, product.currency) : 'Sold',
+                  href: `/shop/${product.id}`,
+                });
+              }}
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 disabled:bg-gray-50"
+            >
+              <option value="">{products === null ? 'Loading shop…' : products.length ? 'Choose an artwork' : 'No artworks in the shop yet'}</option>
+              {block.productId && !selected && <option value={block.productId}>{block.title || block.productId}</option>}
+              {products?.map((product) => <option key={product.id} value={product.id}>{product.title}</option>)}
+            </select>
+          </label>
+          {block.productId && (
+            <div className="flex gap-4">
+              {block.imageUrl && <img src={block.imageUrl} alt="" className="h-20 w-20 flex-none rounded border border-gray-200 object-cover" />}
+              <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-3">
+                <TextField label="Title" value={block.title} onChange={(title) => onChange({ ...block, title })} maxLength={200} />
+                <TextField label="Price line" value={block.priceLabel} onChange={(priceLabel) => onChange({ ...block, priceLabel })} maxLength={80} placeholder="Optional" />
+                <TextField label="Button label" value={block.ctaLabel} onChange={(ctaLabel) => onChange({ ...block, ctaLabel })} maxLength={80} placeholder="View artwork" />
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+    case 'divider':
+      return <p className="text-sm text-gray-500">A thin line to separate sections.</p>;
+  }
+}
+
+function BlockList({
+  blocks,
+  onChange,
+  issuesByBlock,
+}: {
+  blocks: NewsletterBlock[];
+  onChange: (blocks: NewsletterBlock[]) => void;
+  issuesByBlock: Map<string, NewsletterIssue[]>;
+}) {
+  const needsProducts = blocks.some((block) => block.type === 'product');
+  const [products, setProducts] = useState<ProductOption[] | null>(null);
+
+  useEffect(() => {
+    if (!needsProducts || products !== null) return;
+    let cancelled = false;
+    newsletterRequest<{ products: ProductOption[] }>('/api/admin/products')
+      .then((data) => { if (!cancelled) setProducts(data.products); })
+      .catch(() => { if (!cancelled) setProducts([]); });
+    return () => { cancelled = true; };
+  }, [needsProducts, products]);
+
+  const controlClass = 'rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 disabled:opacity-40 disabled:hover:bg-transparent';
+
+  return (
+    <div className="space-y-3">
+      {blocks.length === 0 && (
+        <p className="rounded-md border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500">Add a block below to start writing.</p>
+      )}
+      {blocks.map((block, index) => {
+        const issues = issuesByBlock.get(block.id) ?? [];
+        return (
+          <div key={block.id} id={blockElementId(block.id)} className={`scroll-mt-4 rounded-md border p-4 ${issues.length ? 'border-amber-300' : 'border-gray-200'}`}>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">{NEWSLETTER_BLOCK_LABELS[block.type]}</span>
+              <div className="flex gap-1">
+                <button type="button" className={controlClass} disabled={index === 0} onClick={() => onChange(reorder(blocks, index, -1))} aria-label={`Move ${NEWSLETTER_BLOCK_LABELS[block.type]} block up`}>Up</button>
+                <button type="button" className={controlClass} disabled={index === blocks.length - 1} onClick={() => onChange(reorder(blocks, index, 1))} aria-label={`Move ${NEWSLETTER_BLOCK_LABELS[block.type]} block down`}>Down</button>
+                <button type="button" className={`${controlClass} hover:text-red-700`} onClick={() => onChange(blocks.filter((entry) => entry.id !== block.id))}>Remove</button>
+              </div>
+            </div>
+            <BlockFields block={block} products={products} onChange={(next) => onChange(blocks.map((entry) => (entry.id === block.id ? next : entry)))} />
+            {issues.map((issue) => <p key={issue.key} className="mt-3 text-xs text-amber-800">{issue.message}</p>)}
+          </div>
+        );
+      })}
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        <span className="text-sm text-gray-600">Add</span>
+        {BLOCK_ORDER.map((type) => (
+          <button
+            key={type}
+            type="button"
+            disabled={blocks.length >= MAX_BLOCKS}
+            onClick={() => onChange([...blocks, createNewsletterBlock(type)])}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {type === 'product' ? 'Artwork' : NEWSLETTER_BLOCK_LABELS[type]}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Readiness
+// ---------------------------------------------------------------------------
+
+function IssueList({ issues, readyText }: { issues: NewsletterIssue[]; readyText: string }) {
+  if (issues.length === 0) {
+    return <p className="text-sm text-green-700">✓ {readyText}</p>;
+  }
+  return (
+    <ul className="space-y-1.5 text-sm text-amber-900">
+      {issues.map((issue) => {
+        const setting = SETTING_FOR_ISSUE[issue.key];
+        return (
+          <li key={issue.key} className="flex gap-2">
+            <span aria-hidden="true">•</span>
+            <span>
+              {issue.message}{' '}
+              {setting && <a href={adminSettingFieldHref(setting)} className="font-medium underline">Open Settings</a>}
+              {issue.blockId && (
+                <button
+                  type="button"
+                  className="font-medium underline"
+                  onClick={() => document.getElementById(blockElementId(issue.blockId!))?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                >
+                  Show block
+                </button>
+              )}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function toLocalInputValue(iso: string | null): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+// ---------------------------------------------------------------------------
+// Editor
+// ---------------------------------------------------------------------------
+
+type EditorProps = {
+  /** Null while composing a newsletter that has not been saved yet. */
+  newsletter: NewsletterSummary | null;
+  context: NewsletterAdminContext;
+  onSaved: (newsletter: NewsletterSummary) => void;
+  onDeleted: (id: string) => void;
+  onStale: () => void;
+  onBack: () => void;
+};
+
+type BusyAction = 'save' | 'test' | 'send' | 'schedule' | 'delete';
+
+export function NewsletterEditor({ newsletter, context, onSaved, onDeleted, onStale, onBack }: EditorProps) {
+  const [draft, setDraft] = useState<NewsletterDocument>(() => newsletter?.document ?? createNewsletterDraft());
+  const [baseline, setBaseline] = useState(() => JSON.stringify(draft));
+  const { busy, notice, setNotice, run } = useNewsletterAction<BusyAction>(
+    onStale,
+    newsletter?.status === 'paused' && newsletter.metrics.lastError ? { tone: 'error', text: newsletter.metrics.lastError } : null,
+  );
+  const [testEmails, setTestEmails] = useState(context.testRecipient.email);
+  const [scheduleAt, setScheduleAt] = useState(() => toLocalInputValue(newsletter?.scheduledAt ?? null));
+
+  const dirty = JSON.stringify(draft) !== baseline;
+  const contentIssues = useMemo(() => newsletterContentIssues(draft, context), [draft, context]);
+  const sendIssues = useMemo(() => newsletterSendIssues(draft, context), [draft, context]);
+  const issuesByBlock = useMemo(() => {
+    const map = new Map<string, NewsletterIssue[]>();
+    for (const issue of sendIssues) {
+      if (issue.blockId) map.set(issue.blockId, [...(map.get(issue.blockId) ?? []), issue]);
+    }
+    return map;
+  }, [sendIssues]);
+
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [dirty]);
+
+  const update = (patch: Partial<NewsletterDocument>) => setDraft((current) => ({ ...current, ...patch }));
+  const scheduled = newsletter?.status === 'scheduled';
+
+  async function persist(): Promise<NewsletterSummary> {
+    const { newsletter: saved } = newsletter
+      ? await newsletterRequest<{ newsletter: NewsletterSummary }>(`/api/admin/newsletters/${newsletter.id}`, { method: 'PUT', body: { document: draft } })
+      : await newsletterRequest<{ newsletter: NewsletterSummary }>('/api/admin/newsletters', { method: 'POST', body: { document: draft } });
+    setDraft(saved.document);
+    setBaseline(JSON.stringify(saved.document));
+    onSaved(saved);
+    return saved;
+  }
+
+  async function savedNewsletter(): Promise<NewsletterSummary> {
+    return newsletter && !dirty ? newsletter : persist();
+  }
+
+  function handleSave(event: FormEvent) {
+    event.preventDefault();
+    void run('save', async () => {
+      await persist();
+      setNotice({ tone: 'success', text: scheduled ? 'Saved. The scheduled send will use these changes.' : 'Draft saved.' });
+    });
+  }
+
+  function handleTest() {
+    const emails = testEmails.split(',').map((email) => email.trim()).filter(Boolean);
+    void run('test', async () => {
+      const result = await newsletterRequest<{ delivered: string[]; failed: string[]; deliveryMode: string }>(
+        '/api/admin/newsletters/test',
+        { method: 'POST', body: { document: draft, emails } },
+      );
+      if (result.failed.length) {
+        setNotice({ tone: 'error', text: `Couldn’t deliver the test to ${result.failed.join(', ')}. Check Email delivery in Settings.` });
+      } else if (result.deliveryMode === 'smtp') {
+        setNotice({ tone: 'success', text: `Test sent to ${result.delivered.join(', ')}.` });
+      } else if (result.deliveryMode === 'log') {
+        setNotice({ tone: 'info', text: 'Email delivery is in log mode, so the test was written to the server log instead of an inbox.' });
+      } else {
+        setNotice({ tone: 'error', text: 'SMTP setup isn’t finished in Settings, so the test wasn’t sent.' });
+      }
+    });
+  }
+
+  function handleSend() {
+    const audience = subscriberLabel(context.subscriberCount);
+    if (!window.confirm(`Send “${draft.subject.trim()}” to ${audience} now? This can’t be undone.`)) return;
+    void run('send', async () => {
+      const saved = await savedNewsletter();
+      const { newsletter: sending } = await newsletterRequest<{ newsletter: NewsletterSummary }>(
+        `/api/admin/newsletters/${saved.id}`,
+        { method: 'POST', body: { action: 'send' } },
+      );
+      onSaved(sending);
+    });
+  }
+
+  function handleSchedule() {
+    void run('schedule', async () => {
+      const saved = await savedNewsletter();
+      const { newsletter: next } = await newsletterRequest<{ newsletter: NewsletterSummary }>(
+        `/api/admin/newsletters/${saved.id}`,
+        { method: 'POST', body: { action: 'schedule', scheduledAt: new Date(scheduleAt).toISOString() } },
+      );
+      onSaved(next);
+      setNotice({ tone: 'success', text: `Scheduled for ${formatNewsletterDate(next.scheduledAt!)}.` });
+    });
+  }
+
+  function handleUnschedule() {
+    if (!newsletter) return;
+    void run('schedule', async () => {
+      const { newsletter: next } = await newsletterRequest<{ newsletter: NewsletterSummary }>(
+        `/api/admin/newsletters/${newsletter.id}`,
+        { method: 'POST', body: { action: 'unschedule' } },
+      );
+      onSaved(next);
+      setNotice({ tone: 'info', text: 'Unscheduled. It’s a draft again.' });
+    });
+  }
+
+  function handleDelete() {
+    if (!newsletter) {
+      onBack();
+      return;
+    }
+    if (!window.confirm('Delete this draft? This can’t be undone.')) return;
+    void run('delete', async () => {
+      await newsletterRequest(`/api/admin/newsletters/${newsletter.id}`, { method: 'DELETE' });
+      onDeleted(newsletter.id);
+    });
+  }
+
+  function handleBack() {
+    if (dirty && !window.confirm('You have unsaved changes. Leave this newsletter anyway?')) return;
+    onBack();
+  }
+
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const sendDisabled = busy !== null || sendIssues.length > 0;
+
+  return (
+    <div className="space-y-6" data-testid="newsletter-editor">
+      <button type="button" onClick={handleBack} className="text-sm font-medium text-gray-700 hover:text-gray-900">← All newsletters</button>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2 xl:items-start">
+        <form onSubmit={handleSave} className="rounded-lg border bg-white p-6 space-y-6">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold text-gray-900">{draft.subject.trim() || 'Untitled newsletter'}</h2>
+            <NewsletterStatusBadge status={newsletter?.status ?? 'draft'} />
+          </div>
+
+          <NoticeBanner notice={notice} />
+
+          <EditorSection title="Envelope" defaultOpen>
+            <TextField
+              label="From name"
+              value={draft.fromName}
+              onChange={(fromName) => update({ fromName })}
+              placeholder={context.siteName}
+              maxLength={80}
+              help={`Sent from ${context.fromAddress || 'your SMTP address'}${context.replyTo ? ` · replies go to ${context.replyTo}` : ''}.`}
+            />
+            <div>
+              <TextField label="Subject" value={draft.subject} onChange={(subject) => update({ subject })} maxLength={200} />
+              <div className="mt-1 flex items-center justify-between gap-3 text-xs text-gray-500">
+                <span>{draft.subject.length}/200 · Inboxes show about the first 60 characters.</span>
+                <MergeFieldMenu onInsert={(token) => update({ subject: appendToken(draft.subject, token) })} />
+              </div>
+            </div>
+            <div>
+              <TextField label="Preview text" value={draft.preheader} onChange={(preheader) => update({ preheader })} maxLength={200} placeholder="Optional" />
+              <div className="mt-1 flex items-center justify-between gap-3 text-xs text-gray-500">
+                <span>Shown after the subject in most inboxes.</span>
+                <MergeFieldMenu onInsert={(token) => update({ preheader: appendToken(draft.preheader, token) })} />
+              </div>
+            </div>
+          </EditorSection>
+
+          <EditorSection title="Content" defaultOpen>
+            <BlockList blocks={draft.blocks} onChange={(blocks) => update({ blocks })} issuesByBlock={issuesByBlock} />
+          </EditorSection>
+
+          <EditorSection title="Send" defaultOpen>
+            <IssueList issues={sendIssues} readyText={`Ready to send to ${subscriberLabel(context.subscriberCount)}.`} />
+
+            <div className="rounded-md bg-gray-50 p-4 space-y-3">
+              <TextField
+                label="Send a test to"
+                value={testEmails}
+                onChange={setTestEmails}
+                placeholder="you@example.com"
+                help="Separate up to 5 addresses with commas. Test subjects start with [Test]."
+              />
+              <button
+                type="button"
+                onClick={handleTest}
+                disabled={busy !== null || contentIssues.length > 0}
+                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {busy === 'test' ? 'Sending test…' : 'Send test'}
+              </button>
+            </div>
+
+            <div className="rounded-md bg-gray-50 p-4 space-y-3">
+              {scheduled ? (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm text-gray-700">Scheduled for <strong>{formatNewsletterDate(newsletter!.scheduledAt!)}</strong>.</p>
+                  <button type="button" onClick={handleUnschedule} disabled={busy !== null} className="text-sm font-medium text-gray-700 underline hover:text-gray-900 disabled:opacity-50">Unschedule</button>
+                </div>
+              ) : (
+                <>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Send later
+                    <input
+                      type="datetime-local"
+                      value={scheduleAt}
+                      min={toLocalInputValue(new Date().toISOString())}
+                      onChange={(event) => setScheduleAt(event.target.value)}
+                      disabled={!context.schedulingAvailable}
+                      className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 disabled:bg-gray-100 disabled:text-gray-500"
+                    />
+                    <span className="mt-1 block text-xs font-normal text-gray-500">
+                      {context.schedulingAvailable
+                        ? `Your time zone: ${timezone}.`
+                        : <>Scheduling needs automations. <a href={adminSettingFieldHref('CRON_SECRET')} className="underline">Set the automation secret</a>.</>}
+                    </span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleSchedule}
+                    disabled={sendDisabled || !scheduleAt || !context.schedulingAvailable}
+                    className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {busy === 'schedule' ? 'Scheduling…' : 'Schedule'}
+                  </button>
+                </>
+              )}
+            </div>
+
+            <button type="button" onClick={handleSend} disabled={sendDisabled} className="btn-primary w-full px-5 py-2.5 disabled:opacity-50">
+              {busy === 'send' ? 'Starting send…' : `Send now to ${subscriberLabel(context.subscriberCount)}`}
+            </button>
+          </EditorSection>
+
+          <div className="flex items-center justify-between gap-3">
+            <button type="button" onClick={handleDelete} disabled={busy !== null} className="text-sm font-medium text-red-700 hover:text-red-800 disabled:opacity-50">
+              {newsletter ? 'Delete draft' : 'Discard'}
+            </button>
+            <button type="submit" disabled={busy !== null || (!dirty && Boolean(newsletter))} className="btn-primary px-5 py-2 disabled:opacity-50">
+              {busy === 'save' ? 'Saving...' : 'Save draft'}
+            </button>
+          </div>
+        </form>
+
+        <NewsletterPreview document={draft} context={context} dirty={dirty} />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Report (sent or sending)
+// ---------------------------------------------------------------------------
+
+type ReportProps = {
+  newsletter: NewsletterSummary;
+  context: NewsletterAdminContext;
+  onSaved: (newsletter: NewsletterSummary) => void;
+  onDeleted: (id: string) => void;
+  onDuplicate: (document: NewsletterDocument) => Promise<void>;
+  onStale: () => void;
+  onBack: () => void;
+};
+
+export function NewsletterReport({ newsletter, context, onSaved, onDeleted, onDuplicate, onStale, onBack }: ReportProps) {
+  const { busy, notice, run } = useNewsletterAction<'send' | 'duplicate' | 'delete'>(onStale);
+  const { metrics, status } = newsletter;
+  const sending = status === 'active';
+  const interrupted = status === 'paused' && !newsletter.sentAt;
+  const processed = metrics.delivered + metrics.failed;
+  const progress = metrics.total ? Math.min(100, Math.round((processed / metrics.total) * 100)) : 0;
+
+  function handleResend() {
+    void run('send', async () => {
+      const { newsletter: next } = await newsletterRequest<{ newsletter: NewsletterSummary }>(
+        `/api/admin/newsletters/${newsletter.id}`,
+        { method: 'POST', body: { action: 'send' } },
+      );
+      onSaved(next);
+    });
+  }
+
+  function handleDelete() {
+    if (!window.confirm('Delete this newsletter and its delivery report? This can’t be undone.')) return;
+    void run('delete', async () => {
+      await newsletterRequest(`/api/admin/newsletters/${newsletter.id}`, { method: 'DELETE' });
+      onDeleted(newsletter.id);
+    });
+  }
+
+  const stats = [
+    { label: 'Delivered', value: metrics.delivered },
+    { label: 'Failed', value: metrics.failed },
+    { label: 'Recipients', value: metrics.total },
+  ];
+
+  return (
+    <div className="space-y-6" data-testid="newsletter-report">
+      <button type="button" onClick={onBack} className="text-sm font-medium text-gray-700 hover:text-gray-900">← All newsletters</button>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2 xl:items-start">
+        <div className="rounded-lg border bg-white p-6 space-y-6">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-semibold text-gray-900">{newsletter.document.subject || 'Untitled newsletter'}</h2>
+              <NewsletterStatusBadge status={status} />
+            </div>
+            <p className="mt-1 text-sm text-gray-600">
+              {sending && 'Sending now. You can leave this page — delivery continues in the background.'}
+              {status === 'completed' && newsletter.sentAt && `Sent ${formatNewsletterDate(newsletter.sentAt)}.`}
+              {status === 'paused' && (interrupted ? 'Sending stopped before everyone received it.' : `Sent ${formatNewsletterDate(newsletter.sentAt!)}, but the latest retry stopped early.`)}
+            </p>
+          </div>
+
+          <NoticeBanner notice={notice} />
+          {status === 'paused' && metrics.lastError && <NoticeBanner notice={{ tone: 'error', text: metrics.lastError }} />}
+
+          <dl className="grid grid-cols-3 gap-3">
+            {stats.map((stat) => (
+              <div key={stat.label} className="rounded-md border border-gray-200 p-3">
+                <dt className="text-xs text-gray-500">{stat.label}</dt>
+                <dd className="mt-1 text-xl font-semibold text-gray-900">{stat.value.toLocaleString()}</dd>
+              </div>
+            ))}
+          </dl>
+
+          {sending && (
+            <div>
+              <div className="h-2 overflow-hidden rounded-full bg-gray-100" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
+                <div className="h-full bg-primary transition-[width]" style={{ width: `${progress}%` }} />
+              </div>
+              <p className="mt-1 text-xs text-gray-500">{processed.toLocaleString()} of {metrics.total.toLocaleString()} processed</p>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-3">
+            {!sending && (interrupted || metrics.failed > 0) && (
+              <button type="button" onClick={handleResend} disabled={busy !== null} className="btn-primary px-4 py-2 disabled:opacity-50">
+                {busy === 'send' ? 'Starting…' : interrupted ? 'Resume sending' : `Retry ${metrics.failed.toLocaleString()} failed`}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => void run('duplicate', () => onDuplicate(newsletter.document))}
+              disabled={busy !== null}
+              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {busy === 'duplicate' ? 'Duplicating…' : 'Duplicate'}
+            </button>
+            {!sending && (
+              <button type="button" onClick={handleDelete} disabled={busy !== null} className="ml-auto text-sm font-medium text-red-700 hover:text-red-800 disabled:opacity-50">
+                Delete
+              </button>
+            )}
+          </div>
+        </div>
+
+        <NewsletterPreview document={newsletter.document} context={context} />
+      </div>
+    </div>
+  );
+}

@@ -1,61 +1,56 @@
 import { NextResponse } from 'next/server';
 import { getAllPosts } from '@/lib/markdown';
+import { getPublishedSiteContent } from '@/lib/site-content';
+import { getSiteUrl } from '@/lib/config';
 import { UPDATES_PATH, updatesPostPath } from '@/lib/site-content-shared';
-
-const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://artistsite.com';
-const siteName = 'Artist Site';
-const siteDescription = 'Contemporary art blog featuring insights into creative process, techniques, and artistic inspiration';
+import { brandIconPath } from '@/lib/brand';
+import { escapeHtml } from '@/lib/email-shell';
+import { absoluteUrl } from '@/lib/utils';
 
 export async function GET() {
-  const posts = await getAllPosts();
-  const lastBuildDate = new Date().toUTCString();
+  const [posts, identity, blog, siteUrl] = await Promise.all([
+    getAllPosts(),
+    getPublishedSiteContent('identity'),
+    getPublishedSiteContent('blog'),
+    getSiteUrl(),
+  ]);
+  const link = (path: string) => escapeHtml(absoluteUrl(path, siteUrl));
+  const siteName = escapeHtml(identity.siteName);
 
-  const rssItems = posts
-    .filter(post => !post.isDraft)
-    .slice(0, 20) // Limit to 20 most recent posts
+  const rssItems = [...posts]
+    .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt))
+    .slice(0, 20)
     .map(post => {
-      const postUrl = `${baseUrl}${updatesPostPath(post.slug)}`;
-      const pubDate = new Date(post.publishedAt).toUTCString();
-      
+      const postUrl = link(updatesPostPath(post.slug));
       return `
     <item>
-      <title><![CDATA[${post.title}]]></title>
-      <description><![CDATA[${post.excerpt}]]></description>
+      <title>${escapeHtml(post.title)}</title>
+      <description>${escapeHtml(post.excerpt)}</description>
       <link>${postUrl}</link>
       <guid isPermaLink="true">${postUrl}</guid>
-      <pubDate>${pubDate}</pubDate>
-      <author>noreply@artistsite.com (${post.author || 'Artist'})</author>
-      ${post.tags ? post.tags.map(tag => `<category><![CDATA[${tag}]]></category>`).join('\n      ') : ''}
-      <content:encoded><![CDATA[${post.excerpt}]]></content:encoded>
+      <pubDate>${new Date(post.publishedAt).toUTCString()}</pubDate>
+      <dc:creator>${escapeHtml(post.author || identity.siteName)}</dc:creator>
+      ${(post.tags || []).map(tag => `<category>${escapeHtml(tag)}</category>`).join('\n      ')}
     </item>`.trim();
     }).join('\n');
 
   const rssXml = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" 
-     xmlns:content="http://purl.org/rss/1.0/modules/content/"
+<rss version="2.0"
+     xmlns:dc="http://purl.org/dc/elements/1.1/"
      xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title><![CDATA[${siteName} Updates]]></title>
-    <description><![CDATA[${siteDescription}]]></description>
-    <link>${baseUrl}${UPDATES_PATH}</link>
+    <title>${siteName} — ${escapeHtml(blog.title)}</title>
+    <description>${escapeHtml(blog.subtitle)}</description>
+    <link>${link(UPDATES_PATH)}</link>
     <language>en-us</language>
-    <lastBuildDate>${lastBuildDate}</lastBuildDate>
-    <atom:link href="${baseUrl}/rss.xml" rel="self" type="application/rss+xml" />
-    <generator>Next.js RSS Generator</generator>
-    <webMaster>noreply@artistsite.com (Artist Site)</webMaster>
-    <managingEditor>noreply@artistsite.com (Artist Site)</managingEditor>
-    <copyright>Copyright © ${new Date().getFullYear()} ${siteName}</copyright>
-    <category><![CDATA[Art]]></category>
-    <category><![CDATA[Contemporary Art]]></category>
-    <category><![CDATA[Creative Process]]></category>
+    <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
+    <atom:link href="${link('/rss.xml')}" rel="self" type="application/rss+xml" />
+    <copyright>Copyright © ${new Date().getFullYear()} ${escapeHtml(identity.copyrightName || identity.siteName)}</copyright>
     <ttl>60</ttl>
-    
     <image>
-      <url>${baseUrl}/images/rss-logo.png</url>
-      <title><![CDATA[${siteName}]]></title>
-      <link>${baseUrl}</link>
-      <width>144</width>
-      <height>144</height>
+      <url>${link(brandIconPath(identity, 180))}</url>
+      <title>${siteName} — ${escapeHtml(blog.title)}</title>
+      <link>${link(UPDATES_PATH)}</link>
     </image>
 ${rssItems}
   </channel>

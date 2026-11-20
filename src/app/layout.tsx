@@ -7,37 +7,47 @@ import { Footer } from '@/components/Footer';
 import { CartProvider } from '@/components/CartContext';
 import AuthProvider from '@/components/AuthProvider';
 import { StructuredData, generateOrganizationSchema } from '@/components/StructuredData';
-import { generateFeedLinks } from '@/lib/seo';
+import { generateFeedLinks, socialHandle } from '@/lib/seo';
+import { getSiteUrl } from '@/lib/config';
 import { PerformanceMonitor, SEOMonitor } from '@/components/DynamicComponents';
 import { AnalyticsProvider } from '@/components/AnalyticsProvider';
 import SiteShell from '@/components/SiteShell';
 import AdminPwaRegister from '@/components/admin/AdminPwaRegister';
 import CmsPreviewBanner from '@/components/admin/CmsPreviewBanner';
 import { getPublicSiteShell } from '@/lib/public-site-shell';
-import { getSiteContent, themeCssVariables } from '@/lib/site-content';
+import { themeCssVariables } from '@/lib/site-content';
 import { isCmsPreviewActive } from '@/lib/cms-preview';
+import { brandIconPath, brandLogoPath } from '@/lib/brand';
+import { siteFontVariables } from './site-fonts';
 import "./globals.css";
 
 export const dynamic = 'force-dynamic';
 
+function parseSiteUrl(value: string): URL | undefined {
+  try {
+    return new URL(value);
+  } catch {
+    return undefined;
+  }
+}
+
 export async function generateMetadata(): Promise<Metadata> {
-  const identity = await getSiteContent('identity');
+  const [{ identity, socialUrls }, siteUrl] = await Promise.all([getPublicSiteShell(), getSiteUrl()]);
   const siteName = identity.siteName;
-  const description =
-    identity.tagline ||
-    'Discover contemporary art, original paintings, and creative insights from a professional artist. Explore portfolio, read art blog, and shop original artworks.';
+  const description = identity.tagline || undefined;
+  const twitterHandle = socialHandle(socialUrls.twitter);
+  const ogImage = '/api/og';
 
   return {
     title: {
-      default: `${siteName} - Contemporary Art & Portfolio`,
+      default: siteName,
       template: `%s | ${siteName}`,
     },
     description,
-    keywords: 'contemporary art, original paintings, artist portfolio, art blog, buy artwork, fine art, creative process',
     authors: [{ name: siteName }],
     creator: siteName,
     publisher: siteName,
-    metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://artistsite.com'),
+    metadataBase: parseSiteUrl(siteUrl),
     alternates: {
       canonical: '/',
     },
@@ -46,24 +56,28 @@ export async function generateMetadata(): Promise<Metadata> {
       locale: 'en_US',
       url: '/',
       siteName,
-      title: `${siteName} - Contemporary Art & Portfolio`,
+      title: siteName,
       description,
       images: [
         {
-          url: '/images/og-default.jpg',
+          url: ogImage,
           width: 1200,
           height: 630,
-          alt: `${siteName} - Contemporary Art Portfolio`,
+          alt: siteName,
         },
       ],
     },
     twitter: {
       card: 'summary_large_image',
-      site: '@artistsite',
-      creator: '@artistsite',
-      title: `${siteName} - Contemporary Art & Portfolio`,
+      site: twitterHandle,
+      creator: twitterHandle,
+      title: siteName,
       description,
-      images: ['/images/og-default.jpg'],
+      images: [ogImage],
+    },
+    icons: {
+      icon: [{ url: brandIconPath(identity, 32), sizes: '32x32', type: 'image/png' }],
+      apple: [{ url: brandIconPath(identity, 180), sizes: '180x180', type: 'image/png' }],
     },
     robots: {
       index: true,
@@ -100,15 +114,15 @@ export default async function RootLayout({
     isPreview = false;
   }
 
-  // Generate feed links for both RSS and Atom
-  const feedLinks = generateFeedLinks();
-  const siteShell = await getPublicSiteShell();
+  const [siteShell, siteUrl] = await Promise.all([getPublicSiteShell(), getSiteUrl()]);
+  const feedLinks = generateFeedLinks(siteShell.identity.siteName);
   const themeStyle = themeCssVariables(siteShell.identity.theme);
 
   const organizationSchema = generateOrganizationSchema({
     name: siteShell.identity.siteName,
     description: siteShell.identity.tagline,
-    logo: '/images/logo.png',
+    logo: brandLogoPath(siteShell.identity),
+    siteUrl,
     contactPoint: {
       email: siteShell.contactEmail,
       contactType: 'Customer Service',
@@ -122,7 +136,7 @@ export default async function RootLayout({
   });
 
   return (
-    <html lang="en" style={themeStyle as React.CSSProperties}>
+    <html lang="en" className={siteFontVariables} style={themeStyle as React.CSSProperties}>
       <head>
         <StructuredData data={organizationSchema} />
         {/* Feed Links - RSS and Atom */}
@@ -140,11 +154,7 @@ export default async function RootLayout({
         <meta name="color-scheme" content="light" />
         <meta name="format-detection" content="telephone=no" />
         {/* Preconnect to external domains for performance */}
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://images.unsplash.com" />
-        {/* Favicon and App Icon */}
-        <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-        <link rel="manifest" href="/manifest.json" />
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){try{if(!('serviceWorker'in navigator))return;var key='sw-cleanup-v4';navigator.serviceWorker.getRegistrations().then(function(regs){var hadRegs=regs.length>0;return Promise.all(regs.map(function(r){return r.unregister();})).then(function(){if('caches'in window){return caches.keys().then(function(keys){return Promise.all(keys.map(function(k){return caches.delete(k);}));});}}).then(function(){if(hadRegs&&!sessionStorage.getItem(key)){sessionStorage.setItem(key,'1');location.reload();}});});}catch(e){}})();`,
@@ -156,11 +166,11 @@ export default async function RootLayout({
           <AnalyticsProvider>
             <CartProvider>
               <ErrorBoundary showDetails={process.env.NODE_ENV === 'development'}>
-                <>
-                  {isPreview && <PreviewBanner />}
-                  {cmsPreviewActive && !isPreview && <CmsPreviewBanner />}
+                <div className="contents">
+                  {isPreview ? <PreviewBanner /> : null}
                   <SiteShell
-                    previewOffsetClass={(isPreview || cmsPreviewActive) ? 'pt-12' : ''}
+                    topBanner={cmsPreviewActive && !isPreview ? <CmsPreviewBanner /> : null}
+                    previewOffsetClass={isPreview ? 'pt-12' : ''}
                     adminTools={<AdminPwaRegister />}
                     header={<Header siteIdentity={siteShell.identity} />}
                     footer={(
@@ -174,7 +184,7 @@ export default async function RootLayout({
                   >
                     {children}
                   </SiteShell>
-                </>
+                </div>
                 
                 {/* Performance and SEO Monitoring (development only) - Temporarily disabled for build */}
                 {/* <PerformanceMonitor />

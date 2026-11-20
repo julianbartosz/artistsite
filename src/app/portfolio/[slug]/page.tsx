@@ -3,9 +3,13 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { getArtworkBySlug } from '@/lib/portfolio';
 import { getSiteContent } from '@/lib/site-content';
+import { displayFilterLabel } from '@/lib/search-params';
 import { MDXContent } from '@/components/MDXContent';
-import { generatePortfolioMetadata } from '@/lib/seo';
+import { htmlHasVisibleText } from '@/lib/content-sanitize';
+import { generatePortfolioMetadata, getSeoBrand } from '@/lib/seo';
+import { getSiteUrl } from '@/lib/config';
 import { StructuredData, generateVisualArtworkSchema, generateBreadcrumbSchema } from '@/components/StructuredData';
+import { findShopProductForArtwork } from '@/lib/commerce-server';
 
 interface ArtworkDetailProps {
   params: Promise<{ slug: string }>;
@@ -15,33 +19,37 @@ export const dynamic = 'force-dynamic';
 
 export default async function ArtworkDetail({ params }: ArtworkDetailProps) {
   const { slug } = await params;
-  const [artwork, portfolioContent] = await Promise.all([
+  const [artwork, portfolioContent, identity, siteUrl] = await Promise.all([
     getArtworkBySlug(slug),
     getSiteContent('portfolio'),
+    getSiteContent('identity'),
+    getSiteUrl(),
   ]);
 
   if (!artwork) {
     notFound();
   }
 
+  const shopProduct = await findShopProductForArtwork(artwork);
   const galleryFocus = portfolioContent.artworkDetailLayout === 'gallery-focus';
 
   const artworkSchema = generateVisualArtworkSchema({
     title: artwork.title,
     description: artwork.description,
-    creator: 'Artist',
+    creator: identity.siteName,
     dateCreated: artwork.year,
     medium: artwork.medium,
     dimensions: artwork.dimensions,
     image: artwork.images.main,
     url: `/portfolio/${slug}`,
+    siteUrl,
   });
 
   const breadcrumbSchema = generateBreadcrumbSchema([
     { name: 'Home', url: '/' },
-    { name: 'Portfolio', url: '/portfolio' },
+    { name: portfolioContent.title, url: '/portfolio' },
     { name: artwork.title, url: `/portfolio/${slug}` },
-  ]);
+  ], siteUrl);
 
   const gallery = (
     <div className="space-y-4">
@@ -89,25 +97,25 @@ export default async function ArtworkDetail({ params }: ArtworkDetailProps) {
 
         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           {artwork.medium && (
-            <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
+            <div className="bg-surface border border-gray-200 rounded-lg px-4 py-3">
               <dt className="text-gray-500 mb-1">Medium</dt>
               <dd className="font-medium text-gray-900">{artwork.medium}</dd>
             </div>
           )}
           {artwork.dimensions && (
-            <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
+            <div className="bg-surface border border-gray-200 rounded-lg px-4 py-3">
               <dt className="text-gray-500 mb-1">Dimensions</dt>
               <dd className="font-medium text-gray-900">{artwork.dimensions}</dd>
             </div>
           )}
           {artwork.year && (
-            <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
+            <div className="bg-surface border border-gray-200 rounded-lg px-4 py-3">
               <dt className="text-gray-500 mb-1">Year</dt>
               <dd className="font-medium text-gray-900">{artwork.year}</dd>
             </div>
           )}
           {artwork.price && (
-            <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
+            <div className="bg-surface border border-gray-200 rounded-lg px-4 py-3">
               <dt className="text-gray-500 mb-1">Price</dt>
               <dd className="font-medium text-gray-900">{artwork.price}</dd>
             </div>
@@ -124,30 +132,56 @@ export default async function ArtworkDetail({ params }: ArtworkDetailProps) {
       </header>
 
       {artwork.category && artwork.category.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-x-4 gap-y-2" aria-label="Categories">
           {artwork.category.map((category: string) => (
-            <span
+            <Link
               key={category}
-              className="px-3 py-1 bg-gray-100 text-gray-700 text-sm rounded-full capitalize"
+              href={`/portfolio?category=${encodeURIComponent(category)}`}
+              className="text-sm text-gray-600 underline-offset-4 transition-colors hover:text-gray-900 hover:underline"
             >
-              {category.replace('-', ' ')}
-            </span>
+              {displayFilterLabel(category)}
+            </Link>
           ))}
         </div>
       )}
 
-      <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
-        <MDXContent code={artwork.code} />
-      </div>
+      {htmlHasVisibleText(artwork.code) && (
+        <section
+          aria-label="About this work"
+          className="border-t border-gray-200 pt-6"
+        >
+          <MDXContent
+            code={artwork.code}
+            className="prose prose-lg max-w-none text-gray-700 prose-headings:font-semibold prose-headings:text-gray-900 prose-headings:mt-8 prose-headings:mb-3 prose-p:leading-relaxed prose-li:leading-relaxed first:prose-headings:mt-0"
+          />
+        </section>
+      )}
 
-      {artwork.available && (
+      {shopProduct ? (
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <Link
+            href={`/shop/${shopProduct.slug || shopProduct.id}`}
+            className="btn-primary inline-flex w-full sm:w-auto justify-center px-6 py-3 font-medium transition-colors"
+          >
+            {shopProduct.availability === 'available' ? 'Buy in shop' : 'View in shop'}
+          </Link>
+          {artwork.available && (
+            <Link
+              href="/contact"
+              className="btn-primary-outline inline-flex w-full sm:w-auto justify-center px-6 py-3 font-medium transition-colors"
+            >
+              Inquire about this work
+            </Link>
+          )}
+        </div>
+      ) : artwork.available ? (
         <Link
           href="/contact"
-          className="inline-flex w-full sm:w-auto justify-center bg-gray-900 text-white px-6 py-3 rounded-lg hover:bg-gray-800 transition-colors font-medium"
+          className="btn-primary inline-flex w-full sm:w-auto justify-center px-6 py-3 font-medium transition-colors"
         >
-          Inquire About This Work
+          Inquire about this work
         </Link>
-      )}
+      ) : null}
     </div>
   );
 
@@ -156,8 +190,8 @@ export default async function ArtworkDetail({ params }: ArtworkDetailProps) {
       <StructuredData data={artworkSchema} />
       <StructuredData data={breadcrumbSchema} />
 
-      <div className="min-h-screen bg-gray-50">
-        <section className="bg-white shadow-sm border-b border-gray-200">
+      <div className="min-h-screen bg-surface-muted">
+        <section className="bg-surface shadow-sm border-b border-gray-200">
           <div className="max-w-6xl mx-auto page-x py-6 md:py-8">
             <nav className="mb-6" aria-label="Breadcrumb">
               <ol className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
@@ -204,7 +238,7 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({ params }: ArtworkDetailProps) {
   const { slug } = await params;
-  const artwork = await getArtworkBySlug(slug);
+  const [artwork, brand] = await Promise.all([getArtworkBySlug(slug), getSeoBrand()]);
 
   if (!artwork) {
     return {
@@ -213,6 +247,7 @@ export async function generateMetadata({ params }: ArtworkDetailProps) {
   }
 
   return generatePortfolioMetadata({
+    brand,
     title: artwork.title,
     description: artwork.description,
     images: artwork.images,

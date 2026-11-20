@@ -71,6 +71,23 @@ export interface TrackableAnalyticsEvent {
 export interface AnalyticsEventRecordResult {
   stored: boolean
   eventId?: string
+  ignored?: boolean
+}
+
+export function shouldIgnoreAnalyticsPageUrl(pageUrl?: string | null): boolean {
+  if (!pageUrl) return false
+  try {
+    const parsed = new URL(pageUrl, 'http://localhost')
+    if (parsed.pathname.startsWith('/admin') || parsed.pathname.startsWith('/api')) {
+      return true
+    }
+    if (parsed.searchParams.has('cmsPreview') || parsed.searchParams.has('preview')) {
+      return true
+    }
+    return false
+  } catch {
+    return false
+  }
 }
 
 function isForeignKeyConstraintError(error: unknown): boolean {
@@ -96,6 +113,10 @@ async function createAnalyticsEvent(input: TrackableAnalyticsEvent, userId?: str
 }
 
 export async function recordAnalyticsEvent(input: TrackableAnalyticsEvent): Promise<AnalyticsEventRecordResult> {
+  if (shouldIgnoreAnalyticsPageUrl(input.pageUrl)) {
+    return { stored: false, ignored: true }
+  }
+
   try {
     const event = await createAnalyticsEvent(input, input.userId)
 
@@ -403,7 +424,7 @@ export class CustomerInsights {
         periods.push({
           period: `Month ${month}`,
           activeUsers: activeInPeriod,
-          retentionRate: (activeInPeriod / cohort.cohortSize) * 100,
+          retentionRate: cohort.cohortSize > 0 ? (activeInPeriod / cohort.cohortSize) * 100 : 0,
         })
       }
 
@@ -426,8 +447,16 @@ export class CustomerInsights {
     })
 
     const ltvValues = profiles.map(p => p.lifetimeValue).sort((a, b) => a - b)
-    const averageLTV = ltvValues.reduce((sum, val) => sum + val, 0) / ltvValues.length
-    const medianLTV = ltvValues[Math.floor(ltvValues.length / 2)]
+    const count = ltvValues.length
+    const averageLTV = count > 0
+      ? ltvValues.reduce((sum, val) => sum + val, 0) / count
+      : 0
+    const mid = Math.floor(count / 2)
+    const medianLTV = count === 0
+      ? 0
+      : count % 2 === 1
+        ? ltvValues[mid]
+        : (ltvValues[mid - 1] + ltvValues[mid]) / 2
 
     // LTV by segment
     const ltvBySegment: Record<string, number> = {}
@@ -495,7 +524,9 @@ export class CustomerInsights {
       },
     })
 
-    const averageEngagement = profiles.reduce((sum, p) => sum + p.engagementScore, 0) / profiles.length
+    const averageEngagement = profiles.length > 0
+      ? profiles.reduce((sum, p) => sum + p.engagementScore, 0) / profiles.length
+      : 0
 
     // Engagement by segment
     const engagementBySegment: Record<string, number> = {}

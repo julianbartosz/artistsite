@@ -1,6 +1,6 @@
 import 'server-only';
 import { revalidatePath, unstable_noStore as noStore } from 'next/cache';
-import { getConfig, setConfig } from '@/lib/config';
+import { getConfig, setConfigMany } from '@/lib/config';
 import { getCmsPreviewSnapshot, mergePreviewPageContent } from '@/lib/cms-preview';
 import { sanitizeRichHtml } from '@/lib/content-sanitize';
 import {
@@ -103,10 +103,14 @@ function parseStoredContent<T extends SiteContentPage>(page: T, raw: string | un
   }
 }
 
+/** Saved content only, never an admin's unsaved preview snapshot. Use for emails and background jobs. */
+export async function getPublishedSiteContent<T extends SiteContentPage>(page: T): Promise<SiteContentByPage[T]> {
+  return parseStoredContent(page, await getConfig(SITE_CONTENT_KEYS[page]));
+}
+
 export async function getSiteContent<T extends SiteContentPage>(page: T): Promise<SiteContentByPage[T]> {
   noStore();
-  const raw = await getConfig(SITE_CONTENT_KEYS[page]);
-  const persisted = parseStoredContent(page, raw);
+  const persisted = await getPublishedSiteContent(page);
   const previewSnapshot = await getCmsPreviewSnapshot();
   return mergePreviewPageContent(page, persisted, previewSnapshot);
 }
@@ -131,13 +135,22 @@ export function revalidateSiteContent(page: SiteContentPage): void {
   revalidatePath('/', 'layout');
 }
 
-export async function setSiteContent<T extends SiteContentPage>(page: T, content: unknown) {
-  const schema = PAGE_SCHEMAS[page];
-  const parsed = schema.parse(content);
-  const sanitized = sanitizeHtmlFields(page, parsed);
-  await setConfig(SITE_CONTENT_KEYS[page], JSON.stringify(sanitized));
-  revalidateSiteContent(page);
-  return sanitized;
+/** Validates every page before writing any, then persists them in one transaction. */
+export async function setSiteContentPages(
+  pages: Partial<Record<SiteContentPage, unknown>>,
+): Promise<Partial<SiteContentByPage>> {
+  const entries = (Object.keys(pages) as SiteContentPage[]).map((page) => {
+    const parsed = PAGE_SCHEMAS[page].parse(pages[page]);
+    return [page, sanitizeHtmlFields(page, parsed)] as const;
+  });
+
+  await setConfigMany(entries.map(([page, value]) => ({
+    key: SITE_CONTENT_KEYS[page],
+    value: JSON.stringify(value),
+  })));
+  for (const [page] of entries) revalidateSiteContent(page);
+
+  return Object.fromEntries(entries) as Partial<SiteContentByPage>;
 }
 
 export async function getAllPublicSiteContent() {

@@ -51,7 +51,7 @@ export const COMMISSION_INTAKE_OFFERS: CommissionIntakeOffer[] = [
 ];
 
 const COMMISSION_SIDEBAR_HTML = `
-<p>I accept a limited number of commission projects each year. Please include details about:</p>
+<p>I accept a limited number of commission projects each year. Choose <strong>Commission Request</strong> on the form and it will ask for:</p>
 <ul>
   <li>Desired size and medium</li>
   <li>Timeline and deadline</li>

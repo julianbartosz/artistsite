@@ -14,9 +14,9 @@ export default async function TermsPage() {
   const content = sanitizeRichHtml(await getConfig('LEGAL_TERMS_HTML') || DEFAULT_TERMS_HTML);
 
   return (
-    <main className="mx-auto max-w-4xl px-6 py-12">
+    <div className="mx-auto max-w-4xl px-6 py-12">
       <h1 className="mb-8 text-4xl font-bold text-gray-900">Terms of Service</h1>
       <div className="prose prose-gray max-w-none" dangerouslySetInnerHTML={{ __html: content }} />
-    </main>
+    </div>
   );
 }

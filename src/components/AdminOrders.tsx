@@ -3,9 +3,8 @@
 import React, { FormEvent, useCallback, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import OrderStatusStepper from '@/components/admin/OrderStatusStepper';
+import { orderStatusLabel, type OrderStatus } from '@/lib/order-status-shared';
 import { SHIPPING_CARRIERS, trackingUrl } from '@/lib/shipping';
-
-type OrderStatus = 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
 
 type AdminOrder = {
   id: string;
@@ -102,17 +101,40 @@ export default function AdminOrders() {
     }
   }
 
-  function applyShippedPreset(order: AdminOrder) {
+  async function applyShippedPreset(order: AdminOrder) {
     const draft = drafts[order.id];
     if (!draft) return;
+    const nextDraft = {
+      ...draft,
+      status: 'shipped' as OrderStatus,
+      shippingCarrier: draft.shippingCarrier || 'usps',
+    };
     setDrafts((current) => ({
       ...current,
-      [order.id]: {
-        ...draft,
-        status: 'shipped',
-        shippingCarrier: draft.shippingCarrier || 'usps',
-      },
+      [order.id]: nextDraft,
     }));
+    // Persist immediately so "Mark as shipped" matches artist expectation.
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/orders/${order.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: nextDraft.status,
+          shippingCarrier: nextDraft.shippingCarrier || undefined,
+          trackingNumber: nextDraft.trackingNumber || undefined,
+          estimatedDelivery: nextDraft.estimatedDelivery
+            ? new Date(nextDraft.estimatedDelivery).toISOString()
+            : undefined,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to mark as shipped');
+      setMessage(`Order ${order.orderNumber} marked as shipped.`);
+      await loadOrders();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Failed to mark as shipped');
+    }
   }
 
   async function copyTrackingLink(order: AdminOrder) {
@@ -203,7 +225,9 @@ export default function AdminOrders() {
           Status
           <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="mt-1 block rounded-md border border-gray-300 px-3 py-2">
             <option value="">All statuses</option>
-            {[...ORDER_STATUSES, 'refunded'].map((status) => <option key={status} value={status}>{status}</option>)}
+            {[...ORDER_STATUSES, 'refunded'].map((status) => (
+              <option key={status} value={status}>{orderStatusLabel(status)}</option>
+            ))}
           </select>
         </label>
         <button type="submit" className="rounded bg-gray-900 px-4 py-2 text-white">Apply</button>
@@ -212,7 +236,12 @@ export default function AdminOrders() {
       {loading ? (
         <div className="rounded-lg border bg-white p-6 text-gray-600">Loading orders...</div>
       ) : orders.length === 0 ? (
-        <div className="rounded-lg border bg-white p-6 text-gray-600">No orders found.</div>
+        <div className="rounded-lg border bg-white p-6">
+          <p className="font-medium text-gray-900">No orders yet</p>
+          <p className="mt-1 text-sm text-gray-600">
+            Orders appear here after collectors check out. Confirm Stripe keys in Settings and that at least one product is in stock.
+          </p>
+        </div>
       ) : (
         <div className="space-y-4">
           {orders.map((order) => {
@@ -226,7 +255,7 @@ export default function AdminOrders() {
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-lg font-semibold text-gray-900">{order.orderNumber}</h3>
                       <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs capitalize text-gray-700">{order.paymentStatus}</span>
-                      <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs capitalize text-blue-800">{order.status}</span>
+                      <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-800">{orderStatusLabel(order.status)}</span>
                     </div>
                     <p className="text-sm text-gray-600">{order.customerEmail} • ${order.total.toLocaleString()} {order.currency}</p>
                     <p className="mt-1 text-sm text-gray-500">{new Date(order.createdAt).toLocaleString()}</p>
@@ -256,8 +285,10 @@ export default function AdminOrders() {
                         className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 disabled:bg-gray-100"
                       >
                         {order.status === 'refunded'
-                          ? <option value="refunded">refunded</option>
-                          : ORDER_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+                          ? <option value="refunded">{orderStatusLabel('refunded')}</option>
+                          : ORDER_STATUSES.map((status) => (
+                            <option key={status} value={status}>{orderStatusLabel(status)}</option>
+                          ))}
                       </select>
                     </label>
                     <label className="text-sm font-medium text-gray-700">
@@ -289,7 +320,12 @@ export default function AdminOrders() {
                 </div>
                 <div className={`${detailsClass} mt-5 border-t pt-4`}>
                   <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">Fulfillment progress</p>
-                  <OrderStatusStepper status={draft.status} />
+                  <OrderStatusStepper status={order.status} />
+                  {draft.status !== order.status && (
+                    <p className="mt-2 text-xs text-amber-700">
+                      Draft status is {orderStatusLabel(draft.status)}. Save to update fulfillment progress.
+                    </p>
+                  )}
                 </div>
                 {order.timeline?.length > 0 && (
                   <div className={`${detailsClass} mt-5 border-t pt-4`}>

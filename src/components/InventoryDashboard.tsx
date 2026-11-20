@@ -225,6 +225,12 @@ export function InventoryDashboard() {
       </div>
 
       {/* Overview Tab */}
+      {activeTab === 'overview' && !isLoading && !dashboardData && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-950">
+          Could not load inventory overview. Check your database connection, then refresh.
+        </div>
+      )}
+
       {activeTab === 'overview' && dashboardData && (
         <div className="space-y-8">
           {/* Stats Grid */}
@@ -305,7 +311,7 @@ export function InventoryDashboard() {
                         <div>
                           <p className="font-medium text-gray-900">{alert.message}</p>
                           <p className="text-sm text-gray-600 mt-1">
-                            Product ID: {alert.productId}
+                            {products.find((product) => product.id === alert.productId)?.title || alert.productId}
                           </p>
                         </div>
                         <div className="flex space-x-2">
@@ -362,7 +368,7 @@ export function InventoryDashboard() {
                             {alert.severity.toUpperCase()}
                           </span>
                           <span className="text-sm text-gray-500">
-                            {alert.createdAt.toLocaleString()}
+                            {new Date(alert.createdAt).toLocaleString()}
                           </span>
                         </div>
                         <p className="font-medium text-gray-900">{alert.message}</p>
@@ -428,7 +434,16 @@ export function InventoryDashboard() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {products.map(product => (
+                {products.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-10 text-center">
+                      <p className="text-sm font-medium text-gray-900">No products to track yet</p>
+                      <p className="mt-1 text-sm text-gray-500">
+                        Add a product under the Products tab, then return here to adjust stock.
+                      </p>
+                    </td>
+                  </tr>
+                ) : products.map(product => (
                   <tr key={product.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">

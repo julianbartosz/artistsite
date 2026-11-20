@@ -6,9 +6,16 @@ interface StockIndicatorProps {
   productId: string;
   showDetails?: boolean;
   className?: string;
+  /** Shown when no inventory row exists (typical for one-of-a-kind originals). */
+  missingInventoryLabel?: string;
 }
 
-export function StockIndicator({ productId, showDetails = false, className = "" }: StockIndicatorProps) {
+export function StockIndicator({
+  productId,
+  showDetails = false,
+  className = "",
+  missingInventoryLabel,
+}: StockIndicatorProps) {
   const [inventory, setInventory] = useState<InventoryStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -40,7 +47,16 @@ export function StockIndicator({ productId, showDetails = false, className = "" 
   }
 
   if (!inventory) {
-    return null;
+    if (!missingInventoryLabel) {
+      return null;
+    }
+    return (
+      <div className={className}>
+        <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border text-green-600 bg-green-50 border-green-200">
+          {missingInventoryLabel}
+        </span>
+      </div>
+    );
   }
 
   const getStatusConfig = () => {

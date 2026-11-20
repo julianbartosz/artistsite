@@ -151,7 +151,7 @@ export default function CustomCommissionRequest({
   };
 
   return (
-    <div className="max-w-2xl mx-auto bg-white rounded-lg shadow-lg p-6">
+    <div className="max-w-2xl mx-auto bg-surface rounded-lg shadow-lg p-6">
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-gray-900 mb-2">
           {product ? `Commission Similar to "${product.title}"` : 'Custom Commission Request'}
@@ -226,7 +226,7 @@ export default function CustomCommissionRequest({
             <select
               value={formData.medium}
               onChange={(e) => handleInputChange('medium', e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
+              className="w-full p-3 border border-gray-300 rounded-input focus:ring-2 focus:ring-primary focus:border-primary"
             >
               <option value="">Select medium...</option>
               <option value="Oil on canvas">Oil on Canvas</option>
@@ -246,7 +246,7 @@ export default function CustomCommissionRequest({
             <select
               value={formData.dimensions}
               onChange={(e) => handleInputChange('dimensions', e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
+              className="w-full p-3 border border-gray-300 rounded-input focus:ring-2 focus:ring-primary focus:border-primary"
             >
               <option value="">Select size...</option>
               <option value='8&quot; x 10&quot;'>8&quot; x 10&quot; (Small)</option>
@@ -269,7 +269,7 @@ export default function CustomCommissionRequest({
             value={formData.description}
             onChange={(e) => handleInputChange('description', e.target.value)}
             placeholder="Describe your vision, style preferences, color palette, subject matter, or any specific requirements..."
-            className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
+            className={`w-full p-3 border rounded-input focus:ring-2 focus:ring-primary focus:border-primary ${
               errors.description ? 'border-red-300' : 'border-gray-300'
             }`}
             rows={5}
@@ -294,7 +294,7 @@ export default function CustomCommissionRequest({
                   step="50"
                   value={formData.budget.min}
                   onChange={(e) => handleBudgetChange('min', parseInt(e.target.value) || 0)}
-                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
+                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-input focus:ring-2 focus:ring-primary focus:border-primary"
                 />
               </div>
             </div>
@@ -308,7 +308,7 @@ export default function CustomCommissionRequest({
                   step="50"
                   value={formData.budget.max}
                   onChange={(e) => handleBudgetChange('max', parseInt(e.target.value) || 0)}
-                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
+                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-input focus:ring-2 focus:ring-primary focus:border-primary"
                 />
               </div>
             </div>
@@ -324,7 +324,7 @@ export default function CustomCommissionRequest({
           <select
             value={formData.timeline}
             onChange={(e) => handleInputChange('timeline', e.target.value)}
-            className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
+            className={`w-full p-3 border rounded-input focus:ring-2 focus:ring-primary focus:border-primary ${
               errors.timeline ? 'border-red-300' : 'border-gray-300'
             }`}
             required
@@ -353,7 +353,7 @@ export default function CustomCommissionRequest({
                 type="text"
                 value={formData.customerInfo.name}
                 onChange={(e) => handleCustomerInfoChange('name', e.target.value)}
-                className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
+                className={`w-full p-3 border rounded-input focus:ring-2 focus:ring-primary focus:border-primary ${
                   errors.name ? 'border-red-300' : 'border-gray-300'
                 }`}
                 required
@@ -369,7 +369,7 @@ export default function CustomCommissionRequest({
                 type="email"
                 value={formData.customerInfo.email}
                 onChange={(e) => handleCustomerInfoChange('email', e.target.value)}
-                className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
+                className={`w-full p-3 border rounded-input focus:ring-2 focus:ring-primary focus:border-primary ${
                   errors.email ? 'border-red-300' : 'border-gray-300'
                 }`}
                 required
@@ -386,7 +386,7 @@ export default function CustomCommissionRequest({
               type="tel"
               value={formData.customerInfo.phone || ''}
               onChange={(e) => handleCustomerInfoChange('phone', e.target.value)}
-              className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary ${
+              className={`w-full p-3 border rounded-input focus:ring-2 focus:ring-primary focus:border-primary ${
                 errors.phone ? 'border-red-300' : 'border-gray-300'
               }`}
               placeholder="Optional"
@@ -434,7 +434,7 @@ export default function CustomCommissionRequest({
             value={formData.specialRequests || ''}
             onChange={(e) => handleInputChange('specialRequests', e.target.value)}
             placeholder="Any additional information, special requirements, or questions..."
-            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
+            className="w-full p-3 border border-gray-300 rounded-input focus:ring-2 focus:ring-primary focus:border-primary"
             rows={3}
           />
         </div>
@@ -452,7 +452,7 @@ export default function CustomCommissionRequest({
           <button
             type="submit"
             disabled={isLoading}
-            className="flex-1 px-6 py-3 btn-primary rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 px-6 py-3 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading ? 'Submitting...' : 'Submit Commission Request'}
           </button>

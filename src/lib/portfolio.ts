@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { sanitizeRichHtml, stripLeadingDuplicateHeading } from '@/lib/content-sanitize';
 import { isPublishableContentTitle } from '@/lib/admin-content';
 import { PRODUCT_IMAGE_FALLBACK } from '@/lib/commerce';
+import { resolvePublicAssetUrl } from '@/lib/public-asset';
 import type { HomePageContent } from '@/lib/site-content-shared';
 
 const ARTWORK_IMAGE_FALLBACK = PRODUCT_IMAGE_FALLBACK;
@@ -62,11 +63,30 @@ function imagesFromJson(value: unknown): ArtworkPiece['images'] {
   }
 
   const images = value as Partial<ArtworkPiece['images']>;
+  const main = resolvePublicAssetUrl(images.main || images.thumbnail, ARTWORK_IMAGE_FALLBACK);
+  const thumbnail = resolvePublicAssetUrl(images.thumbnail || images.main, main);
+  const gallery = Array.isArray(images.gallery)
+    ? images.gallery
+        .map((image) => resolvePublicAssetUrl(typeof image === 'string' ? image : '', main))
+        .filter((image, index, list) => list.indexOf(image) === index)
+    : [];
+
   return {
-    main: images.main || ARTWORK_IMAGE_FALLBACK,
-    gallery: Array.isArray(images.gallery) ? images.gallery : [],
-    thumbnail: images.thumbnail || images.main || ARTWORK_IMAGE_FALLBACK,
+    main,
+    gallery: gallery.length > 0 ? gallery : [main],
+    thumbnail,
   };
+}
+
+/** Prefer thumbnail for grids; fall back through main → shared artwork placeholder. */
+export function artworkImageSrc(
+  artwork: Pick<ArtworkPiece, 'images'>,
+  preferred: 'thumbnail' | 'main' = 'thumbnail',
+): string {
+  if (preferred === 'main') {
+    return resolvePublicAssetUrl(artwork.images.main || artwork.images.thumbnail, ARTWORK_IMAGE_FALLBACK);
+  }
+  return resolvePublicAssetUrl(artwork.images.thumbnail || artwork.images.main, ARTWORK_IMAGE_FALLBACK);
 }
 
 function toArtwork(record: ArtworkRecord): ArtworkPiece {

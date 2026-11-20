@@ -1,16 +1,25 @@
 import React from 'react';
+import { htmlHasVisibleText } from '@/lib/site-content-shared';
 
 interface MDXContentProps {
+  /** HTML body already sanitized at the content trust boundary (legacy prop name). */
   code: string;
+  className?: string;
 }
 
-export function MDXContent({ code }: MDXContentProps) {
-  // For now, render the content as HTML to avoid React version conflicts
-  // This is a simplified approach to get the build working
+/**
+ * Renders artwork/post HTML bodies. Storage is TipTap HTML; seed converts markdown → HTML at ingress.
+ * Returns null for empty shells so detail pages can mount without a bolted-on empty card.
+ */
+export function MDXContent({ code, className = 'prose prose-lg max-w-none text-gray-700' }: MDXContentProps) {
+  if (!htmlHasVisibleText(code)) {
+    return null;
+  }
+
   return (
-    <div 
-      className="prose prose-lg max-w-none"
-      dangerouslySetInnerHTML={{ __html: code }} 
+    <div
+      className={className}
+      dangerouslySetInnerHTML={{ __html: code }}
     />
   );
 }

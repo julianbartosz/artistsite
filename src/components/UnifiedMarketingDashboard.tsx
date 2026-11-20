@@ -2,9 +2,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import type { LucideIcon } from 'lucide-react';
 import { BarChart3, Bot, CreditCard, DollarSign, LineChart, Mail, Megaphone, Smartphone, Target, Users } from 'lucide-react';
-import RichTextEditor from '@/components/RichTextEditor';
 
 interface MarketingOverview {
   totalRevenue: number;
@@ -41,7 +41,7 @@ interface DashboardFilters {
 
 interface CampaignSummary {
   id: string;
-  type: 'email' | 'social' | 'ad';
+  type: 'social' | 'ad';
   name: string;
   status: string;
   performance: string;
@@ -59,7 +59,6 @@ interface ShareAssistPayload {
 }
 
 interface CampaignsResponse {
-  email: CampaignSummary[];
   social: CampaignSummary[];
   ads: CampaignSummary[];
 }
@@ -207,26 +206,35 @@ function OverviewTab({ overview, onReload }: { overview: MarketingOverview | nul
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-4">Channel Performance</h3>
           <div className="space-y-4">
-            {overview.topPerformingChannels?.filter(channel => channel && channel.channel)?.map((channel, index) => (
-              <div key={channel.channel} className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <div className={`w-3 h-3 rounded-full mr-3 ${
-                    index === 0 ? 'bg-green-500' : 
-                    index === 1 ? 'bg-blue-500' : 
-                    index === 2 ? 'bg-yellow-500' : 'bg-gray-400'
-                  }`}></div>
-                  <span className="font-medium capitalize">{channel.channel}</span>
-                </div>
-                <div className="text-right">
-                  <div className="font-semibold">${(channel.revenue || 0).toLocaleString()}</div>
-                  <div className="text-sm text-gray-500">
-                    {channel.roi !== null && channel.roi !== undefined ? 
-                      (isFinite(channel.roi) ? channel.roi.toFixed(1) : '∞') : '0.0'
-                    }x ROI
+            {overview.topPerformingChannels?.filter(channel => channel && channel.channel)?.map((channel, index) => {
+              const hasRevenue = (channel.revenue || 0) > 0;
+              const hasCost = (channel.cost || 0) > 0;
+              const roiLabel = !hasRevenue && !hasCost
+                ? '—'
+                : !hasCost && hasRevenue
+                  ? 'Organic'
+                  : Number.isFinite(channel.roi)
+                    ? `${channel.roi.toFixed(1)}x ROI`
+                    : '—';
+
+              return (
+                <div key={channel.channel} className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <div className={`w-3 h-3 rounded-full mr-3 ${
+                      !hasRevenue ? 'bg-gray-300' :
+                      index === 0 ? 'bg-green-500' :
+                      index === 1 ? 'bg-blue-500' :
+                      index === 2 ? 'bg-yellow-500' : 'bg-gray-400'
+                    }`}></div>
+                    <span className="font-medium capitalize">{channel.channel}</span>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-semibold">${(channel.revenue || 0).toLocaleString()}</div>
+                    <div className="text-sm text-gray-500">{roiLabel}</div>
                   </div>
                 </div>
-              </div>
-            )) || <div className="text-gray-500">No channel data available</div>}
+              );
+            }) || <div className="text-gray-500">No channel data available</div>}
           </div>
         </div>
 
@@ -237,12 +245,9 @@ function OverviewTab({ overview, onReload }: { overview: MarketingOverview | nul
               <span className="inline-flex items-center gap-2"><Mail className="h-4 w-4" aria-hidden="true" />Email Campaigns</span>
               <div className="text-right">
                 <div className="font-semibold">{overview.campaignPerformance?.email?.sent || 0} sent</div>
-                <div className="text-sm text-gray-500">
-                  {overview.campaignPerformance?.email?.sent > 0 ? 
-                    ((overview.campaignPerformance.email.opened / overview.campaignPerformance.email.sent) * 100).toFixed(1) : 
-                    '0.0'
-                  }% open rate
-                </div>
+                <Link href="/admin?tab=newsletter" className="text-sm text-gray-500 underline hover:text-gray-900">
+                  Open newsletters
+                </Link>
               </div>
             </div>
             <div className="flex justify-between items-center">
@@ -255,11 +260,11 @@ function OverviewTab({ overview, onReload }: { overview: MarketingOverview | nul
               </div>
             </div>
             <div className="flex justify-between items-center">
-              <span className="inline-flex items-center gap-2"><Target className="h-4 w-4" aria-hidden="true" />Paid Ads</span>
+              <span className="inline-flex items-center gap-2"><Target className="h-4 w-4" aria-hidden="true" />Ad spend log</span>
               <div className="text-right">
                 <div className="font-semibold">{overview.campaignPerformance?.ads?.conversions || 0} conversions</div>
                 <div className="text-sm text-gray-500">
-                  {(overview.campaignPerformance?.ads?.roas || 0).toFixed(1)}x ROAS
+                  {(overview.campaignPerformance?.ads?.roas || 0).toFixed(1)}x recorded ROAS
                 </div>
               </div>
             </div>
@@ -278,14 +283,10 @@ function OverviewTab({ overview, onReload }: { overview: MarketingOverview | nul
 
 // Campaigns Tab Component
 function CampaignsTab() {
-  const [campaigns, setCampaigns] = useState<CampaignsResponse>({ email: [], social: [], ads: [] });
-  const [segments, setSegments] = useState<Array<{ id: string; name: string }>>([{ id: 'all', name: 'All customers' }]);
-  const [campaignType, setCampaignType] = useState<'email' | 'social' | 'ad'>('email');
+  const [campaigns, setCampaigns] = useState<CampaignsResponse>({ social: [], ads: [] });
+  const [campaignType, setCampaignType] = useState<'social' | 'ad'>('social');
   const [draft, setDraft] = useState<Record<string, any>>({
     name: '',
-    subject: '',
-    htmlContent: '<p></p>',
-    segments: ['all'],
     platform: 'instagram',
     content: '',
     mediaUrls: [] as string[],
@@ -299,7 +300,6 @@ function CampaignsTab() {
 
   useEffect(() => {
     loadCampaigns();
-    loadSegments();
   }, []);
 
   const loadCampaigns = async () => {
@@ -319,22 +319,8 @@ function CampaignsTab() {
     }
   };
 
-  const loadSegments = async () => {
-    try {
-      const response = await fetch('/api/analytics/customers');
-      const data = await response.json();
-      const loadedSegments = Array.isArray(data.segments) ? data.segments : [];
-      setSegments([{ id: 'all', name: 'All customers' }, ...loadedSegments]);
-    } catch {
-      setSegments([{ id: 'all', name: 'All customers' }]);
-    }
-  };
-
   const resetDraft = () => setDraft({
     name: '',
-    subject: '',
-    htmlContent: '<p></p>',
-    segments: ['all'],
     platform: 'instagram',
     content: '',
     mediaUrls: [] as string[],
@@ -348,13 +334,12 @@ function CampaignsTab() {
     return value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
   };
 
-  const saveCampaign = async (sendAfterSave = false) => {
+  const saveCampaign = async () => {
     setMessage(null);
     setShareAssist(null);
     const payload = {
       ...draft,
       type: campaignType,
-      segments: Array.isArray(draft.segments) ? draft.segments : ['all'],
       mediaUrls: parseListValue(draft.mediaUrls),
       scheduledAt: draft.scheduledAt || null,
       budgetAmount: Number(draft.budgetAmount || 0),
@@ -370,19 +355,15 @@ function CampaignsTab() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to save campaign');
 
-      if (sendAfterSave && data.campaign?.id) {
-        await runCampaign(data.campaign.id, campaignType, false);
-      }
-
       resetDraft();
       await loadCampaigns();
-      setMessage(sendAfterSave ? 'Campaign saved and sent.' : 'Campaign saved.');
+      setMessage('Campaign saved.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Failed to save campaign');
     }
   };
 
-  const runCampaign = async (id: string, type: 'email' | 'social' | 'ad', reload = true) => {
+  const runCampaign = async (id: string, type: 'social' | 'ad') => {
     setMessage(null);
     setShareAssist(null);
     try {
@@ -393,19 +374,21 @@ function CampaignsTab() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to run campaign');
-      if (reload) await loadCampaigns();
+      await loadCampaigns();
       if (data.campaign?.publishAssist) {
         setShareAssist(data.campaign.publishAssist);
         setMessage('Use the publish assist panel to complete this social post.');
+      } else if (type === 'ad') {
+        setMessage('Ad log marked active. Record results after you run the campaign in the ads manager.');
       } else {
-        setMessage(type === 'email' ? 'Email campaign sent.' : 'Campaign status updated.');
+        setMessage('Campaign status updated.');
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Failed to run campaign');
     }
   };
 
-  const deleteCampaign = async (id: string, type: 'email' | 'social' | 'ad') => {
+  const deleteCampaign = async (id: string) => {
     setMessage(null);
     setShareAssist(null);
     try {
@@ -488,12 +471,14 @@ function CampaignsTab() {
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-xl font-semibold">Create Campaign</h2>
-            <p className="text-sm text-gray-600">Create email, social, or ad records without touching code.</p>
+            <p className="text-sm text-gray-600">
+              Social opens a copy-and-post assist (or auto-publishes when configured). Ad entries are a spend log only — they do not buy ads on Google or Meta. Email subscribers get newsletters from the{' '}
+              <Link href="/admin?tab=newsletter" className="font-medium text-gray-900 underline">Newsletter tab</Link>.
+            </p>
           </div>
-          <select value={campaignType} onChange={(event) => setCampaignType(event.target.value as any)} className="rounded-md border border-gray-300 px-3 py-2">
-            <option value="email">Email</option>
-            <option value="social">Social</option>
-            <option value="ad">Ad</option>
+          <select value={campaignType} onChange={(event) => setCampaignType(event.target.value as 'social' | 'ad')} className="rounded-md border border-gray-300 px-3 py-2">
+            <option value="social">Social post</option>
+            <option value="ad">Ad spend log</option>
           </select>
         </div>
 
@@ -502,32 +487,16 @@ function CampaignsTab() {
             Name
             <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
           </label>
-          {campaignType === 'email' && (
-            <label className="text-sm font-medium text-gray-700">
-              Subject
-              <input value={draft.subject} onChange={(event) => setDraft({ ...draft, subject: event.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
-            </label>
-          )}
-          {campaignType !== 'email' && (
-            <label className="text-sm font-medium text-gray-700">
-              Platform
-              <select value={draft.platform} onChange={(event) => setDraft({ ...draft, platform: event.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2">
-                <option value="instagram">Instagram</option>
-                <option value="facebook">Facebook</option>
-                <option value="google">Google</option>
-                <option value="pinterest">Pinterest</option>
-                <option value="linkedin">LinkedIn</option>
-              </select>
-            </label>
-          )}
-          {campaignType === 'email' && (
-            <label className="text-sm font-medium text-gray-700">
-              Audience
-              <select value={draft.segments?.[0] || 'all'} onChange={(event) => setDraft({ ...draft, segments: [event.target.value] })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2">
-                {segments.map((segment) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}
-              </select>
-            </label>
-          )}
+          <label className="text-sm font-medium text-gray-700">
+            Platform
+            <select value={draft.platform} onChange={(event) => setDraft({ ...draft, platform: event.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2">
+              <option value="instagram">Instagram</option>
+              <option value="facebook">Facebook</option>
+              <option value="google">Google</option>
+              <option value="pinterest">Pinterest</option>
+              <option value="linkedin">LinkedIn</option>
+            </select>
+          </label>
           {campaignType === 'ad' && (
             <label className="text-sm font-medium text-gray-700">
               Budget
@@ -540,26 +509,21 @@ function CampaignsTab() {
           </label>
         </div>
 
-        {campaignType === 'email' ? (
-          <RichTextEditor value={draft.htmlContent} onChange={(htmlContent) => setDraft((current) => ({ ...current, htmlContent }))} />
-        ) : (
-          <div className="space-y-4">
+        <div className="space-y-4">
+          <label className="block text-sm font-medium text-gray-700">
+            Content
+            <textarea value={draft.content} onChange={(event) => setDraft({ ...draft, content: event.target.value })} rows={5} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
+          </label>
+          {campaignType === 'social' && (
             <label className="block text-sm font-medium text-gray-700">
-              Content
-              <textarea value={draft.content} onChange={(event) => setDraft({ ...draft, content: event.target.value })} rows={5} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
+              Media URLs
+              <textarea value={Array.isArray(draft.mediaUrls) ? draft.mediaUrls.join('\n') : draft.mediaUrls || ''} onChange={(event) => setDraft({ ...draft, mediaUrls: parseListValue(event.target.value) })} rows={3} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" placeholder="One image or video URL per line" />
             </label>
-            {campaignType === 'social' && (
-              <label className="block text-sm font-medium text-gray-700">
-                Media URLs
-                <textarea value={Array.isArray(draft.mediaUrls) ? draft.mediaUrls.join('\n') : draft.mediaUrls || ''} onChange={(event) => setDraft({ ...draft, mediaUrls: parseListValue(event.target.value) })} rows={3} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" placeholder="One image or video URL per line" />
-              </label>
-            )}
-          </div>
-        )}
+          )}
+        </div>
 
         <div className="flex flex-wrap gap-3">
-          <button type="button" onClick={() => saveCampaign(false)} className="rounded bg-gray-900 px-4 py-2 text-white">Save</button>
-          {campaignType === 'email' && <button type="button" onClick={() => saveCampaign(true)} className="rounded bg-blue-600 px-4 py-2 text-white">Send Now</button>}
+          <button type="button" onClick={() => void saveCampaign()} className="rounded bg-gray-900 px-4 py-2 text-white">Save</button>
         </div>
       </div>
 
@@ -569,32 +533,27 @@ function CampaignsTab() {
 
       <PromoCodesPanel />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <CampaignSection
-          title="Email Marketing"
-          icon={Mail}
-          campaigns={campaigns.email}
-          onRun={(campaign) => runCampaign(campaign.id, campaign.type)}
-          onDelete={(campaign) => deleteCampaign(campaign.id, campaign.type)}
-        />
-
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <CampaignSection
           title="Social Media"
           icon={Smartphone}
           campaigns={campaigns.social}
           onRun={(campaign) => runCampaign(campaign.id, campaign.type)}
-          onDelete={(campaign) => deleteCampaign(campaign.id, campaign.type)}
+          onDelete={(campaign) => deleteCampaign(campaign.id)}
           onMarkPosted={markSocialPosted}
         />
 
         <CampaignSection
-          title="Paid Advertising"
+          title="Ad spend log"
           icon={Megaphone}
           campaigns={campaigns.ads}
           onRun={(campaign) => runCampaign(campaign.id, campaign.type)}
-          onDelete={(campaign) => deleteCampaign(campaign.id, campaign.type)}
+          onDelete={(campaign) => deleteCampaign(campaign.id)}
           onSaveActuals={saveAdActuals}
         />
+        <p className="text-xs text-gray-500 lg:col-span-2">
+          Ad spend log records budget and results you enter by hand. Use “Open ads manager” links to run campaigns on the platform itself.
+        </p>
       </div>
     </div>
   );
@@ -1003,7 +962,6 @@ function CampaignSection({ title, icon, campaigns, onRun, onDelete, onSaveActual
   const Icon = icon;
 
   const runLabel = (campaign: CampaignSummary) => {
-    if (campaign.type === 'email') return 'Send';
     if (campaign.type === 'social') return 'Prepare post';
     return 'Mark active';
   };
@@ -1216,12 +1174,25 @@ function AnalyticsMetric({ title, value, trend, description }: {
 }
 
 function RecentActivityFeed({ overview }: { overview: MarketingOverview | null }) {
+  const emailSent = overview?.campaignPerformance?.email?.sent || 0;
+  const socialPosts = overview?.campaignPerformance?.social?.posts || 0;
+  const adConversions = overview?.campaignPerformance?.ads?.conversions || 0;
+  const totalRevenue = overview?.totalRevenue || 0;
+
+  if (emailSent === 0 && socialPosts === 0 && adConversions === 0 && totalRevenue === 0) {
+    return (
+      <p className="text-sm text-gray-500">
+        No campaign or order activity recorded in this period yet.
+      </p>
+    );
+  }
+
   const activities = [
-    { label: `${overview?.campaignPerformance?.email?.sent || 0} email events sent`, type: 'email' },
-    { label: `${overview?.campaignPerformance?.social?.posts || 0} social posts recorded`, type: 'social' },
-    { label: `${overview?.campaignPerformance?.ads?.conversions || 0} ad conversions recorded`, type: 'ads' },
-    { label: `$${(overview?.totalRevenue || 0).toLocaleString()} paid order revenue`, type: 'revenue' }
-  ];
+    { label: `${emailSent} email events sent`, type: 'email', active: emailSent > 0 },
+    { label: `${socialPosts} social posts recorded`, type: 'social', active: socialPosts > 0 },
+    { label: `${adConversions} ad conversions recorded`, type: 'ads', active: adConversions > 0 },
+    { label: `$${totalRevenue.toLocaleString()} paid order revenue`, type: 'revenue', active: totalRevenue > 0 }
+  ].filter((activity) => activity.active);
 
   return (
     <div className="space-y-3">

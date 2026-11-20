@@ -1,3 +1,4 @@
+import { revalidateTag } from 'next/cache';
 import { prisma } from '@/lib/db';
 import { getAllProducts } from './commerce-server';
 
@@ -67,6 +68,9 @@ export class InventoryService {
         quantity: initialStock,
         reason: 'Initial inventory setup'
       });
+    } else {
+      // Zero starting stock still syncs catalog availability (sold when empty).
+      await this.updateStockStatus(productId);
     }
   }
 
@@ -354,7 +358,14 @@ export class InventoryService {
         where: { productId: item.productId },
         select: { id: true },
       });
-      if (!inventory) continue;
+      if (!inventory) {
+        // Untracked listings (often one-of-ones): sale removes them from the shop.
+        await prisma.product.updateMany({
+          where: { id: item.productId, availability: 'available' },
+          data: { availability: 'sold' },
+        });
+        continue;
+      }
 
       const covered = await prisma.stockReservation.aggregate({
         where: {
@@ -381,8 +392,14 @@ export class InventoryService {
   /**
    * Restore inventory after a refund.
    * Stock levels change only via recordStockMovement (no second apply).
+   * Also restores shortfall sales (settle without reservation) and untracked sold listings.
    */
-  static async releaseStockForOrder(orderId: string): Promise<void> {
+  static async releaseStockForOrder(
+    orderId: string,
+    items: Array<{ productId: string; quantity: number }> = [],
+  ): Promise<void> {
+    const restoredByProduct = new Map<string, number>();
+
     const reservations = await prisma.stockReservation.findMany({
       where: {
         orderId,
@@ -403,6 +420,40 @@ export class InventoryService {
         quantity: reservation.quantity,
         orderId,
         reason: 'Order refunded',
+      });
+      restoredByProduct.set(
+        reservation.productId,
+        (restoredByProduct.get(reservation.productId) ?? 0) + reservation.quantity,
+      );
+    }
+
+    for (const item of items) {
+      if (!item.productId || !Number.isInteger(item.quantity) || item.quantity < 1) continue;
+
+      const inventory = await prisma.productInventory.findUnique({
+        where: { productId: item.productId },
+        select: { id: true },
+      });
+
+      if (!inventory) {
+        await prisma.product.updateMany({
+          where: { id: item.productId, availability: 'sold' },
+          data: { availability: 'available' },
+        });
+        revalidateTag('products');
+        continue;
+      }
+
+      const alreadyRestored = restoredByProduct.get(item.productId) ?? 0;
+      const shortfall = item.quantity - alreadyRestored;
+      if (shortfall <= 0) continue;
+
+      await this.recordStockMovement({
+        productId: item.productId,
+        type: 'return',
+        quantity: shortfall,
+        orderId,
+        reason: 'Order refunded — restore settlement without reservation',
       });
     }
   }
@@ -490,6 +541,29 @@ export class InventoryService {
       // Create alert if needed
       await this.checkAndCreateAlerts(productId, inventory.availableStock, newStatus);
     }
+
+    // Keep catalog availability in sync with tracked stock so sold-out
+    // originals leave the shop without a manual availability edit.
+    // Backorderable items stay listed when empty; reserved holds (available 0,
+    // current > 0) still hide the listing until the hold releases or settles.
+    let catalogChanged = false;
+    if (inventory.availableStock <= 0 && !inventory.allowBackorders) {
+      const updated = await prisma.product.updateMany({
+        where: { id: productId, availability: 'available' },
+        data: { availability: 'sold' },
+      });
+      catalogChanged = updated.count > 0;
+    } else if (inventory.availableStock > 0) {
+      const updated = await prisma.product.updateMany({
+        where: { id: productId, availability: 'sold' },
+        data: { availability: 'available' },
+      });
+      catalogChanged = updated.count > 0;
+    }
+
+    if (catalogChanged) {
+      revalidateTag('products');
+    }
   }
 
   /**
@@ -556,6 +630,45 @@ export class InventoryService {
         thresholdValue: inventory.lowStockThreshold
       }
     });
+
+    try {
+      const [{ brandedEmailHtml, getEmailBrand, sendTemplateEmail }, { escapeHtml }, { getConfig }, { absoluteUrl }] = await Promise.all([
+        import('@/lib/email'),
+        import('@/lib/email-shell'),
+        import('@/lib/config'),
+        import('@/lib/utils'),
+      ]);
+      const recipient =
+        (await getConfig('ARTIST_EMAIL'))
+        || (await getConfig('CONTACT_EMAIL'))
+        || (await getConfig('SUPPORT_EMAIL'));
+      if (!recipient) return;
+
+      const product = await prisma.product.findUnique({
+        where: { id: productId },
+        select: { title: true },
+      });
+      const title = product?.title || productId;
+      const subject = alertType === 'out_of_stock'
+        ? `Out of stock: ${title}`
+        : `Low stock: ${title}`;
+      const detail = alertType === 'out_of_stock'
+        ? `"${title}" is out of stock.`
+        : `"${title}" is low (${currentStock} remaining).`;
+      const brand = await getEmailBrand();
+      const inventoryUrl = absoluteUrl('/admin?tab=inventory', brand.siteUrl);
+      await sendTemplateEmail(recipient, {
+        subject,
+        html: brandedEmailHtml(brand, {
+          title: subject,
+          intro: escapeHtml(detail),
+          cta: { label: 'Review inventory', href: inventoryUrl },
+        }),
+        text: `${detail}\n\nReview inventory: ${inventoryUrl}`,
+      });
+    } catch (alertEmailError) {
+      console.error('Failed to email stock alert:', alertEmailError);
+    }
   }
 
   /**

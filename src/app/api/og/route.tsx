@@ -1,93 +1,102 @@
-import { ImageResponse } from '@vercel/og';
+import { ImageResponse } from 'next/og';
 import { NextRequest } from 'next/server';
+import { PAGE_TONES, getPublishedSiteContent } from '@/lib/site-content';
+import { brandMonogram } from '@/lib/brand';
+import { brandImageFonts } from '@/lib/brand-fonts';
+import { getSiteUrl } from '@/lib/config';
+import { absoluteUrl } from '@/lib/utils';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+const TYPE_LABELS: Record<string, string> = {
+  blog: 'Studio update',
+  portfolio: 'Portfolio',
+  product: 'Shop',
+};
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const title = searchParams.get('title') || 'Artist Site';
-    const description = searchParams.get('description') || 'Contemporary Art & Portfolio';
-    const type = searchParams.get('type') || 'website';
+    const identity = await getPublishedSiteContent('identity');
+    const { theme } = identity;
+    const tone = PAGE_TONES[theme.pageTone];
+    const { heading, body, fonts } = await brandImageFonts(theme.fontPreset);
+
+    const title = searchParams.get('title')?.trim() || identity.siteName;
+    const subtitle = (searchParams.get('subtitle') ?? searchParams.get('description'))?.trim()
+      || (title === identity.siteName ? identity.tagline : '');
+    const eyebrow = TYPE_LABELS[searchParams.get('type') ?? ''] ?? '';
+    const host = new URL(absoluteUrl('/', await getSiteUrl()), request.url).host;
 
     return new ImageResponse(
       (
         <div
           style={{
-            height: '100%',
             width: '100%',
+            height: '100%',
             display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: '#ffffff',
-            backgroundImage: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            background: tone.page,
+            fontFamily: body,
+            fontWeight: 600,
           }}
         >
+          <div style={{ width: 24, height: '100%', background: theme.primaryColor }} />
           <div
             style={{
+              flex: 1,
               display: 'flex',
               flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: 'rgba(255, 255, 255, 0.95)',
-              borderRadius: '20px',
-              padding: '60px',
-              margin: '40px',
-              maxWidth: '1000px',
-              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.1)',
+              justifyContent: 'space-between',
+              padding: '64px 80px',
             }}
           >
-            <h1
-              style={{
-                fontSize: type === 'article' ? '60px' : '72px',
-                fontWeight: 'bold',
-                color: '#1a1a1a',
-                textAlign: 'center',
-                marginBottom: '20px',
-                lineHeight: '1.1',
-              }}
-            >
-              {title}
-            </h1>
-            {description && (
-              <p
-                style={{
-                  fontSize: '32px',
-                  color: '#666666',
-                  textAlign: 'center',
-                  marginBottom: '0',
-                  lineHeight: '1.3',
-                }}
-              >
-                {description}
-              </p>
-            )}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                marginTop: '40px',
-              }}
-            >
+            <div style={{ display: 'flex', alignItems: 'center' }}>
               <div
                 style={{
-                  width: '60px',
-                  height: '60px',
-                  backgroundColor: '#667eea',
-                  borderRadius: '50%',
-                  marginRight: '20px',
-                }}
-              />
-              <span
-                style={{
-                  fontSize: '28px',
-                  color: '#333333',
-                  fontWeight: '600',
+                  width: 64,
+                  height: 64,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: theme.primaryColor,
+                  color: '#ffffff',
+                  fontFamily: heading,
+                  fontSize: 28,
                 }}
               >
-                Artist Site
-              </span>
+                {brandMonogram(identity.siteName)}
+              </div>
+              <div style={{ marginLeft: 20, fontSize: 28, color: '#374151' }}>{identity.siteName}</div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {eyebrow ? (
+                <div style={{ fontSize: 24, color: theme.accentColor, textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 20 }}>
+                  {eyebrow}
+                </div>
+              ) : null}
+              <div
+                style={{
+                  fontFamily: heading,
+                  fontSize: title.length > 60 ? 60 : 76,
+                  lineHeight: 1.08,
+                  color: theme.primaryColor,
+                  letterSpacing: '-0.01em',
+                }}
+              >
+                {title}
+              </div>
+              {subtitle ? (
+                <div style={{ marginTop: 24, fontSize: 30, fontWeight: 400, lineHeight: 1.35, color: '#4b5563', maxWidth: 940 }}>
+                  {subtitle.length > 150 ? `${subtitle.slice(0, 147)}…` : subtitle}
+                </div>
+              ) : null}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <div style={{ width: 72, height: 6, background: theme.accentColor }} />
+              <div style={{ marginLeft: 20, fontSize: 24, color: theme.accentColor }}>{host}</div>
             </div>
           </div>
         </div>
@@ -95,7 +104,9 @@ export async function GET(request: NextRequest) {
       {
         width: 1200,
         height: 630,
-      }
+        fonts,
+        headers: { 'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400' },
+      },
     );
   } catch (error) {
     console.error('Error generating OG image:', error);

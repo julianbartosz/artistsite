@@ -4,20 +4,43 @@
 
 :root {
   color-scheme: light;
-  --background: #ffffff;
   --foreground: #171717;
+  /* Fallbacks for pages rendered without the CMS theme — mirror DEFAULT_SITE_THEME. */
   --color-primary: #111827;
-  --color-primary-hover: #1f2937;
+  --color-primary-rgb: 17 24 39;
+  --color-primary-hover: #000413;
+  --color-primary-hover-rgb: 0 4 19;
   --color-accent: #374151;
-  --font-site: var(--font-geist-sans), Arial, Helvetica, sans-serif;
-  --font-geist-sans: Arial, Helvetica, sans-serif;
-  --font-geist-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --color-accent-rgb: 55 65 81;
+  --surface-page: #ffffff;
+  --surface-page-rgb: 255 255 255;
+  --surface-muted: #f9fafb;
+  --surface-muted-rgb: 249 250 251;
+  --surface-sunken: #f3f4f6;
+  --surface-sunken-rgb: 243 244 246;
+  --font-site: var(--font-inter), ui-sans-serif, system-ui, Arial, sans-serif;
+  --font-heading: var(--font-site);
+  --radius-card: 0.5rem;
+  --radius-button: 0.5rem;
+  --radius-input: 0.375rem;
 }
 
 body {
-  background: var(--background);
+  background: var(--surface-page);
   color: var(--foreground);
-  font-family: var(--font-site), var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  font-family: var(--font-site);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-heading);
+}
+
+::selection {
+  background-color: color-mix(in srgb, var(--color-accent) 32%, white);
+  color: var(--foreground);
 }
 
 @layer base {
@@ -82,16 +105,23 @@ body {
     padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));
   }
 
+  /* Clears the Studio mobile bottom nav: min-h-14 row + 1px border + .safe-area-bottom padding. */
+  .bottom-above-admin-nav {
+    bottom: calc(3.5rem + 1px + max(1rem, env(safe-area-inset-bottom, 0px)));
+  }
+
+  /* Button and field corners follow the site Shape setting; do not add rounded-* where these are used. */
   .btn-primary {
-    @apply bg-primary text-white hover:bg-primary-hover transition-colors font-medium;
+    /* Transparent border keeps solid buttons the same box size as btn-primary-outline. */
+    @apply inline-flex items-center justify-center rounded-button border-2 border-transparent bg-primary text-white hover:bg-primary-hover transition-colors font-medium;
   }
 
   .btn-primary-outline {
-    @apply border-2 border-primary text-primary hover:bg-primary hover:text-white transition-colors font-medium;
+    @apply inline-flex items-center justify-center rounded-button border-2 border-primary text-primary hover:bg-primary hover:text-white transition-colors font-medium;
   }
 
   .form-input {
-    @apply block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary;
+    @apply block w-full rounded-input border border-gray-300 px-3 py-2 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary;
   }
 
   .form-link {

@@ -1,11 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { CartItemVariant, Product, productImageSrc, E2E_CHECKOUT_SESSION_PREFIX } from '@/lib/commerce';
 import { getProductById } from '@/lib/commerce-server';
-import { createOrder, finalizePaidOrder, Order, OrderCustomization, OrderItem, OrderManager, ShippingAddress, updateOrder } from '@/lib/orders';
+import {
+  cancelCheckout,
+  createOrder,
+  createOrderAccessToken,
+  finalizePaidOrder,
+  Order,
+  OrderCustomization,
+  OrderItem,
+  OrderManager,
+  recordCheckoutSession,
+  ShippingAddress,
+  updateOrder,
+  verifyOrderAccessToken,
+} from '@/lib/orders';
 import { InventoryService } from '@/lib/inventory';
 import { getConfigBool } from '@/lib/config';
 import { resolvePromoDiscount, roundPromoMoney } from '@/lib/promo-codes';
 import { getStripe } from '@/lib/stripe';
+
+// Stripe requires sessions to live at least 30 minutes from its own creation time. Holds
+// outlive the session so stock stays reserved for as long as the session can be paid.
+const CHECKOUT_SESSION_MINUTES = 31;
+const CHECKOUT_HOLD_MINUTES = CHECKOUT_SESSION_MINUTES + 5;
 
 export async function POST(req: NextRequest) {
   try {
@@ -40,6 +58,13 @@ export async function POST(req: NextRequest) {
     const orderItems = await resolveOrderItems(items);
     const rawSubtotal = roundMoney(orderItems.reduce((sum, item) => sum + item.totalPrice, 0));
     const promoDiscount = await resolvePromoDiscount(promoCode, rawSubtotal);
+    const submittedPromo = typeof promoCode === 'string' ? promoCode.trim() : '';
+    if (submittedPromo && promoDiscount.amount <= 0) {
+      return NextResponse.json(
+        { error: promoDiscount.error || 'Invalid promo code' },
+        { status: 400 },
+      );
+    }
     const subtotal = roundMoney(Math.max(0, rawSubtotal - promoDiscount.amount));
     const shipping = roundMoney(calculateProductShipping(orderItems, shippingAddress.country));
     const tax = 0;
@@ -167,8 +192,12 @@ export async function POST(req: NextRequest) {
       },
       ...(discountCoupon ? { discounts: [{ coupon: discountCoupon.id }] } : {}),
       mode: 'payment',
+      expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_SESSION_MINUTES * 60,
       success_url: `${req.nextUrl.origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${req.nextUrl.origin}/checkout/cancel`,
+      cancel_url: `${req.nextUrl.origin}/checkout/cancel?${new URLSearchParams({
+        order: persistedOrder.id,
+        t: createOrderAccessToken(persistedOrder.id),
+      })}`,
       customer_email: customerInfo.email,
       client_reference_id: persistedOrder.id,
       billing_address_collection: 'required',
@@ -204,6 +233,8 @@ export async function POST(req: NextRequest) {
       throw stripeError;
     }
 
+    await recordCheckoutSession(persistedOrder.id, session.id);
+
     return NextResponse.json({ sessionId: session.id });
   } catch (error) {
     console.error('Stripe session creation error:', error);
@@ -215,6 +246,21 @@ export async function POST(req: NextRequest) {
       { error: isValidationError || isConfigurationError ? message : 'Failed to create checkout session' },
       { status: isConfigurationError ? 503 : isValidationError ? 400 : 500 }
     );
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  const { orderId, token } = await req.json().catch(() => ({}));
+  if (typeof orderId !== 'string' || !verifyOrderAccessToken(orderId, typeof token === 'string' ? token : null)) {
+    return NextResponse.json({ error: 'Invalid checkout reference' }, { status: 400 });
+  }
+
+  try {
+    await cancelCheckout(orderId);
+    return NextResponse.json({ cancelled: true });
+  } catch (error) {
+    console.error('Checkout cancellation error:', error);
+    return NextResponse.json({ error: 'Failed to cancel checkout' }, { status: 500 });
   }
 }
 
@@ -389,7 +435,7 @@ async function reserveTrackedInventory(order: Order): Promise<string | null> {
     const inventory = await InventoryService.getInventoryStatus(item.productId);
     if (!inventory) continue;
 
-    const reservationId = await InventoryService.reserveStock(item.productId, item.quantity, 15, {
+    const reservationId = await InventoryService.reserveStock(item.productId, item.quantity, CHECKOUT_HOLD_MINUTES, {
       orderId: order.id,
       userId: order.customerId,
     });

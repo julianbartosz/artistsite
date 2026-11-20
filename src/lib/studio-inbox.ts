@@ -79,10 +79,15 @@ export async function createStudioThread(input: {
   initialBody: string;
   senderRole?: MessageSenderRole;
   senderUserId?: string | null;
+  crmStage?: CrmStage;
+  tags?: string[];
 }) {
   const email = normalizeEmail(input.userEmail);
   const body = input.initialBody.trim();
   if (!body) throw new Error('Message body is required');
+  const tags = input.tags
+    ? [...new Set(input.tags.map((tag) => tag.trim()).filter(Boolean))]
+    : undefined;
 
   return db.$transaction(async (tx) => {
     const thread = await tx.studioMessageThread.create({
@@ -93,6 +98,8 @@ export async function createStudioThread(input: {
         userId: input.userId || null,
         relatedPostSlug: input.relatedPostSlug?.trim() || null,
         relatedOrderId: input.relatedOrderId?.trim() || null,
+        ...(input.crmStage ? { crmStage: input.crmStage } : {}),
+        ...(tags && tags.length > 0 ? { tags } : {}),
         lastMessageAt: new Date(),
         userLastReadAt: input.senderRole === 'buyer' ? new Date() : null,
         artistLastReadAt: input.senderRole === 'artist' ? new Date() : null,
@@ -281,7 +288,9 @@ export async function linkContactSubmissionToInbox(input: {
   inquiryType?: string;
   userId?: string | null;
 }) {
-  const subject = input.subject.trim() || `Contact: ${input.inquiryType || 'general'}`;
+  const inquiryType = (input.inquiryType || 'general').trim().toLowerCase() || 'general';
+  const subject = input.subject.trim() || `Contact: ${inquiryType}`;
+  const isCommission = inquiryType === 'commission';
   return createStudioThread({
     subject,
     userEmail: input.email,
@@ -290,6 +299,8 @@ export async function linkContactSubmissionToInbox(input: {
     initialBody: input.message,
     senderRole: 'buyer',
     senderUserId: input.userId || null,
+    crmStage: 'inquiry',
+    tags: isCommission ? ['commission', inquiryType] : [inquiryType],
   });
 }
 

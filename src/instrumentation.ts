@@ -31,4 +31,9 @@ export async function register() {
     // Add production error tracking here
     console.log('Error tracking initialized for production')
   }
+
+  if (process.env.NEXT_RUNTIME === 'nodejs' && process.env.NODE_ENV === 'production') {
+    const { startAutomationScheduler } = await import('@/lib/scheduled-automations')
+    startAutomationScheduler()
+  }
 }

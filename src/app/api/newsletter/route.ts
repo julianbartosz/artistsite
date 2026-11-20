@@ -1,29 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiErrorHandler, ApiError } from '@/lib/api-error-handler';
 import { getConfig } from '@/lib/config';
-import { db } from '@/lib/db';
+import { isNewsletterSubscriber, normalizeSubscriberEmail, recordNewsletterSubscriber } from '@/lib/newsletter-subscribers';
 
 export const POST = withApiErrorHandler(async (request: NextRequest) => {
   const payload = await request.json() as { email?: string; digest?: boolean };
-  const email = payload.email?.trim().toLowerCase() || '';
-  
-  if (!email || !email.includes('@')) {
+  const email = normalizeSubscriberEmail(payload.email);
+
+  if (!email) {
     throw new ApiError(400, 'Valid email address is required', 'INVALID_EMAIL');
   }
 
-  // Check for required environment variables
+  // Check for optional Mailchimp sync; default to on-site subscribers (matching Settings UI).
   const apiKey = await getConfig('MAILCHIMP_API_KEY');
   const listId = await getConfig('MAILCHIMP_LIST_ID');
   const serverPrefix = await getConfig('MAILCHIMP_SERVER_PREFIX');
-  const deliveryMode = await getConfig('NEWSLETTER_DELIVERY_MODE') || (process.env.NODE_ENV === 'production' ? 'mailchimp' : 'log');
+  const deliveryMode = (await getConfig('NEWSLETTER_DELIVERY_MODE')) || 'log';
   const isE2eLogMode = process.env.PLAYWRIGHT_E2E === 'true';
 
-  if (deliveryMode === 'log' || isE2eLogMode) {
+  if (deliveryMode !== 'mailchimp' || isE2eLogMode) {
+    if (await isNewsletterSubscriber(email)) {
+      throw new ApiError(409, 'This email is already subscribed to our newsletter', 'ALREADY_SUBSCRIBED');
+    }
     await recordNewsletterSubscriber(email, payload.digest !== false);
     return NextResponse.json({
       message: 'Successfully subscribed to newsletter!',
       email,
-      mode: 'development'
+      mode: process.env.NODE_ENV === 'production' ? 'site' : 'development',
     });
   }
 
@@ -65,7 +68,11 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
     if (!response.ok) {
       // Handle Mailchimp-specific errors
       if (data.title === 'Member Exists') {
-        throw new ApiError(409, 'This email is already subscribed to our newsletter', 'ALREADY_SUBSCRIBED');
+        if (await isNewsletterSubscriber(email)) {
+          throw new ApiError(409, 'This email is already subscribed to our newsletter', 'ALREADY_SUBSCRIBED');
+        }
+        await recordNewsletterSubscriber(email, payload.digest !== false);
+        return NextResponse.json({ message: 'Successfully subscribed to newsletter!', email, mode: 'production' });
       }
       
       console.error('Mailchimp API error:', data);
@@ -90,51 +97,3 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
     throw new ApiError(500, 'Failed to subscribe to newsletter', 'NETWORK_ERROR');
   }
 });
-
-async function recordNewsletterSubscriber(email: string, digest = true): Promise<void> {
-  const normalizedEmail = email.trim().toLowerCase();
-  if (!normalizedEmail) return;
-
-  const existing = await db.customerProfile.findUnique({ where: { email: normalizedEmail } }).catch(() => null);
-  const existingSegments = parseSegments(existing?.segments);
-  const segments = Array.from(new Set([...existingSegments, 'newsletter_subscriber']));
-
-  await db.customerProfile.upsert({
-    where: { email: normalizedEmail },
-    create: {
-      email: normalizedEmail,
-      segments: JSON.stringify(segments),
-      preferences: JSON.stringify({ newsletter: true, digest }),
-      lastActivity: new Date(),
-    },
-    update: {
-      segments: JSON.stringify(segments),
-      preferences: JSON.stringify({ ...(parseObject(existing?.preferences)), newsletter: true, digest }),
-      lastActivity: new Date(),
-    },
-  }).catch((error) => {
-    console.error('Failed to record newsletter subscriber profile:', error);
-  });
-}
-
-function parseSegments(value: unknown): string[] {
-  if (Array.isArray(value)) return value.filter((segment): segment is string => typeof segment === 'string');
-  if (typeof value !== 'string') return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((segment): segment is string => typeof segment === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
-function parseObject(value: unknown): Record<string, any> {
-  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, any>;
-  if (typeof value !== 'string') return {};
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}

@@ -15,7 +15,8 @@ const ADMIN_API_RULES: readonly AdminApiRule[] = [
   { prefix: '/api/admin' },
   { prefix: '/api/marketing' },
   { prefix: '/api/security' },
-  { prefix: '/api/inventory' },
+  // Storefront StockIndicator uses GET ?productId=; route handler still requireAdmin for bulk/dashboard.
+  { prefix: '/api/inventory', methods: ['POST'] },
   { prefix: '/api/upload' },
   { prefix: '/api/analytics/customers' },
   { prefix: '/api/analytics/performance', methods: ['GET'] },
@@ -47,9 +48,27 @@ function requiresAdminApi(pathname: string, method: string): boolean {
   return false;
 }
 
+/** Sends the www / apex twin of the canonical host to the canonical origin. */
+function canonicalHostRedirect(request: NextRequest): NextResponse | null {
+  let canonical: URL;
+  try {
+    canonical = new URL(process.env.NEXTAUTH_URL || '');
+  } catch {
+    return null;
+  }
+
+  const twinHost = canonical.host.startsWith('www.') ? canonical.host.slice('www.'.length) : `www.${canonical.host}`;
+  if (request.headers.get('host')?.toLowerCase() !== twinHost) return null;
+
+  return NextResponse.redirect(new URL(`${request.nextUrl.pathname}${request.nextUrl.search}`, canonical.origin), 308);
+}
+
 export async function middleware(request: NextRequest) {
   const startTime = Date.now();
   const pathname = request.nextUrl.pathname;
+
+  const redirect = canonicalHostRedirect(request);
+  if (redirect) return redirect;
 
   if (requiresAdminApi(pathname, request.method)) {
     const token = await getToken({ req: request, secret: resolvedAuthSecret() });

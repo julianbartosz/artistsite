@@ -24,8 +24,6 @@ export type PublicSiteShell = {
   };
 };
 
-const DEFAULT_CONTACT_EMAIL = 'hello@artistsite.com';
-
 export async function getPublicSiteShell(): Promise<PublicSiteShell> {
   const [identity, config] = await Promise.all([
     getSiteContent('identity'),
@@ -34,11 +32,12 @@ export async function getPublicSiteShell(): Promise<PublicSiteShell> {
 
   return {
     identity,
+    // Prefer configured studio email; empty means UI should fall back to /contact.
     contactEmail:
       config.CONTACT_EMAIL ||
       config.ARTIST_EMAIL ||
       config.SUPPORT_EMAIL ||
-      DEFAULT_CONTACT_EMAIL,
+      '',
     socialUrls: {
       instagram: config.SOCIAL_INSTAGRAM_URL || '',
       facebook: config.SOCIAL_FACEBOOK_URL || '',

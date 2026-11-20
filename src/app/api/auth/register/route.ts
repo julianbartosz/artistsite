@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { getConfig } from '@/lib/config';
-import { sendTemplateEmail } from '@/lib/email';
+import { brandedEmailHtml, getEmailBrand, sendTemplateEmail } from '@/lib/email';
+import { absoluteUrl } from '@/lib/utils';
+import { escapeHtml } from '@/lib/email-shell';
 import { prisma } from '@/lib/db';
 
 export async function POST(request: NextRequest) {
@@ -95,12 +97,17 @@ async function sendWelcomeEmail(user: { id: string; email: string; name: string 
   const enabled = await getConfig('WELCOME_EMAIL_ENABLED');
   if (enabled && !['1', 'true', 'yes', 'on'].includes(enabled.toLowerCase())) return;
 
-  const siteUrl = await getConfig('NEXT_PUBLIC_SITE_URL') || await getConfig('NEXT_PUBLIC_BASE_URL') || '';
+  const brand = await getEmailBrand();
+  const shopUrl = absoluteUrl('/shop', brand.siteUrl);
   const name = user.firstName || user.name || 'there';
   const template = {
-    subject: 'Welcome to the studio',
-    html: `<p>Hi ${escapeHtml(name)},</p><p>Thanks for joining the studio list. You can explore new artwork, read studio notes, and track orders from your account.</p><p><a href="${escapeHtml(siteUrl ? `${siteUrl}/shop` : '/shop')}">Visit the shop</a></p>`,
-    text: `Hi ${name}, thanks for joining the studio list. You can explore artwork, read studio notes, and track orders from your account: ${siteUrl ? `${siteUrl}/shop` : '/shop'}`,
+    subject: `Welcome to ${brand.siteName}`,
+    html: brandedEmailHtml(brand, {
+      title: 'Welcome to the studio',
+      intro: `Hi ${escapeHtml(name)}, thanks for joining. You can explore new artwork, read studio notes, and track orders from your account.`,
+      cta: { label: 'Visit the shop', href: shopUrl },
+    }),
+    text: `Hi ${name}, thanks for joining. You can explore artwork, read studio notes, and track orders from your account: ${shopUrl}`,
   };
 
   const ok = await sendTemplateEmail(user.email, template);
@@ -112,13 +119,4 @@ async function sendWelcomeEmail(user: { id: string; email: string; name: string 
       timestamp: new Date(),
     },
   }).catch(() => undefined);
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }

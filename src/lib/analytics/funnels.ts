@@ -52,7 +52,26 @@ export class ConversionFunnels {
   }
 
   private static initialized = false
+  private static suppressed = false
   private static syncTimeout: NodeJS.Timeout | null = null
+
+  static setSuppressed(suppressed: boolean): void {
+    this.suppressed = suppressed
+  }
+
+  static isTrackingSuppressed(): boolean {
+    if (this.suppressed || typeof window === 'undefined') return true
+    try {
+      if (window.self !== window.top) return true
+    } catch {
+      return true
+    }
+    const { pathname, search } = window.location
+    if (pathname.startsWith('/admin') || pathname.startsWith('/api')) return true
+    const params = new URLSearchParams(search)
+    if (params.has('cmsPreview') || params.has('preview')) return true
+    return false
+  }
 
   /**
    * Initialize the analytics system
@@ -63,23 +82,35 @@ export class ConversionFunnels {
     this.initialized = true
     
     // Try to sync any pending events on initialization
-    this.syncPendingEvents()
+    if (!this.isTrackingSuppressed()) {
+      this.syncPendingEvents()
+    }
     
     // Listen for online/offline events to handle connectivity changes
     window.addEventListener('online', () => {
-      this.syncPendingEvents()
+      if (!this.isTrackingSuppressed()) {
+        this.syncPendingEvents()
+      }
     })
     
     // Sync pending events before page unload
     window.addEventListener('beforeunload', () => {
-      this.syncPendingEvents()
+      if (!this.isTrackingSuppressed()) {
+        this.syncPendingEvents()
+      }
     })
   }
 
   /**
    * Track a funnel step
    */
-  static trackFunnelStep(funnel: string, step: string, userId?: string): void {
+  static trackFunnelStep(
+    funnel: string,
+    step: string,
+    userId?: string,
+    extraProperties?: Record<string, unknown>,
+  ): void {
+    if (this.isTrackingSuppressed()) return
     const sessionId = this.getSessionId()
     
     // Track in GA4
@@ -94,7 +125,11 @@ export class ConversionFunnels {
     }
 
     // Store in local analytics
-    this.storeFunnelEvent(funnel, step, userId, sessionId)
+    this.storeFunnelEvent(funnel, step, userId, sessionId, extraProperties)
+  }
+
+  static trackPageView(userId?: string): void {
+    this.trackFunnelStep('site', 'page_view', userId)
   }
 
   /**
@@ -231,13 +266,15 @@ export class ConversionFunnels {
     funnel: string, 
     step: string, 
     userId?: string, 
-    sessionId?: string
+    sessionId?: string,
+    extraProperties?: Record<string, unknown>,
   ): Promise<void> {
     const eventData = {
       event_name: step,
       user_id: userId,
       session_id: sessionId,
       properties: {
+        ...(extraProperties || {}),
         funnel_name: funnel,
         step_name: step,
         timestamp: new Date().toISOString(),

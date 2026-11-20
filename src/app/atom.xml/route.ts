@@ -1,58 +1,59 @@
 import { NextResponse } from 'next/server';
 import { getAllPosts } from '@/lib/markdown';
+import { getPublishedSiteContent } from '@/lib/site-content';
+import { getSiteUrl } from '@/lib/config';
 import { UPDATES_PATH, updatesPostPath } from '@/lib/site-content-shared';
-
-const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://artistsite.com';
-const siteName = 'Artist Site';
-const siteDescription = 'Contemporary art blog featuring insights into creative process, techniques, and artistic inspiration';
-const authorEmail = 'noreply@artistsite.com';
-const authorName = 'Artist Site';
+import { brandIconPath } from '@/lib/brand';
+import { escapeHtml } from '@/lib/email-shell';
+import { absoluteUrl } from '@/lib/utils';
 
 export async function GET() {
-  const posts = await getAllPosts();
-  const lastUpdated = new Date().toISOString();
+  const [posts, identity, blog, siteUrl] = await Promise.all([
+    getAllPosts(),
+    getPublishedSiteContent('identity'),
+    getPublishedSiteContent('blog'),
+    getSiteUrl(),
+  ]);
+  const link = (path: string) => escapeHtml(absoluteUrl(path, siteUrl));
+  const siteName = escapeHtml(identity.siteName);
+  const recentPosts = [...posts]
+    .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt))
+    .slice(0, 20);
+  const updated = recentPosts[0] ? new Date(recentPosts[0].publishedAt).toISOString() : new Date().toISOString();
 
-  const atomItems = posts
-    .filter(post => !post.isDraft)
-    .slice(0, 20) // Limit to 20 most recent posts
-    .map(post => {
-      const postUrl = `${baseUrl}${updatesPostPath(post.slug)}`;
-      const published = new Date(post.publishedAt).toISOString();
-      
-      return `
+  const atomItems = recentPosts.map(post => {
+    const postUrl = link(updatesPostPath(post.slug));
+    const published = new Date(post.publishedAt).toISOString();
+    return `
     <entry>
-      <title><![CDATA[${post.title}]]></title>
+      <title>${escapeHtml(post.title)}</title>
       <link href="${postUrl}" />
       <id>${postUrl}</id>
       <published>${published}</published>
       <updated>${published}</updated>
-      <summary type="html"><![CDATA[${post.excerpt}]]></summary>
-      <content type="html"><![CDATA[${post.excerpt}]]></content>
+      <summary>${escapeHtml(post.excerpt)}</summary>
       <author>
-        <name>${post.author || authorName}</name>
-        <email>${authorEmail}</email>
+        <name>${escapeHtml(post.author || identity.siteName)}</name>
       </author>
-      ${post.tags ? post.tags.map(tag => `<category term="${tag}" />`).join('\n      ') : ''}
+      ${(post.tags || []).map(tag => `<category term="${escapeHtml(tag)}" />`).join('\n      ')}
     </entry>`.trim();
-    }).join('\n');
+  }).join('\n');
 
   const atomXml = `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
-  <title><![CDATA[${siteName} Updates]]></title>
-  <subtitle><![CDATA[${siteDescription}]]></subtitle>
-  <link href="${baseUrl}${UPDATES_PATH}" />
-  <link href="${baseUrl}/atom.xml" rel="self" type="application/atom+xml" />
-  <id>${baseUrl}${UPDATES_PATH}</id>
-  <updated>${lastUpdated}</updated>
-  <generator uri="https://nextjs.org" version="14.0">Next.js</generator>
+  <title>${siteName} — ${escapeHtml(blog.title)}</title>
+  <subtitle>${escapeHtml(blog.subtitle)}</subtitle>
+  <link href="${link(UPDATES_PATH)}" />
+  <link href="${link('/atom.xml')}" rel="self" type="application/atom+xml" />
+  <id>${link(UPDATES_PATH)}</id>
+  <updated>${updated}</updated>
   <author>
-    <name>${authorName}</name>
-    <email>${authorEmail}</email>
-    <uri>${baseUrl}</uri>
+    <name>${siteName}</name>
+    <uri>${link('/')}</uri>
   </author>
-  <icon>${baseUrl}/favicon.ico</icon>
-  <logo>${baseUrl}/images/logo.png</logo>
-  <rights>Copyright © ${new Date().getFullYear()} ${siteName}</rights>
+  <icon>${link(brandIconPath(identity, 32))}</icon>
+  <logo>${link(brandIconPath(identity, 512))}</logo>
+  <rights>Copyright © ${new Date().getFullYear()} ${escapeHtml(identity.copyrightName || identity.siteName)}</rights>
 ${atomItems}
 </feed>`;
 

@@ -1,5 +1,5 @@
 import 'server-only';
-import { getConfig } from '@/lib/config';
+import { getConfig, getSiteUrl } from '@/lib/config';
 
 type PublishStatus = 'published' | 'scheduled' | 'needs_attention' | 'failed';
 
@@ -74,7 +74,7 @@ function encode(value: string): string {
 }
 
 async function getPublicSiteUrl(): Promise<string | undefined> {
-  return safeUrl(await getConfig('NEXT_PUBLIC_SITE_URL') || await getConfig('NEXT_PUBLIC_BASE_URL'));
+  return safeUrl(await getSiteUrl());
 }
 
 function normalizeAyrsharePlatform(platform: string): string {

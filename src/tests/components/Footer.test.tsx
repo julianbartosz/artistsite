@@ -7,7 +7,7 @@ describe('Footer Component', () => {
   it('renders footer content correctly', () => {
     render(<Footer />);
 
-    expect(screen.getByText(new RegExp(`© ${new Date().getFullYear()} Artist Site`))).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`© ${new Date().getFullYear()} Michal Elena`))).toBeInTheDocument();
     expect(screen.getByText(/All rights reserved\./)).toBeInTheDocument();
   });
 
@@ -16,6 +16,17 @@ describe('Footer Component', () => {
 
     const footer = screen.getByRole('contentinfo');
     expect(footer).toBeInTheDocument();
+  });
+
+  it('links to contact when no studio email is configured', () => {
+    render(<Footer contactEmail="" />);
+    const socialContact = screen.getAllByRole('link', { name: 'Contact' }).find((link) => link.getAttribute('href') === '/contact' && link.querySelector('svg'));
+    expect(socialContact).toBeTruthy();
+  });
+
+  it('uses mailto when a studio email is configured', () => {
+    render(<Footer contactEmail="studio@example.com" />);
+    expect(screen.getByRole('link', { name: 'Email' })).toHaveAttribute('href', 'mailto:studio@example.com');
   });
 
   it('has correct styling classes', () => {

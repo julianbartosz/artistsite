@@ -5,13 +5,15 @@ import { draftMode } from 'next/headers';
 import { getServerSession } from 'next-auth';
 import { MDXContent } from '@/components/MDXContent';
 import PostMedia from '@/components/PostMedia';
-import PostPermalinkActions from '@/components/PostPermalinkActions';
 import PostEngagement from '@/components/PostEngagement';
-import { generateBlogMetadata } from '@/lib/seo';
+import { generateBlogMetadata, getSeoBrand } from '@/lib/seo';
+import { getSiteUrl } from '@/lib/config';
+import { brandLogoPath } from '@/lib/brand';
 import { StructuredData, generateArticleSchema, generateBreadcrumbSchema } from '@/components/StructuredData';
 import { authOptions } from '@/lib/auth';
-import { getSiteContent, UPDATES_PATH, updatesPostPath, updatesTagPath } from '@/lib/site-content';
+import { getSiteContent, UPDATES_PATH, updatesFeedCopy, updatesPostPath, updatesTagPath } from '@/lib/site-content';
 import { recordBlogPostView } from '@/lib/post-view-analytics';
+import { getPostEngagement, readGuestSessionId } from '@/lib/update-engagement';
 
 interface BlogPostProps {
   params: Promise<{ slug: string }>;
@@ -22,9 +24,11 @@ export const dynamic = 'force-dynamic';
 export default async function BlogPost({ params }: BlogPostProps) {
   const { slug } = await params;
   const { isEnabled: isDraft } = await draftMode();
-  const [session, blog] = await Promise.all([
+  const [session, blog, identity, siteUrl] = await Promise.all([
     getServerSession(authOptions),
     getSiteContent('blog'),
+    getSiteContent('identity'),
+    getSiteUrl(),
   ]);
   const viewer = session?.user
     ? { id: session.user.id, email: session.user.email, isAdmin: Boolean(session.user.isAdmin) }
@@ -51,23 +55,29 @@ export default async function BlogPost({ params }: BlogPostProps) {
     url: updatesPostPath(slug),
     image: post.coverImage || post.media.find((item) => item.type === 'image')?.url,
     tags: post.tags,
+    publisher: { name: identity.siteName, logo: brandLogoPath(identity) },
+    siteUrl,
   });
 
   const breadcrumbSchema = generateBreadcrumbSchema([
     { name: 'Home', url: '/' },
     { name: blog.title, url: UPDATES_PATH },
     { name: post.title, url: updatesPostPath(slug) },
-  ]);
+  ], siteUrl);
 
   const isShort = post.format === 'short';
+  const { comments, ...engagementState } = await getPostEngagement(slug, {
+    userId: session?.user?.id,
+    sessionId: await readGuestSessionId(),
+  });
 
   return (
     <>
       {post.visibility === 'public' && <StructuredData data={articleSchema} />}
       {post.visibility === 'public' && <StructuredData data={breadcrumbSchema} />}
 
-      <div className="min-h-screen bg-gray-50">
-        <section className="bg-white shadow-sm border-b border-gray-200">
+      <div className="min-h-screen bg-surface-muted">
+        <section className="bg-surface shadow-sm border-b border-gray-200">
           <div className="max-w-4xl mx-auto px-6 py-8 md:py-10">
             <nav className="mb-6" aria-label="Breadcrumb">
               <ol className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
@@ -139,16 +149,16 @@ export default async function BlogPost({ params }: BlogPostProps) {
           {!isShort && <MDXContent code={post.code} />}
 
           {(post.relatedProductId || post.relatedArtworkSlug) && (
-            <div className="mt-10 rounded-xl border border-gray-200 bg-white p-5">
+            <div className="mt-10 rounded-xl border border-gray-200 bg-surface p-5">
               <h2 className="text-lg font-semibold text-gray-900 mb-3">Related work</h2>
               <div className="flex flex-wrap gap-3">
                 {post.relatedProductId && (
-                  <Link href={`/shop/${post.relatedProductId}`} className="btn-primary-outline rounded-md px-4 py-2 text-sm">
+                  <Link href={`/shop/${post.relatedProductId}`} className="btn-primary-outline px-4 py-2 text-sm">
                     View shop item
                   </Link>
                 )}
                 {post.relatedArtworkSlug && (
-                  <Link href={`/portfolio/${post.relatedArtworkSlug}`} className="btn-primary-outline rounded-md px-4 py-2 text-sm">
+                  <Link href={`/portfolio/${post.relatedArtworkSlug}`} className="btn-primary-outline px-4 py-2 text-sm">
                     View portfolio piece
                   </Link>
                 )}
@@ -156,27 +166,17 @@ export default async function BlogPost({ params }: BlogPostProps) {
             </div>
           )}
 
-          <div className="mt-10 border-t border-gray-200 pt-8">
-            <PostPermalinkActions
-              slug={post.slug}
-              title={post.title}
-              askArtistLabel={blog.askArtistLabel}
-              saveUpdateLabel={blog.saveUpdateLabel}
-              signedIn={Boolean(session?.user?.id)}
-              signInCallbackUrl={updatesPostPath(slug)}
-            />
-          </div>
-
-          <PostEngagement
+          {!post.isDraft && <PostEngagement
+            variant="full"
             slug={post.slug}
+            title={isShort ? (post.excerpt || post.title) : post.title}
+            copy={updatesFeedCopy(blog)}
             signedIn={Boolean(session?.user?.id)}
             signInCallbackUrl={updatesPostPath(slug)}
-            showComments={blog.showComments}
-            showLikes={blog.showLikes}
-            commentsLabel={blog.commentsLabel}
-            likeLabel={blog.likeLabel}
+            initialState={engagementState}
+            initialComments={comments}
             isAdmin={Boolean(session?.user?.isAdmin)}
-          />
+          />}
 
           <footer className="mt-12 pt-8 border-t border-gray-200">
             <Link
@@ -202,7 +202,7 @@ export async function generateMetadata({ params }: BlogPostProps) {
   const viewer = session?.user
     ? { id: session.user.id, email: session.user.email, isAdmin: Boolean(session.user.isAdmin) }
     : undefined;
-  const post = await getPostBySlug(slug, false, viewer);
+  const [post, brand] = await Promise.all([getPostBySlug(slug, false, viewer), getSeoBrand()]);
 
   if (!post) {
     return {
@@ -212,6 +212,7 @@ export async function generateMetadata({ params }: BlogPostProps) {
   }
 
   return generateBlogMetadata({
+    brand,
     title: post.title,
     description: post.excerpt,
     publishedAt: post.publishedAt,

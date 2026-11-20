@@ -17,7 +17,7 @@ interface SearchSuggestion {
 }
 
 export function SearchBar({ 
-  placeholder = "Search artworks, categories, or artists...",
+  placeholder = "Search artworks by title, medium, or category…",
   className = "",
   onSearch,
   showSuggestions = true
@@ -80,6 +80,24 @@ export function SearchBar({
     performSearch(query);
   };
 
+  // Keep input in sync when the URL query changes (back/forward, clear, external filters).
+  useEffect(() => {
+    setQuery(searchParams.get('q') || '');
+  }, [searchParams]);
+
+  const applySearchToUrl = (searchQuery: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    const trimmed = searchQuery.trim();
+    if (trimmed) {
+      params.set('q', trimmed);
+    } else {
+      params.delete('q');
+    }
+    params.delete('page');
+    const query = params.toString();
+    router.push(query ? `/shop?${query}` : '/shop');
+  };
+
   const performSearch = (searchQuery: string) => {
     if (!searchQuery.trim()) return;
 
@@ -88,11 +106,7 @@ export function SearchBar({
     if (onSearch) {
       onSearch(searchQuery);
     } else {
-      // Navigate to search results page
-      const params = new URLSearchParams(searchParams);
-      params.set('q', searchQuery);
-      params.delete('page'); // Reset to first page
-      router.push(`/shop?${params.toString()}`);
+      applySearchToUrl(searchQuery);
     }
   };
 
@@ -105,6 +119,11 @@ export function SearchBar({
     setQuery('');
     setSuggestions([]);
     setShowSuggestionsList(false);
+    if (onSearch) {
+      onSearch('');
+    } else {
+      applySearchToUrl('');
+    }
     searchInputRef.current?.focus();
   };
 
@@ -120,12 +139,13 @@ export function SearchBar({
             onChange={(e) => setQuery(e.target.value)}
             onFocus={() => suggestions.length > 0 && setShowSuggestionsList(true)}
             placeholder={placeholder}
-            className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-gray-900 bg-white text-gray-900 placeholder-gray-500"
+            className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-input focus:ring-2 focus:ring-primary focus:border-primary bg-white text-gray-900 placeholder-gray-500"
           />
           {query && (
             <button
               type="button"
               onClick={clearSearch}
+              aria-label="Clear search"
               className="absolute right-3 top-1/2 transform -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
             >
               <XMarkIcon className="h-4 w-4" />
@@ -138,7 +158,7 @@ export function SearchBar({
       {showSuggestionsList && (
         <div
           ref={suggestionsRef}
-          className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto"
+          className="absolute top-full left-0 right-0 mt-1 bg-surface border border-gray-200 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto"
         >
           {isLoading ? (
             <div className="p-4 text-center text-gray-500">

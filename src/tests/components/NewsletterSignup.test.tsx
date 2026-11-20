@@ -173,4 +173,26 @@ describe('NewsletterSignup Component', () => {
     expect(button.className).toMatch(/bg-white/);
     expect(button.className).toMatch(/text-primary/);
   });
+
+  it('tracks newsletter form view at most once across typing re-renders', async () => {
+    const analyticsModule = jest.requireMock('@/components/AnalyticsProvider') as {
+      useNewsletterTracking: jest.Mock;
+    };
+    const trackFormView = jest.fn();
+    const originalImpl = analyticsModule.useNewsletterTracking;
+    analyticsModule.useNewsletterTracking = jest.fn(() => ({
+      trackFormView,
+      trackSignup: jest.fn(),
+    }));
+
+    try {
+      const user = userEvent.setup();
+      render(<NewsletterSignup />);
+      const emailInput = screen.getByPlaceholderText('Enter your email');
+      await user.type(emailInput, 'collector@example.com');
+      expect(trackFormView).toHaveBeenCalledTimes(1);
+    } finally {
+      analyticsModule.useNewsletterTracking = originalImpl;
+    }
+  });
 });

@@ -4,7 +4,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import type { Order, OrderStatus } from '@/lib/orders';
+import type { Order } from '@/lib/orders';
+import {
+  orderStatusDescription,
+  orderStatusLabel,
+  type OrderStatus,
+} from '@/lib/order-status-shared';
 import { shippingAddressIsPopulated } from '@/lib/shipping-address';
 import { formatCartItemVariant, formatPrice, productImageSrc } from '@/lib/commerce';
 import { shippingCarrierLabel, trackingUrl } from '@/lib/shipping';
@@ -111,7 +116,7 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
         </Link>
       </div>
       {/* Order Header */}
-      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+      <div className="bg-surface rounded-lg shadow-md p-6 mb-6">
         <div className="flex justify-between items-start">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Order #{order.orderNumber}</h1>
@@ -121,8 +126,9 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
           <div className="text-right">
             <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${statusColors[order.status]}`}>
               <span className="mr-2">{statusIcons[order.status]}</span>
-              {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+              {orderStatusLabel(order.status)}
             </span>
+            <p className="mt-2 max-w-xs text-sm text-gray-600">{orderStatusDescription(order.status)}</p>
             <p className="text-2xl font-bold text-gray-900 mt-2">{formatPrice(order.total, order.currency)}</p>
           </div>
         </div>
@@ -130,7 +136,7 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
 
       {/* Progress Steps */}
       {order.status !== 'cancelled' && order.status !== 'refunded' && (
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+        <div className="bg-surface rounded-lg shadow-md p-6 mb-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-6">Order Progress</h2>
           <OrderProgressSteps status={order.status} />
         </div>
@@ -138,7 +144,7 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
 
       {/* Shipping Info */}
       {order.trackingNumber && (
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+        <div className="bg-surface rounded-lg shadow-md p-6 mb-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Shipping Information</h2>
           <div className="grid md:grid-cols-2 gap-4">
             <div>
@@ -162,7 +168,7 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
       )}
 
       {/* Order Timeline */}
-      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+      <div className="bg-surface rounded-lg shadow-md p-6 mb-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-6">Order Timeline</h2>
         <div className="space-y-4">
           {order.timeline.map((entry, index) => (
@@ -190,7 +196,7 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
       </div>
 
       {/* Order Items */}
-      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+      <div className="bg-surface rounded-lg shadow-md p-6 mb-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-6">Order Items</h2>
         <div className="space-y-4">
           {order.items.map((item) => (
@@ -222,19 +228,41 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
         </div>
       </div>
 
-      {session?.user && (
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-2">Questions about your order?</h2>
-          <p className="text-sm text-gray-600 mb-4">Send a message directly to the studio. Replies appear in your account messages.</p>
-          <OrderMessageComposer
-            orderId={order.id}
-            orderNumber={order.orderNumber}
-          />
-        </div>
-      )}
+      <div className="bg-surface rounded-lg shadow-md p-6 mb-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-2">Questions about your order?</h2>
+        {session?.user ? (
+          <>
+            <p className="text-sm text-gray-600 mb-4">Send a message directly to the studio. Replies appear in your account messages.</p>
+            <OrderMessageComposer
+              orderId={order.id}
+              orderNumber={order.orderNumber}
+            />
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-gray-600 mb-4">
+              Sign in to message the studio in-app, or send a note with your order number.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href={`/auth/signin?callbackUrl=${encodeURIComponent(`/orders/${order.id}`)}`}
+                className="btn-primary px-4 py-2 text-sm"
+              >
+                Sign in to message
+              </Link>
+              <Link
+                href={`/contact?subject=${encodeURIComponent(`Order ${order.orderNumber}`)}`}
+                className="btn-primary-outline px-4 py-2 text-sm"
+              >
+                Contact about this order
+              </Link>
+            </div>
+          </>
+        )}
+      </div>
 
       {shippingAddressIsPopulated(order.shippingAddress) && (
-      <div className="bg-white rounded-lg shadow-md p-6">
+      <div className="bg-surface rounded-lg shadow-md p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Shipping Address</h2>
         <div className="text-gray-600">
           <p>{order.shippingAddress.firstName} {order.shippingAddress.lastName}</p>

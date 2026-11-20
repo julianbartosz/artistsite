@@ -1,12 +1,29 @@
 import { 
   validateEmail, 
   validateContactForm, 
-  sanitizeFormData, 
+  sanitizeFormData,
+  formatCommissionInquiryDetails,
   isRateLimited,
   type ContactFormData 
 } from '@/lib/form-validation';
 import { blogPostPayloadSchema, parsePostMedia, normalizeAudienceEmails } from '@/lib/admin-content';
 import { viewerCanAccessPost } from '@/lib/markdown';
+import { buildLaunchReadinessItems } from '@/lib/setup-readiness';
+import React from 'react';
+import { markdownToHtml } from '@/lib/markdown-to-html';
+import { htmlHasVisibleText } from '@/lib/content-sanitize';
+import { render, screen } from '@testing-library/react';
+import { MDXContent } from '@/components/MDXContent';
+import {
+  applyMergeFields,
+  newsletterContentIssues,
+  newsletterDocumentFromContent,
+  newsletterSendIssues,
+  renderNewsletter,
+  type NewsletterBlock,
+  type NewsletterDocument,
+} from '@/lib/newsletter';
+import { createUnsubscribeToken, verifyUnsubscribeToken } from '@/lib/newsletter-subscribers';
 
 // Mock localStorage for rate limiting tests
 const localStorageMock = {
@@ -51,7 +68,20 @@ describe('Form Validation Utilities', () => {
       email: 'john@example.com',
       subject: 'Test Subject',
       message: 'This is a test message that is long enough to pass validation requirements.',
-      inquiryType: 'general'
+      inquiryType: 'general',
+      commissionSizeMedium: '',
+      commissionTimeline: '',
+      commissionTheme: '',
+      commissionBudget: '',
+    };
+
+    const validCommissionFormData: ContactFormData = {
+      ...validFormData,
+      inquiryType: 'commission',
+      commissionSizeMedium: '24x36 oil on canvas',
+      commissionTimeline: 'Needed by June',
+      commissionTheme: 'Abstract city nightscape',
+      commissionBudget: '$2,000–$4,000',
     };
 
     it('returns no errors for valid form data', () => {
@@ -142,12 +172,37 @@ describe('Form Validation Utilities', () => {
       });
 
       it('accepts valid inquiry types', () => {
-        const validTypes = ['general', 'purchase', 'commission', 'press', 'exhibition'];
+        const validTypes = ['general', 'purchase', 'commission', 'press', 'exhibition'] as const;
         
-        validTypes.forEach(type => {
-          const errors = validateContactForm({ ...validFormData, inquiryType: type });
+        validTypes.forEach((type) => {
+          const payload = type === 'commission' ? validCommissionFormData : { ...validFormData, inquiryType: type };
+          const errors = validateContactForm(payload);
           expect(errors.inquiryType).toBeUndefined();
         });
+      });
+    });
+
+    describe('commission inquiry details', () => {
+      it('accepts a complete commission request', () => {
+        expect(Object.keys(validateContactForm(validCommissionFormData))).toHaveLength(0);
+      });
+
+      it.each([
+        ['commissionSizeMedium', 'Desired size and medium is required for commission requests'],
+        ['commissionTimeline', 'Timeline and deadline is required for commission requests'],
+        ['commissionTheme', 'Subject matter or theme is required for commission requests'],
+        ['commissionBudget', 'Budget range is required for commission requests'],
+      ] as const)('requires %s for commissions', (field, message) => {
+        const errors = validateContactForm({ ...validCommissionFormData, [field]: '  ' });
+        expect(errors[field]).toBe(message);
+      });
+
+      it('does not require commission fields for non-commission inquiries', () => {
+        const errors = validateContactForm(validFormData);
+        expect(errors.commissionSizeMedium).toBeUndefined();
+        expect(errors.commissionTimeline).toBeUndefined();
+        expect(errors.commissionTheme).toBeUndefined();
+        expect(errors.commissionBudget).toBeUndefined();
       });
     });
 
@@ -157,7 +212,11 @@ describe('Form Validation Utilities', () => {
         email: 'invalid-email',
         subject: 'Hi',
         message: 'Short',
-        inquiryType: 'invalid'
+        inquiryType: 'invalid',
+        commissionSizeMedium: '',
+        commissionTimeline: '',
+        commissionTheme: '',
+        commissionBudget: '',
       };
 
       const errors = validateContactForm(invalidData);
@@ -178,7 +237,11 @@ describe('Form Validation Utilities', () => {
         email: '  john@EXAMPLE.com  ',
         subject: '  Test Subject  ',
         message: '  This is a test message  ',
-        inquiryType: 'general'
+        inquiryType: 'general',
+        commissionSizeMedium: '',
+        commissionTimeline: '',
+        commissionTheme: '',
+        commissionBudget: '',
       };
 
       const sanitized = sanitizeFormData(dirtyData);
@@ -196,24 +259,38 @@ describe('Form Validation Utilities', () => {
         email: 'JOHN@EXAMPLE.COM',
         subject: 'Test Subject',
         message: 'This is a test message',
-        inquiryType: 'general'
+        inquiryType: 'general',
+        commissionSizeMedium: '',
+        commissionTimeline: '',
+        commissionTheme: '',
+        commissionBudget: '',
       };
 
       const sanitized = sanitizeFormData(data);
       expect(sanitized.email).toBe('john@example.com');
     });
 
-    it('preserves inquiry type exactly', () => {
+    it('preserves inquiry type exactly and keeps commission details only for commissions', () => {
       const data: ContactFormData = {
         name: 'John Doe',
         email: 'john@example.com',
         subject: 'Test Subject',
         message: 'This is a test message',
-        inquiryType: 'commission'
+        inquiryType: 'commission',
+        commissionSizeMedium: '  30x40 oil  ',
+        commissionTimeline: '  June  ',
+        commissionTheme: '  Portrait  ',
+        commissionBudget: '  $3k  ',
       };
 
       const sanitized = sanitizeFormData(data);
       expect(sanitized.inquiryType).toBe('commission');
+      expect(sanitized.commissionSizeMedium).toBe('30x40 oil');
+      expect(formatCommissionInquiryDetails(sanitized)).toContain('Budget range: $3k');
+
+      const general = sanitizeFormData({ ...data, inquiryType: 'general' });
+      expect(general.commissionSizeMedium).toBe('');
+      expect(formatCommissionInquiryDetails(general)).toBeNull();
     });
   });
 
@@ -412,5 +489,166 @@ describe('update access control', () => {
       { id: 'buyer', email: 'buyer@example.com' },
       { audienceEmails: ['buyer@example.com'] },
     )).toBe(true);
+  });
+});
+
+describe('launch readiness checklist', () => {
+  it('does not deep-link database issues to automation secrets', () => {
+    const items = buildLaunchReadinessItems({ databaseHealthy: false });
+    const database = items.find((item) => item.key === 'database');
+    expect(database?.complete).toBe(false);
+    expect(database?.settingKey).toBeUndefined();
+    expect(database?.helpText).toMatch(/DATABASE_URL/i);
+  });
+
+  it.each([
+    {
+      name: 'incomplete when only delivery mode is set',
+      settings: new Map([['EMAIL_DELIVERY_MODE', 'configured' as const]]),
+      complete: false,
+    },
+    {
+      name: 'complete with contact email and delivery mode',
+      settings: new Map([
+        ['CONTACT_EMAIL', 'configured' as const],
+        ['EMAIL_DELIVERY_MODE', 'configured' as const],
+      ]),
+      complete: true,
+    },
+    {
+      name: 'complete with contact email and SMTP pair',
+      settings: new Map([
+        ['CONTACT_EMAIL', 'configured' as const],
+        ['SMTP_FROM', 'configured' as const],
+        ['SMTP_USER', 'configured' as const],
+      ]),
+      complete: true,
+    },
+  ])('marks email readiness $name', ({ settings, complete }) => {
+    const items = buildLaunchReadinessItems({ settings });
+    expect(items.find((item) => item.key === 'email')?.complete).toBe(complete);
+  });
+
+  it('requires both Stripe keys before payments are ready', () => {
+    const partial = buildLaunchReadinessItems({
+      settings: new Map([['STRIPE_SECRET_KEY', 'configured']]),
+    });
+    const both = buildLaunchReadinessItems({
+      settings: new Map([
+        ['STRIPE_SECRET_KEY', 'configured'],
+        ['NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY', 'configured'],
+      ]),
+    });
+    expect(partial.find((item) => item.key === 'payments')?.complete).toBe(false);
+    expect(both.find((item) => item.key === 'payments')?.complete).toBe(true);
+  });
+});
+
+describe('portfolio / blog rich content ingress', () => {
+  it.each([
+    {
+      name: 'inline emphasis and strong',
+      markdown: '*Series note*\n\n**Midnight Reflections** at night.',
+      expectHtml: [/<em>Series note<\/em>/, /<strong>Midnight Reflections<\/strong>/],
+      forbid: ['*', '**'],
+    },
+    {
+      name: 'headings and gfm lists',
+      markdown: '## Process\n\n- **Texture medium** on canvas\n- Glazing layers',
+      expectHtml: [/<h2>Process<\/h2>/, /<ul>/, /<li><strong>Texture medium<\/strong> on canvas<\/li>/],
+      forbid: ['- **', '## '],
+    },
+    {
+      name: 'empty markdown',
+      markdown: '   ',
+      expectHtml: [/^<p><\/p>$/],
+      forbid: [],
+    },
+  ])('markdownToHtml handles $name', ({ markdown, expectHtml, forbid }) => {
+    const html = markdownToHtml(markdown);
+    for (const pattern of expectHtml) {
+      expect(html).toMatch(pattern);
+    }
+    for (const token of forbid) {
+      expect(html.includes(token)).toBe(false);
+    }
+  });
+
+  it('MDXContent skips empty shells and renders sanitized HTML', () => {
+    const { container: empty } = render(React.createElement(MDXContent, { code: '<p></p>' }));
+    expect(empty).toBeEmptyDOMElement();
+
+    render(React.createElement(MDXContent, {
+      code: '<h2>Artist Statement</h2><p><strong>Bold</strong> body</p>',
+    }));
+    expect(screen.getByRole('heading', { name: 'Artist Statement' })).toBeInTheDocument();
+    expect(screen.getByText('Bold')).toBeInTheDocument();
+    expect(htmlHasVisibleText('<p>Visible</p>')).toBe(true);
+    expect(htmlHasVisibleText('<p></p>')).toBe(false);
+  });
+});
+
+describe('newsletter composition', () => {
+  const context = { siteName: 'Ana Studio', siteUrl: 'https://ana.art', primaryColor: '#1f2937', footerAddress: 'PO Box 1, Austin TX' };
+  const doc = (blocks: NewsletterBlock[], subject = 'Hi {{first_name}}'): NewsletterDocument => ({ subject, preheader: '', fromName: '', blocks });
+
+  it.each([
+    { input: 'Hi {{first_name}}', values: { first_name: 'Ana' }, mode: 'text', expected: 'Hi Ana' },
+    { input: 'Hi {{ first_name }}', values: {}, mode: 'text', expected: 'Hi there' },
+    { input: 'Hi {{first_name|friend}}', values: { first_name: '  ' }, mode: 'text', expected: 'Hi friend' },
+    { input: '<p>{{first_name}}</p>', values: { first_name: '<b>Al</b>' }, mode: 'html', expected: '<p>&lt;b&gt;Al&lt;/b&gt;</p>' },
+    { input: '{{shoe_size}} {{email', values: { email: 'a@b.co' }, mode: 'text', expected: '{{shoe_size}} {{email' },
+  ] as const)('applyMergeFields renders $input', ({ input, values, mode, expected }) => {
+    expect(applyMergeFields(input, values, mode)).toBe(expected);
+  });
+
+  it.each([
+    { name: 'site link', html: '<p><a href="/shop">Shop</a></p>', html_has: 'href="https://ana.art/shop"', text_has: 'Shop (https://ana.art/shop)' },
+    { name: 'inline image', html: '<p><img src="/uploads/a.jpg" alt="A"></p>', html_has: 'src="https://ana.art/uploads/a.jpg"', text_has: '' },
+    { name: 'absolute link', html: '<p><a href="https://x.com/a?b=1&amp;c=2">X</a></p>', html_has: 'href="https://x.com/a?b=1&amp;c=2"', text_has: 'X (https://x.com/a?b=1&c=2)' },
+    { name: 'merge-field link', html: '<p><a href="{{site_url}}/about">About</a></p>', html_has: 'href="{{site_url}}/about"', text_has: '' },
+  ])('renderNewsletter resolves $name in text blocks', ({ html, html_has, text_has }) => {
+    const rendered = renderNewsletter(doc([{ id: 't', type: 'text', html }]), context);
+    expect(rendered.html).toContain(html_has);
+    if (text_has) expect(rendered.text).toContain(text_has);
+    expect(rendered.html).toContain('href="{{unsubscribe_url}}"');
+    expect(rendered.html).toContain('PO Box 1, Austin TX');
+  });
+
+  it.each([
+    { name: 'ready', blocks: [{ id: 'a', type: 'text', html: '<p>Hello</p>' }], subject: 'News', siteUrl: 'https://ana.art', keys: [] },
+    { name: 'empty', blocks: [{ id: 'a', type: 'divider' }], subject: '', siteUrl: 'https://ana.art', keys: ['subject', 'content'] },
+    { name: 'unknown field', blocks: [{ id: 'a', type: 'text', html: '<p>{{nickname}}</p>' }], subject: 'News', siteUrl: '', keys: ['field-{{nickname}}'] },
+    { name: 'site path without site URL', blocks: [{ id: 'a', type: 'button', label: 'Go', href: '/shop' }], subject: 'News', siteUrl: '', keys: ['button-a'] },
+    { name: 'unsafe text link', blocks: [{ id: 'a', type: 'text', html: '<p><a href="ftp://x">x</a></p>' }], subject: 'News', siteUrl: 'https://ana.art', keys: ['text-link-a'] },
+    { name: 'unpicked artwork', blocks: [{ id: 'a', type: 'product', productId: '', title: '', imageUrl: '', priceLabel: '', href: '', ctaLabel: '' }, { id: 'b', type: 'text', html: '<p>Hi</p>' }], subject: 'News', siteUrl: 'https://ana.art', keys: ['product-a'] },
+  ] as Array<{ name: string; blocks: NewsletterBlock[]; subject: string; siteUrl: string; keys: string[] }>)('newsletterContentIssues: $name', ({ blocks, subject, siteUrl, keys }) => {
+    expect(newsletterContentIssues(doc(blocks, subject), { siteUrl }).map((issue) => issue.key)).toEqual(keys);
+  });
+
+  it('newsletterSendIssues also requires address, real delivery, and an audience', () => {
+    const ready = doc([{ id: 'a', type: 'text', html: '<p>Hello</p>' }], 'News');
+    expect(newsletterSendIssues(ready, { ...context, subscriberCount: 3, deliveryMode: 'smtp' })).toEqual([]);
+    expect(newsletterSendIssues(ready, { ...context, footerAddress: ' ', subscriberCount: 0, deliveryMode: 'log' }).map((issue) => issue.key))
+      .toEqual(['address', 'delivery', 'audience']);
+  });
+
+  it('newsletterDocumentFromContent upgrades legacy campaigns to one text block', () => {
+    expect(newsletterDocumentFromContent({ subject: 'Old', html: '<p>Hi {{customer_name}}</p>' })).toEqual({
+      subject: 'Old',
+      preheader: '',
+      fromName: '',
+      blocks: [{ id: 'legacy-body', type: 'text', html: '<p>Hi {{first_name}}</p>' }],
+    });
+    expect(newsletterDocumentFromContent(null).blocks).toEqual([]);
+  });
+
+  it.each([
+    { name: 'valid', tamper: (token: string) => token, expected: 'collector@example.com' },
+    { name: 'altered email', tamper: (token: string) => `${Buffer.from('other@example.com').toString('base64url')}${token.slice(token.indexOf('.'))}`, expected: null },
+    { name: 'altered signature', tamper: (token: string) => `${token.slice(0, -2)}xx`, expected: null },
+    { name: 'missing', tamper: () => '', expected: null },
+  ])('unsubscribe token: $name', ({ tamper, expected }) => {
+    expect(verifyUnsubscribeToken(tamper(createUnsubscribeToken('Collector@Example.com')))).toBe(expected);
   });
 });

@@ -1,4 +1,3 @@
-import { createHmac, timingSafeEqual } from 'crypto';
 import type Stripe from 'stripe';
 import { CartItemVariant, calculateVariantPrice, formatCartItemVariant, Product, productImageSrc } from './commerce';
 import { db } from './db';
@@ -12,54 +11,18 @@ import { getStripe } from '@/lib/stripe';
 export { SHIPPING_CARRIERS, trackingUrl };
 export type { ShippingAddress } from '@/lib/shipping-address';
 export { shippingAddressIsPopulated } from '@/lib/shipping-address';
+export { createOrderAccessToken, createOrderTrackingPath, verifyOrderAccessToken } from '@/lib/order-access';
 
-function orderAccessSecret(): string | undefined {
-  return process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET;
-}
+import type { OrderStatus } from '@/lib/order-status-shared';
+import { orderStatusDescription } from '@/lib/order-status-shared';
 
-export function createOrderAccessToken(orderId: string): string {
-  const secret = orderAccessSecret();
-  if (!secret) {
-    throw new Error('NEXTAUTH_SECRET or AUTH_SECRET is required to create order access tokens');
-  }
-
-  return createHmac('sha256', secret)
-    .update(`order:${orderId}`)
-    .digest('base64url');
-}
-
-export function verifyOrderAccessToken(orderId: string, token?: string | null): boolean {
-  const secret = orderAccessSecret();
-  if (!secret || !token) return false;
-
-  const expected = createHmac('sha256', secret)
-    .update(`order:${orderId}`)
-    .digest('base64url');
-  const expectedBuffer = Buffer.from(expected);
-  const tokenBuffer = Buffer.from(token);
-
-  return expectedBuffer.length === tokenBuffer.length && timingSafeEqual(expectedBuffer, tokenBuffer);
-}
-
-export function createOrderTrackingPath(orderId: string): string {
-  const safeOrderId = encodeURIComponent(orderId);
-
-  try {
-    return `/orders/${safeOrderId}?t=${encodeURIComponent(createOrderAccessToken(orderId))}`;
-  } catch {
-    return `/orders/${safeOrderId}`;
-  }
-}
-
-// Order Status Types
-export type OrderStatus = 
-  | 'pending'           // Payment pending
-  | 'confirmed'         // Payment confirmed
-  | 'processing'        // Order being prepared
-  | 'shipped'           // Order shipped
-  | 'delivered'         // Order delivered
-  | 'cancelled'         // Order cancelled
-  | 'refunded';         // Order refunded
+export type { OrderStatus } from '@/lib/order-status-shared';
+export {
+  ORDER_STATUS_LABELS,
+  ORDER_STATUS_DESCRIPTIONS,
+  orderStatusLabel,
+  orderStatusDescription,
+} from '@/lib/order-status-shared';
 
 export type OrderType = 'standard' | 'commission' | 'consultation';
 
@@ -624,6 +587,40 @@ export async function syncShippingAddressFromStripe(
   });
 }
 
+export async function recordCheckoutSession(orderId: string, stripeSessionId: string): Promise<void> {
+  await db.order.update({ where: { id: orderId }, data: { stripeSessionId } });
+}
+
+/**
+ * Ends an unpaid checkout: closes its Stripe session so it can no longer be paid, then
+ * returns its held stock. A session that completed first is left to the payment webhook.
+ */
+export async function cancelCheckout(orderId: string): Promise<void> {
+  const order = await db.order.findUnique({
+    where: { id: orderId },
+    select: { paymentStatus: true, stripeSessionId: true },
+  });
+  if (!order || order.paymentStatus !== 'pending') return;
+  if (order.stripeSessionId && !(await expireUnpaidCheckoutSession(order.stripeSessionId))) return;
+
+  await InventoryService.releaseActiveReservationsForOrder(orderId);
+}
+
+async function expireUnpaidCheckoutSession(sessionId: string): Promise<boolean> {
+  const stripe = await getStripe();
+  const session = await stripe.checkout.sessions.retrieve(sessionId);
+  if (session.status !== 'open') return session.status === 'expired';
+
+  try {
+    await stripe.checkout.sessions.expire(sessionId);
+    return true;
+  } catch (error) {
+    const latest = await stripe.checkout.sessions.retrieve(sessionId);
+    if (latest.status === 'open') throw error;
+    return latest.status === 'expired';
+  }
+}
+
 export async function finalizePaidOrder(
   orderId: string,
   opts: {
@@ -712,7 +709,10 @@ export async function refundOrder(orderId: string): Promise<Order> {
     throw new Error('Order payment intent is not refundable through Stripe');
   }
 
-  await InventoryService.releaseStockForOrder(orderId);
+  await InventoryService.releaseStockForOrder(
+    orderId,
+    existing.items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+  );
 
   const claimed = await db.order.updateMany({
     where: {
@@ -810,16 +810,7 @@ export class OrderManager {
    * Get status-specific timeline messages
    */
   static getStatusMessage(status: OrderStatus): string {
-    const messages: Record<OrderStatus, string> = {
-      pending: 'Order placed and payment pending',
-      confirmed: 'Payment confirmed and order received',
-      processing: 'Order is being prepared for shipment',
-      shipped: 'Order has been shipped',
-      delivered: 'Order has been delivered',
-      cancelled: 'Order has been cancelled',
-      refunded: 'Order has been refunded'
-    };
-    return messages[status];
+    return orderStatusDescription(status);
   }
 
   /**

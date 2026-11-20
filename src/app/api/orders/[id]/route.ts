@@ -102,6 +102,11 @@ export async function PUT(
 
     if (body.action === 'refund') {
       const order = await refundOrder(orderId);
+      try {
+        await OrderEmailService.sendStatusUpdate(order, 'refunded');
+      } catch (emailError) {
+        console.error('Failed to send refund email notification:', emailError);
+      }
       return NextResponse.json({
         success: true,
         order: {

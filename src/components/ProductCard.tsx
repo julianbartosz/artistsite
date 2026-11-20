@@ -22,7 +22,7 @@ export function ShopProductCard({ product }: ProductCardProps) {
     <>
     <article
       data-testid="product-card"
-      className="group h-full card-surface bg-white overflow-hidden hover:shadow-lg transition-shadow flex flex-col"
+      className="group h-full card-surface bg-surface overflow-hidden hover:shadow-lg transition-shadow flex flex-col"
     >
       <div className="relative aspect-square bg-gray-100 flex-shrink-0">
         <Link href={productHref} data-testid="product-card-link" className="absolute inset-0 z-10 block">
@@ -64,26 +64,50 @@ export function ShopProductCard({ product }: ProductCardProps) {
         <p className="text-sm text-gray-600">{product.medium}</p>
         <p className="text-sm text-gray-500 mb-2">{product.dimensions}</p>
         <p className="hidden md:block text-gray-700 text-sm mb-3 line-clamp-2 flex-1">{product.description}</p>
+      </Link>
 
-        <div className="flex justify-between items-center mt-auto pt-2">
+      <div className="px-4 sm:px-6 pb-4 sm:pb-6 mt-auto">
+        <div className="flex justify-between items-center gap-3">
           <span className="text-xl font-bold text-gray-900">
             {formatPrice(product.price, product.currency)}
           </span>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              setQuickLookOpen(true);
-            }}
-            className="text-sm font-medium text-primary hover:opacity-80"
-          >
-            Quick look
-          </button>
+          <div className="flex items-center gap-3">
+            <Link
+              href={`/contact?subject=${encodeURIComponent(`Inquiry about ${product.title}`)}&inquiryType=purchase`}
+              className="text-sm font-medium text-gray-700 hover:text-gray-900"
+            >
+              Ask
+            </Link>
+            <button
+              type="button"
+              onClick={() => setQuickLookOpen(true)}
+              className="text-sm font-medium text-primary hover:opacity-80"
+            >
+              Quick look
+            </button>
+          </div>
         </div>
 
-        <div className="mt-2 pointer-events-none">
-          <StockIndicator productId={product.id} />
+        <div className="mt-2">
+          {product.availability === 'available' ? (
+            <StockIndicator productId={product.id} missingInventoryLabel="Available" />
+          ) : (
+            <span
+              className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
+                product.availability === 'sold'
+                  ? 'bg-red-50 text-red-700'
+                  : product.availability === 'commissioned'
+                    ? 'bg-blue-50 text-blue-800'
+                    : 'bg-amber-50 text-amber-800'
+              }`}
+            >
+              {product.availability === 'sold'
+                ? 'Sold'
+                : product.availability === 'commissioned'
+                  ? 'Commission'
+                  : 'Reserved'}
+            </span>
+          )}
         </div>
 
         {isLimitedEdition && (
@@ -91,7 +115,7 @@ export function ShopProductCard({ product }: ProductCardProps) {
             Only {product.edition!.remaining} of {product.edition!.total} remaining
           </p>
         )}
-      </Link>
+      </div>
     </article>
     <ProductQuickLook product={product} open={quickLookOpen} onClose={() => setQuickLookOpen(false)} />
     </>

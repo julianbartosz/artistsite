@@ -1,24 +1,34 @@
-import { normalizeHexColor } from '@/lib/site-content-shared';
+import { ARTWORK_PALETTE_MAX_SWATCHES } from '@/lib/site-content-shared';
 
-function rgbToHex(r: number, g: number, b: number): string {
+type Rgb = [number, number, number];
+
+function rgbToHex([r, g, b]: Rgb): string {
   const clamp = (channel: number) => Math.min(255, Math.max(0, Math.round(channel)));
   return `#${((1 << 24) + (clamp(r) << 16) + (clamp(g) << 8) + clamp(b)).toString(16).slice(1)}`;
 }
 
-function colorDistance(a: [number, number, number], b: [number, number, number]): number {
+function colorDistance(a: Rgb, b: Rgb): number {
   return Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2);
 }
 
-function isNeutral(r: number, g: number, b: number): boolean {
+/** Grays, near-white paper, and near-black shadow carry no brand color. */
+function isNeutral([r, g, b]: Rgb): boolean {
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
-  return max - min < 18 || max > 240 || min < 20;
+  return max - min < 24 || min > 235 || max < 28;
 }
 
-/** Sample an image URL in the browser and suggest two distinct brand colors. */
-export async function extractPaletteFromImageUrl(
+const SAMPLE_SIZE = 64;
+const MIN_SWATCH_DISTANCE = 56;
+
+/**
+ * Samples an image in the browser and returns its most prominent distinct colors,
+ * most common first. Returns null when the image cannot be read (e.g. cross-origin).
+ */
+export async function extractSwatchesFromImageUrl(
   imageUrl: string,
-): Promise<{ primary: string; accent: string } | null> {
+  maxSwatches = ARTWORK_PALETTE_MAX_SWATCHES,
+): Promise<string[] | null> {
   if (typeof window === 'undefined' || !imageUrl.trim()) return null;
 
   return new Promise((resolve) => {
@@ -27,50 +37,46 @@ export async function extractPaletteFromImageUrl(
     image.onload = () => {
       try {
         const canvas = document.createElement('canvas');
-        const size = 48;
-        canvas.width = size;
-        canvas.height = size;
+        canvas.width = SAMPLE_SIZE;
+        canvas.height = SAMPLE_SIZE;
         const context = canvas.getContext('2d');
         if (!context) {
           resolve(null);
           return;
         }
 
-        context.drawImage(image, 0, 0, size, size);
-        const { data } = context.getImageData(0, 0, size, size);
-        const buckets = new Map<string, { rgb: [number, number, number]; count: number }>();
+        context.drawImage(image, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+        const { data } = context.getImageData(0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+        const buckets = new Map<string, { sum: Rgb; count: number }>();
 
         for (let index = 0; index < data.length; index += 4) {
-          const r = data[index];
-          const g = data[index + 1];
-          const b = data[index + 2];
-          const alpha = data[index + 3];
-          if (alpha < 128 || isNeutral(r, g, b)) continue;
-
-          const key = `${Math.round(r / 16)}-${Math.round(g / 16)}-${Math.round(b / 16)}`;
-          const existing = buckets.get(key);
-          if (existing) {
-            existing.count += 1;
+          const rgb: Rgb = [data[index], data[index + 1], data[index + 2]];
+          if (data[index + 3] < 128 || isNeutral(rgb)) continue;
+          const key = `${rgb[0] >> 5}-${rgb[1] >> 5}-${rgb[2] >> 5}`;
+          const bucket = buckets.get(key);
+          if (bucket) {
+            bucket.sum[0] += rgb[0];
+            bucket.sum[1] += rgb[1];
+            bucket.sum[2] += rgb[2];
+            bucket.count += 1;
           } else {
-            buckets.set(key, { rgb: [r, g, b], count: 1 });
+            buckets.set(key, { sum: [...rgb], count: 1 });
           }
         }
 
-        const ranked = Array.from(buckets.values()).sort((left, right) => right.count - left.count);
-        if (ranked.length === 0) {
-          resolve(null);
-          return;
+        const ranked = Array.from(buckets.values())
+          .sort((left, right) => right.count - left.count)
+          .map(({ sum, count }): Rgb => [sum[0] / count, sum[1] / count, sum[2] / count]);
+
+        const picked: Rgb[] = [];
+        for (const candidate of ranked) {
+          if (picked.every((existing) => colorDistance(existing, candidate) >= MIN_SWATCH_DISTANCE)) {
+            picked.push(candidate);
+            if (picked.length === maxSwatches) break;
+          }
         }
 
-        const primary = ranked[0].rgb;
-        const accentCandidate = ranked.find(
-          (entry) => colorDistance(entry.rgb, primary) > 60,
-        ) ?? ranked[1] ?? ranked[0];
-
-        resolve({
-          primary: normalizeHexColor(rgbToHex(primary[0], primary[1], primary[2]), '#111827'),
-          accent: normalizeHexColor(rgbToHex(accentCandidate.rgb[0], accentCandidate.rgb[1], accentCandidate.rgb[2]), '#374151'),
-        });
+        resolve(picked.length > 0 ? picked.map(rgbToHex) : null);
       } catch {
         resolve(null);
       }

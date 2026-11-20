@@ -1,52 +1,30 @@
 import { MetadataRoute } from 'next';
 import { getAllProducts } from '@/lib/commerce-server';
+import { PRODUCT_IMAGE_FALLBACK, productImageSrc } from '@/lib/commerce';
 import { getAllPosts } from '@/lib/markdown';
 import { UPDATES_PATH, updatesPostPath } from '@/lib/site-content-shared';
 import { getAllArtworks } from '@/lib/portfolio';
-
-const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://artistsite.com';
+import { getSiteUrl } from '@/lib/config';
+import { escapeHtml } from '@/lib/email-shell';
+import { absoluteUrl } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  // Static pages
-  const staticPages = [
-    {
-      url: baseUrl,
-      lastModified: new Date(),
-      changeFrequency: 'daily' as const,
-      priority: 1,
-    },
-    {
-      url: `${baseUrl}/bio`,
-      lastModified: new Date(),
-      changeFrequency: 'monthly' as const,
-      priority: 0.8,
-    },
-    {
-      url: `${baseUrl}/portfolio`,
-      lastModified: new Date(),
-      changeFrequency: 'weekly' as const,
-      priority: 0.9,
-    },
-    {
-      url: `${baseUrl}${UPDATES_PATH}`,
-      lastModified: new Date(),
-      changeFrequency: 'daily' as const,
-      priority: 0.8,
-    },
-    {
-      url: `${baseUrl}/shop`,
-      lastModified: new Date(),
-      changeFrequency: 'daily' as const,
-      priority: 0.9,
-    },
-    {
-      url: `${baseUrl}/contact`,
-      lastModified: new Date(),
-      changeFrequency: 'monthly' as const,
-      priority: 0.7,
-    },
+  const siteUrl = await getSiteUrl();
+  // Next writes sitemap values into XML verbatim.
+  const link = (path: string) => escapeHtml(absoluteUrl(path, siteUrl));
+  const imageLinks = (images: Array<string | undefined>) => [...new Set(images)]
+    .filter((image): image is string => Boolean(image) && image !== PRODUCT_IMAGE_FALLBACK)
+    .map(link);
+
+  const staticPages: MetadataRoute.Sitemap = [
+    { url: link('/'), lastModified: new Date(), changeFrequency: 'daily', priority: 1 },
+    { url: link('/bio'), lastModified: new Date(), changeFrequency: 'monthly', priority: 0.8 },
+    { url: link('/portfolio'), lastModified: new Date(), changeFrequency: 'weekly', priority: 0.9 },
+    { url: link(UPDATES_PATH), lastModified: new Date(), changeFrequency: 'daily', priority: 0.8 },
+    { url: link('/shop'), lastModified: new Date(), changeFrequency: 'daily', priority: 0.9 },
+    { url: link('/contact'), lastModified: new Date(), changeFrequency: 'monthly', priority: 0.7 },
   ];
 
   let productPages: MetadataRoute.Sitemap = [];
@@ -56,10 +34,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   try {
     const products = await getAllProducts();
     productPages = products.map(product => ({
-      url: `${baseUrl}/shop/${product.id}`,
+      url: link(`/shop/${product.id}`),
       lastModified: new Date(),
-      changeFrequency: 'weekly' as const,
+      changeFrequency: 'weekly',
       priority: 0.8,
+      images: imageLinks([productImageSrc(product, undefined, 'lg')]),
     }));
   } catch (error) {
     console.error('Error fetching products for sitemap:', error);
@@ -68,9 +47,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   try {
     const posts = await getAllPosts();
     blogPages = posts.map(post => ({
-      url: `${baseUrl}${updatesPostPath(post.slug)}`,
+      url: link(updatesPostPath(post.slug)),
       lastModified: new Date(post.publishedAt),
-      changeFrequency: 'monthly' as const,
+      changeFrequency: 'monthly',
       priority: 0.7,
     }));
   } catch (error) {
@@ -80,10 +59,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   try {
     const artworks = await getAllArtworks();
     portfolioPages = artworks.map(artwork => ({
-      url: `${baseUrl}/portfolio/${artwork.slug}`,
+      url: link(`/portfolio/${artwork.slug}`),
       lastModified: new Date(artwork.createdAt),
-      changeFrequency: 'monthly' as const,
+      changeFrequency: 'monthly',
       priority: 0.8,
+      images: imageLinks([artwork.images.main, ...(artwork.images.gallery || [])]),
     }));
   } catch (error) {
     console.error('Error fetching artworks for sitemap:', error);

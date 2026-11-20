@@ -1,30 +1,27 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { ApiError } from '@/lib/api-error-handler';
 import { requireAdmin } from '@/lib/auth';
-import { getConfig } from '@/lib/config';
+import { resolveCronSecret, runScheduledAutomations } from '@/lib/scheduled-automations';
 
-export async function POST(request: NextRequest) {
+export async function POST() {
   try {
     await requireAdmin();
-    const secret = (await getConfig('CRON_SECRET')) || process.env.CRON_SECRET;
-    if (!secret) {
+    if (!(await resolveCronSecret())) {
       return NextResponse.json(
         { error: 'Set a cron secret in Settings → Automation before running automations.' },
         { status: 503 }
       );
     }
 
-    const cronUrl = new URL('/api/cron/marketing', request.nextUrl.origin);
-    const response = await fetch(cronUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${secret}`,
-      },
-      cache: 'no-store',
-    });
+    const run = await runScheduledAutomations();
+    if (!run) {
+      return NextResponse.json(
+        { error: 'Automations are already running. Try again in a few minutes.' },
+        { status: 409 }
+      );
+    }
 
-    const data = await response.json();
-    return NextResponse.json(data, { status: response.status });
+    return NextResponse.json({ success: true, ...run });
   } catch (error) {
     if (error instanceof ApiError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });

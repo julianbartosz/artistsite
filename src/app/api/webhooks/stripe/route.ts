@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { finalizePaidOrder } from '@/lib/orders';
+import { InventoryService } from '@/lib/inventory';
 import { getConfig } from '@/lib/config';
 import { getStripe } from '@/lib/stripe';
 
@@ -37,6 +38,8 @@ export async function POST(request: NextRequest) {
   try {
     if (event.type === 'checkout.session.completed') {
       await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session);
+    } else if (event.type === 'checkout.session.expired') {
+      await handleCheckoutExpired(event.data.object as Stripe.Checkout.Session);
     }
 
     return NextResponse.json({ received: true });
@@ -76,6 +79,13 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   }
 
   await sendMetaPurchaseEvent(session, order.total).catch(() => undefined);
+}
+
+async function handleCheckoutExpired(session: Stripe.Checkout.Session) {
+  const orderId = session.metadata?.orderId || session.client_reference_id;
+  if (orderId) {
+    await InventoryService.releaseActiveReservationsForOrder(orderId);
+  }
 }
 
 async function sendMetaPurchaseEvent(session: Stripe.Checkout.Session, value: number): Promise<void> {

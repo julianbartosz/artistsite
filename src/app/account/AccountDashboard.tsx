@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { formatPrice } from '@/lib/commerce';
+import { orderStatusLabel } from '@/lib/order-status-shared';
 import { mergeGuestWishlistIntoAccount } from '@/components/WishlistButton';
 import RecentlyViewed from '@/components/RecentlyViewed';
 import StudioInboxPanel from '@/components/StudioInboxPanel';
@@ -86,6 +87,7 @@ export default function AccountDashboard() {
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const [profileSaving, setProfileSaving] = useState(false);
   const [savedCount, setSavedCount] = useState(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (status === 'loading') return;
@@ -104,6 +106,7 @@ export default function AccountDashboard() {
 
     async function loadAccount() {
       setIsLoading(true);
+      setLoadError(null);
       try {
         await mergeGuestWishlistIntoAccount();
 
@@ -116,6 +119,8 @@ export default function AccountDashboard() {
 
         if (cancelled) return;
 
+        const failed: string[] = [];
+
         if (profileRes.ok) {
           const profileData = await profileRes.json();
           if (profileData.profile) {
@@ -126,24 +131,39 @@ export default function AccountDashboard() {
               phone: profileData.profile.phone || '',
             });
           }
+        } else {
+          failed.push('profile');
         }
 
         if (ordersRes.ok) {
           const ordersData = await ordersRes.json();
           setOrders(ordersData.orders || []);
+        } else {
+          failed.push('orders');
         }
 
         if (wishlistRes.ok) {
           const wishlistData = await wishlistRes.json();
           setWishlist(wishlistData.items || []);
+        } else {
+          failed.push('wishlist');
         }
 
         if (savedRes.ok) {
           const savedData = await savedRes.json();
           setSavedCount(Array.isArray(savedData.saved) ? savedData.saved.length : 0);
+        } else {
+          failed.push('saved updates');
+        }
+
+        if (failed.length > 0) {
+          setLoadError(`Could not load ${failed.join(', ')}. Refresh to try again.`);
         }
       } catch (error) {
         console.error('Failed to load account data:', error);
+        if (!cancelled) {
+          setLoadError('Could not load your account. Refresh to try again.');
+        }
       } finally {
         if (!cancelled) {
           setIsLoading(false);
@@ -194,7 +214,7 @@ export default function AccountDashboard() {
 
   if (status === 'loading' || isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-surface-muted flex items-center justify-center">
         <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary" />
       </div>
     );
@@ -209,15 +229,18 @@ export default function AccountDashboard() {
     : '—';
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 md:py-12">
+    <div className="min-h-screen bg-surface-muted py-8 md:py-12">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="bg-white shadow rounded-lg overflow-hidden">
+        <div className="bg-surface shadow rounded-lg overflow-hidden">
           <div className="px-6 py-5 border-b border-gray-200 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">My collection</h1>
+              <h1 className="text-2xl font-bold text-gray-900">My Account</h1>
               <p className="text-gray-600">
-                Works you own, follow, or are considering — welcome back, {profile?.name || session.user?.name || session.user?.email}
+                Orders, wishlist, and saved updates — welcome back, {profile?.name || session.user?.name || session.user?.email}
               </p>
+              {loadError && (
+                <p className="mt-2 text-sm text-amber-800" role="alert">{loadError}</p>
+              )}
             </div>
             <button
               type="button"
@@ -250,7 +273,7 @@ export default function AccountDashboard() {
           <div className="p-6">
             {activeTab === 'overview' && (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-1 bg-gray-50 rounded-lg p-6">
+                <div className="lg:col-span-1 bg-surface-muted rounded-lg p-6">
                   <h2 className="text-lg font-semibold text-gray-900 mb-4">Profile</h2>
                   <form onSubmit={saveProfile} className="space-y-4">
                     <div>
@@ -293,7 +316,7 @@ export default function AccountDashboard() {
                         {profileMessage}
                       </p>
                     )}
-                    <button type="submit" disabled={profileSaving} className="btn-primary w-full px-4 py-2 rounded-md disabled:opacity-50">
+                    <button type="submit" disabled={profileSaving} className="btn-primary w-full px-4 py-2 disabled:opacity-50">
                       {profileSaving ? 'Saving...' : 'Save Profile'}
                     </button>
                   </form>
@@ -329,9 +352,9 @@ export default function AccountDashboard() {
                   <div className="rounded-lg border border-gray-200 p-6">
                     <h3 className="text-lg font-semibold text-gray-900 mb-4">Continue exploring</h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <Link href="/shop" className="btn-primary-outline px-4 py-3 rounded-md text-center text-sm">Browse shop</Link>
-                      <Link href="/portfolio" className="btn-primary-outline px-4 py-3 rounded-md text-center text-sm">View portfolio</Link>
-                      <Link href="/updates" className="btn-primary-outline px-4 py-3 rounded-md text-center text-sm">Studio updates</Link>
+                      <Link href="/shop" className="btn-primary-outline px-4 py-3 text-center text-sm">Browse shop</Link>
+                      <Link href="/portfolio" className="btn-primary-outline px-4 py-3 text-center text-sm">View portfolio</Link>
+                      <Link href="/updates" className="btn-primary-outline px-4 py-3 text-center text-sm">Studio updates</Link>
                     </div>
                   </div>
                 </div>
@@ -345,7 +368,7 @@ export default function AccountDashboard() {
                   <div className="text-center py-10">
                     <h3 className="text-sm font-medium text-gray-900 mb-2">No orders yet</h3>
                     <p className="text-sm text-gray-500 mb-4">When you purchase artwork, your order history will appear here.</p>
-                    <Link href="/shop" className="btn-primary px-4 py-2 rounded-md inline-block">Browse shop</Link>
+                    <Link href="/shop" className="btn-primary px-4 py-2 inline-block">Browse shop</Link>
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -360,8 +383,8 @@ export default function AccountDashboard() {
                           </div>
                           <div className="text-left sm:text-right">
                             <p className="text-sm font-medium text-gray-900">{formatPrice(order.total)}</p>
-                            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800 capitalize">
-                              {order.status}
+                            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800">
+                              {orderStatusLabel(order.status)}
                             </span>
                           </div>
                         </div>
@@ -397,7 +420,7 @@ export default function AccountDashboard() {
                   <div className="text-center py-10">
                     <h3 className="text-sm font-medium text-gray-900 mb-2">Your wishlist is empty</h3>
                     <p className="text-sm text-gray-500 mb-4">Tap the heart on any shop item to save it here.</p>
-                    <Link href="/shop" className="btn-primary px-4 py-2 rounded-md inline-block">Explore shop</Link>
+                    <Link href="/shop" className="btn-primary px-4 py-2 inline-block">Explore shop</Link>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

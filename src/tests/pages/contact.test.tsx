@@ -3,11 +3,13 @@ import userEvent from '@testing-library/user-event';
 import ContactPageClient from '@/app/contact/ContactPageClient';
 import { DEFAULT_CONTACT_INQUIRY_TYPES, DEFAULT_CONTACT_PAGE } from '@/lib/site-content-shared';
 
-function renderContactPage() {
+function renderContactPage(props?: { initialSubject?: string; initialInquiryType?: string }) {
   return render(
     <ContactPageClient
       pageContent={DEFAULT_CONTACT_PAGE}
       contactEmail="hello@artistsite.com"
+      initialSubject={props?.initialSubject}
+      initialInquiryType={props?.initialInquiryType}
     />
   );
 }
@@ -52,12 +54,17 @@ describe('Contact Page', () => {
       expect(screen.getByRole('button', { name: /send message/i })).toBeInTheDocument();
     });
 
+    it('prefills subject from shop inquiry links', () => {
+      renderContactPage({ initialSubject: 'Inquiry about Urban Twilight' });
+      expect(screen.getByLabelText(/subject/i)).toHaveValue('Inquiry about Urban Twilight');
+    });
+
     it('displays contact information and artist details', () => {
       renderContactPage();
       
       expect(screen.getByText(/hello@artistsite.com/i)).toBeInTheDocument();
-      expect(screen.getByText(/new york, ny/i)).toBeInTheDocument();
-      expect(screen.getAllByText(/@artistsite/i).length).toBeGreaterThan(0);
+      expect(screen.getByText(/milwaukee, wi/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/@michalelenaart/i).length).toBeGreaterThan(0);
 
       const headings = screen.getAllByRole('heading').map((heading) => heading.textContent);
       expect(headings.indexOf("Let's Connect")).toBeGreaterThan(-1);
@@ -172,7 +179,11 @@ describe('Contact Page', () => {
       email: 'john@example.com',
       subject: 'Interest in artwork',
       message: 'I am interested in purchasing one of your paintings. Could you please send me more information about available pieces?',
-      inquiryType: 'purchase'
+      inquiryType: 'purchase',
+      commissionSizeMedium: '',
+      commissionTimeline: '',
+      commissionTheme: '',
+      commissionBudget: '',
     };
 
     it('submits form successfully with valid data', async () => {
@@ -208,9 +219,81 @@ describe('Contact Page', () => {
           email: validFormData.email.toLowerCase(),
           subject: validFormData.subject,
           message: validFormData.message,
-          inquiryType: validFormData.inquiryType
+          inquiryType: validFormData.inquiryType,
+          commissionSizeMedium: '',
+          commissionTimeline: '',
+          commissionTheme: '',
+          commissionBudget: '',
         }),
       });
+    });
+
+    it('requires commission details before sending a commission inquiry', async () => {
+      const user = userEvent.setup();
+      renderContactPage();
+
+      await user.selectOptions(screen.getByLabelText(/type of inquiry/i), 'commission');
+      expect(screen.getByLabelText(/desired size and medium/i)).toBeInTheDocument();
+
+      await user.type(screen.getByLabelText('Name *'), 'Jane Collector');
+      await user.type(screen.getByLabelText('Email *'), 'jane@example.com');
+      await user.type(screen.getByLabelText('Subject *'), 'Custom portrait commission');
+      await user.type(
+        screen.getByLabelText(/message/i),
+        'I would love a custom piece for our living room based on a family photo.',
+      );
+      await user.click(screen.getByRole('button', { name: /send message/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/desired size and medium is required/i)).toBeInTheDocument();
+        expect(screen.getByText(/timeline and deadline is required/i)).toBeInTheDocument();
+        expect(screen.getByText(/subject matter or theme is required/i)).toBeInTheDocument();
+        expect(screen.getByText(/budget range is required/i)).toBeInTheDocument();
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('submits commission inquiries with required details', async () => {
+      const user = userEvent.setup();
+      const mockFetch = fetch as jest.MockedFunction<typeof fetch>;
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ message: 'Message sent successfully!' }),
+      } as Response);
+
+      renderContactPage({ initialInquiryType: 'commission' });
+
+      await user.type(screen.getByLabelText('Name *'), 'Jane Collector');
+      await user.type(screen.getByLabelText('Email *'), 'jane@example.com');
+      await user.type(screen.getByLabelText('Subject *'), 'Custom portrait commission');
+      await user.type(
+        screen.getByLabelText(/message/i),
+        'I would love a custom piece for our living room based on a family photo.',
+      );
+      await user.type(screen.getByLabelText(/desired size and medium/i), '30x40 oil on linen');
+      await user.type(screen.getByLabelText(/timeline and deadline/i), 'Needed by December');
+      await user.type(screen.getByLabelText(/subject matter or theme/i), 'Family portrait, warm tones');
+      await user.type(screen.getByLabelText(/budget range/i), '$3,000–$5,000');
+      await user.click(screen.getByRole('button', { name: /send message/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/thank you for your message/i)).toBeInTheDocument();
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/contact', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          name: 'Jane Collector',
+          email: 'jane@example.com',
+          subject: 'Custom portrait commission',
+          message: 'I would love a custom piece for our living room based on a family photo.',
+          inquiryType: 'commission',
+          commissionSizeMedium: '30x40 oil on linen',
+          commissionTimeline: 'Needed by December',
+          commissionTheme: 'Family portrait, warm tones',
+          commissionBudget: '$3,000–$5,000',
+        }),
+      }));
     });
 
     it('handles API errors gracefully', async () => {
@@ -224,45 +307,49 @@ describe('Contact Page', () => {
       renderContactPage();
       
       await user.selectOptions(screen.getByLabelText(/type of inquiry/i), 'general');
-      await user.type(screen.getByLabelText(/name/i), validFormData.name);
-      await user.type(screen.getByLabelText(/email/i), validFormData.email);
-      await user.type(screen.getByLabelText(/subject/i), validFormData.subject);
+      await user.type(screen.getByLabelText('Name *'), validFormData.name);
+      await user.type(screen.getByLabelText('Email *'), validFormData.email);
+      await user.type(screen.getByLabelText('Subject *'), validFormData.subject);
       await user.type(screen.getByLabelText(/message/i), validFormData.message);
       
       const submitButton = screen.getByRole('button', { name: /send message/i });
       await user.click(submitButton);
       
       await waitFor(() => {
-        expect(screen.getByText(/server error occurred/i)).toBeInTheDocument();
+        expect(screen.getByTestId('contact-form-error')).toHaveTextContent(/server error occurred/i);
       });
     });
 
     it('shows loading state during submission', async () => {
       const user = userEvent.setup();
       const mockFetch = fetch as jest.MockedFunction<typeof fetch>;
-      mockFetch.mockImplementationOnce(() => 
-        new Promise(resolve => setTimeout(() => resolve({
-          ok: true,
-          json: async () => ({ message: 'Success' })
-        } as Response), 100))
+      mockFetch.mockImplementationOnce(
+        () => new Promise((resolve) => {
+          setTimeout(() => {
+            resolve({
+              ok: true,
+              json: async () => ({ message: 'Success' }),
+            } as Response);
+          }, 250);
+        }),
       );
 
       renderContactPage();
       
       await user.selectOptions(screen.getByLabelText(/type of inquiry/i), 'general');
-      await user.type(screen.getByLabelText(/name/i), validFormData.name);
-      await user.type(screen.getByLabelText(/email/i), validFormData.email);
-      await user.type(screen.getByLabelText(/subject/i), validFormData.subject);
+      await user.type(screen.getByLabelText('Name *'), validFormData.name);
+      await user.type(screen.getByLabelText('Email *'), validFormData.email);
+      await user.type(screen.getByLabelText('Subject *'), validFormData.subject);
       await user.type(screen.getByLabelText(/message/i), validFormData.message);
       
       const submitButton = screen.getByRole('button', { name: /send message/i });
-      await user.click(submitButton);
-      
-      expect(screen.getByText(/sending/i)).toBeInTheDocument();
-      expect(submitButton).toBeDisabled();
-      
+      const submitPromise = user.click(submitButton);
+
+      expect(await screen.findByRole('button', { name: /sending/i })).toBeDisabled();
+
+      await submitPromise;
       await waitFor(() => {
-        expect(screen.queryByText(/sending/i)).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /send message/i })).toBeEnabled();
       });
     });
   });

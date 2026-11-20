@@ -2,9 +2,10 @@ import Link from 'next/link';
 import { Suspense } from 'react';
 import { Metadata } from 'next';
 import { getServerSession } from 'next-auth';
-import { getAllPosts, getPrivatePostsForViewer, type BlogPost } from '@/lib/markdown';
+import { getAllPosts, getPrivatePostsForViewer } from '@/lib/markdown';
 import { authOptions } from '@/lib/auth';
-import { getSiteContent, listingHeroPaddingClass, UPDATES_PATH, updatesPostPath, updatesTagPath } from '@/lib/site-content';
+import { getSiteContent, listingHeroPaddingClass, UPDATES_PATH, updatesFeedCopy } from '@/lib/site-content';
+import { getEngagementStates, readGuestSessionId } from '@/lib/update-engagement';
 import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
 import UpdatesFeedClient from '@/components/UpdatesFeedClient';
 
@@ -96,7 +97,7 @@ async function UpdatesFeed({
         <p className="mx-auto mt-2 max-w-xl text-gray-600">{blog.privateSectionSubtitle}</p>
         <Link
           href={`/auth/signin?callbackUrl=${encodeURIComponent(updatesHref({ view: 'collectors', kind }))}`}
-          className="btn-primary mt-6 inline-flex items-center rounded-md px-4 py-2"
+          className="btn-primary mt-6 inline-flex items-center px-4 py-2"
         >
           {blog.privateSignInLabel}
         </Link>
@@ -105,42 +106,50 @@ async function UpdatesFeed({
   }
 
   if (posts.length === 0) {
+    const filteredEmpty = source.length > 0 && kind !== 'all';
     return (
       <div className="py-12 text-center">
-        <p className="text-lg text-gray-500">
-          {view === 'collectors' ? 'No collector updates are shared with this account yet.' : 'No posts published yet.'}
+        <p className="text-lg text-gray-700">
+          {filteredEmpty
+            ? 'No updates in this filter yet.'
+            : view === 'collectors'
+              ? 'No collector updates are shared with this account yet.'
+              : 'No studio updates yet.'}
         </p>
-        <p className="mt-2 text-gray-400">
-          {view === 'collectors' ? 'When the artist shares a private update with you, it will appear here.' : 'Check back soon for new content!'}
+        <p className="mt-2 text-sm text-gray-500">
+          {filteredEmpty
+            ? 'Switch back to all updates to see everything currently published.'
+            : view === 'collectors'
+              ? 'When the artist shares a private update with you, it will appear here.'
+              : 'New work, process notes, and studio news will appear here.'}
         </p>
+        {filteredEmpty && (
+          <Link
+            href={updatesHref({ view, kind: 'all' })}
+            className="btn-primary-outline mt-5 inline-flex items-center px-4 py-2 text-sm"
+          >
+            View all updates
+          </Link>
+        )}
       </div>
     );
   }
 
-  if (layout === 'grid' || layout === 'timeline') {
-    return (
-      <UpdatesFeedClient
-        posts={posts}
-        layout={layout}
-        journalLabel={blog.journalLabel}
-        studioLabel={blog.studioLabel}
-        signedIn={signedIn}
-        quickLookLabel={blog.quickLookLabel}
-        saveUpdateLabel={blog.saveUpdateLabel}
-        askArtistLabel={blog.askArtistLabel}
-        featuredLabel={blog.featuredLabel}
-        showFeedDate={blog.showFeedDate}
-        showFeedAuthor={blog.showFeedAuthor}
-        showFeedTags={blog.showFeedTags}
-        showComments={blog.showComments}
-        showLikes={blog.showLikes}
-        commentsLabel={blog.commentsLabel}
-        likeLabel={blog.likeLabel}
-      />
-    );
-  }
+  const engagement = await getEngagementStates(
+    posts.map((post) => post.slug),
+    { userId: session?.user?.id, sessionId: await readGuestSessionId() },
+  );
 
-  return null;
+  return (
+    <UpdatesFeedClient
+      posts={posts}
+      layout={layout}
+      copy={updatesFeedCopy(blog)}
+      signedIn={signedIn}
+      signInCallbackUrl={updatesHref({ view, kind })}
+      engagement={engagement}
+    />
+  );
 }
 
 export default async function BlogPage({ searchParams }: { searchParams: Promise<UpdatesSearch> }) {
@@ -152,8 +161,8 @@ export default async function BlogPage({ searchParams }: { searchParams: Promise
   const kind = kindRaw === 'article' || kindRaw === 'short' ? kindRaw : 'all';
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <section className="relative group bg-white shadow-sm">
+    <div className="min-h-screen bg-surface-muted">
+      <section className="relative group bg-surface shadow-sm">
         <CmsEditAnchor targetKey="blog:listing" />
         <div className={`max-w-7xl mx-auto px-6 ${heroPadding}`}>
           <div className="text-center mb-8">
@@ -167,7 +176,7 @@ export default async function BlogPage({ searchParams }: { searchParams: Promise
               {blog.showSubscribe && (
               <Link
                 href="/subscribe"
-                className="btn-primary inline-flex items-center px-4 py-2 rounded-md"
+                className="btn-primary inline-flex items-center px-4 py-2"
               >
                 {blog.subscribeLabel}
               </Link>
@@ -197,16 +206,16 @@ export default async function BlogPage({ searchParams }: { searchParams: Promise
       <div className={`${blog.feedLayout === 'grid' ? 'max-w-6xl' : 'max-w-4xl'} mx-auto px-6 py-12`}>
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           {blog.showPrivateSection && (
-            <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1">
+            <div className="inline-flex rounded-lg border border-gray-200 bg-surface p-1">
               <Link
                 href={updatesHref({ view: 'public', kind })}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium ${view === 'public' ? 'bg-gray-900 text-white' : 'text-gray-600 hover:text-gray-900'}`}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium ${view === 'public' ? 'bg-primary text-white' : 'text-gray-600 hover:text-gray-900'}`}
               >
                 {blog.publicTabLabel}
               </Link>
               <Link
                 href={updatesHref({ view: 'collectors', kind })}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium ${view === 'collectors' ? 'bg-gray-900 text-white' : 'text-gray-600 hover:text-gray-900'}`}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium ${view === 'collectors' ? 'bg-primary text-white' : 'text-gray-600 hover:text-gray-900'}`}
               >
                 {blog.privateSectionTitle}
               </Link>
@@ -222,7 +231,7 @@ export default async function BlogPage({ searchParams }: { searchParams: Promise
                 <Link
                   key={filter.value}
                   href={updatesHref({ view, kind: filter.value })}
-                  className={`rounded-full px-3 py-1 text-sm ${kind === filter.value ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 ring-1 ring-gray-200 hover:text-gray-900'}`}
+                  className={`rounded-full px-3 py-1 text-sm ${kind === filter.value ? 'bg-primary text-white' : 'bg-surface text-gray-600 ring-1 ring-gray-200 hover:text-gray-900'}`}
                 >
                   {filter.label}
                 </Link>
