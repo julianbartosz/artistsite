@@ -1,10 +1,10 @@
 'use client';
 import React, { useEffect, useState } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { formatPrice, Product, productImageSrc } from '@/lib/commerce';
 import AddToCartButton from '@/components/AddToCartButton';
+import ArtworkGallery from '@/components/ArtworkGallery';
 import ProductRecommendations from '@/components/ProductRecommendations';
 import RecentlyViewed from '@/components/RecentlyViewed';
 import StockIndicator from '@/components/StockIndicator';
@@ -23,7 +23,6 @@ export default function ProductPageClient({
   detailLayout = 'standard',
 }: ProductPageClientProps) {
   const { data: session, status } = useSession();
-  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [viewStartTime] = useState(Date.now());
   const [sessionId] = useState(() => {
     // Generate a simple session ID for guest users
@@ -81,8 +80,8 @@ export default function ProductPageClient({
 
   const isAvailable = product.availability === 'available';
   const isLimitedEdition = product.edition && product.edition.remaining < product.edition.total;
-  const galleryImages = product.images.gallery.length > 0 ? product.images.gallery : [product.images.thumbnail];
-  const activeImage = galleryImages[selectedImageIndex] ?? galleryImages[0];
+  const primaryImage = product.images.thumbnail || product.images.gallery[0] || '';
+  const galleryImages = product.images.gallery.length > 0 ? product.images.gallery : [primaryImage];
   const galleryFocus = detailLayout === 'gallery-focus';
 
   // Always mount AddToCartButton so sold/reserved commission CTAs match Quick Look behavior.
@@ -99,7 +98,7 @@ export default function ProductPageClient({
   );
 
   return (
-    <div className="min-h-screen bg-surface pb-24 lg:pb-0">
+    <div className="min-h-screen bg-surface">
       <div className="max-w-7xl mx-auto page-x py-8 md:py-12">
         <nav className="mb-6 md:mb-8">
           <ol className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-500">
@@ -114,50 +113,20 @@ export default function ProductPageClient({
         </nav>
 
         <div className={galleryFocus ? 'space-y-10' : 'grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16'}>
-          <div className="space-y-4">
-            {/* Main Image */}
-            <div className="relative aspect-square bg-gray-100 rounded-lg overflow-hidden">
-              <Image
-                src={productImageSrc(product, activeImage, 'lg')}
-                alt={product.title}
-                fill
-                className="object-cover"
-                sizes="(max-width: 1024px) 100vw, 50vw"
-                priority
-              />
-              {!isAvailable && (
-                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                  <span className="bg-red-600 text-white px-4 py-2 rounded-lg font-semibold">
-                    {product.availability === 'sold' ? 'SOLD' : 'RESERVED'}
-                  </span>
-                </div>
-              )}
-            </div>
-            
-            {/* Gallery Thumbnails */}
-            {galleryImages.length > 1 && (
-              <div className="grid grid-cols-4 gap-2">
-                {galleryImages.map((image, index) => (
-                  <button
-                    key={`${image}-${index}`}
-                    type="button"
-                    onClick={() => setSelectedImageIndex(index)}
-                    className={`relative aspect-square bg-gray-100 rounded overflow-hidden ring-2 transition-all ${selectedImageIndex === index ? 'ring-primary' : 'ring-transparent hover:ring-gray-300'}`}
-                    aria-label={`View image ${index + 1}`}
-                    aria-pressed={selectedImageIndex === index}
-                  >
-                    <Image
-                      src={productImageSrc(product, image)}
-                      alt={`${product.title} view ${index + 1}`}
-                      fill
-                      className="object-cover"
-                      sizes="(max-width: 1024px) 25vw, 12.5vw"
-                    />
-                  </button>
-                ))}
+          <ArtworkGallery
+            title={product.title}
+            mainImage={primaryImage}
+            galleryImages={galleryImages}
+            galleryFocus={galleryFocus}
+            resolveSrc={(rawUrl, role) => productImageSrc(product, rawUrl, role === 'main' ? 'lg' : 'thumb')}
+            overlay={!isAvailable ? (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/45">
+                <span className="rounded-lg bg-red-600 px-4 py-2 font-semibold text-white">
+                  {product.availability === 'sold' ? 'SOLD' : 'RESERVED'}
+                </span>
               </div>
-            )}
-          </div>
+            ) : undefined}
+          />
 
           {/* Product Information */}
           <div className="space-y-6">
@@ -206,7 +175,7 @@ export default function ProductPageClient({
                 </div>
               )}
               
-              <div className="hidden lg:block">{purchaseActions}</div>
+              {purchaseActions}
             </div>
 
             {/* Description */}
@@ -311,20 +280,6 @@ export default function ProductPageClient({
           </Link>
         </div>
       </div>
-
-      {isAvailable && (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-surface/95 backdrop-blur lg:hidden safe-area-bottom">
-          <div className="page-x py-3 flex items-center gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-gray-900">{product.title}</p>
-              <p className="text-lg font-bold text-gray-900">{formatPrice(product.price, product.currency)}</p>
-            </div>
-            <div className="flex-shrink-0 [&_button]:min-h-11 [&_button]:px-4">
-              <AddToCartButton product={product} purchasable={purchasable} />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

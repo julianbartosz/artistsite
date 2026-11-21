@@ -1,6 +1,13 @@
 import { render, screen } from '@testing-library/react';
 import { Footer } from '@/components/Footer';
-import { DEFAULT_NAVIGATION, DEFAULT_SITE_IDENTITY, normalizeNavigation } from '@/lib/site-content-shared';
+import {
+  DEFAULT_NAVIGATION,
+  DEFAULT_SITE_IDENTITY,
+  instagramProfileHref,
+  isMeaningfulSiteText,
+  normalizeNavigation,
+  safeExternalHref,
+} from '@/lib/site-content-shared';
 import { createCollectorFeedToken, verifyCollectorFeedToken } from '@/lib/collector-feed-token';
 
 describe('Footer Component', () => {
@@ -61,6 +68,40 @@ describe('Footer Component', () => {
     const blogItem = navigation.find((item) => item.key === 'blog');
     expect(blogItem?.label).toBe('Updates');
     expect(blogItem?.href).toBe('/updates');
+  });
+
+  it('renders only safe external social links with noopener noreferrer', () => {
+    render(
+      <Footer
+        socialUrls={{
+          instagram: 'https://instagram.com/studio',
+          facebook: 'javascript:alert(1)',
+          twitter: 'https://x.com/studio',
+          pinterest: 'data:text/html,evil',
+        }}
+      />
+    );
+
+    const instagram = screen.getByRole('link', { name: 'Instagram' });
+    expect(instagram).toHaveAttribute('href', 'https://instagram.com/studio');
+    expect(instagram).toHaveAttribute('target', '_blank');
+    expect(instagram).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(screen.queryByRole('link', { name: 'Facebook' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Pinterest' })).not.toBeInTheDocument();
+  });
+
+  it('validates short CMS values and external URLs safely', () => {
+    expect(isMeaningfulSiteText('2')).toBe(true);
+    expect(isMeaningfulSiteText('4')).toBe(true);
+    expect(isMeaningfulSiteText('ME')).toBe(true);
+    expect(isMeaningfulSiteText('Untitled')).toBe(false);
+    expect(isMeaningfulSiteText('placeholder')).toBe(false);
+    expect(isMeaningfulSiteText('   ')).toBe(false);
+
+    expect(safeExternalHref('https://example.com/art')).toBe('https://example.com/art');
+    expect(safeExternalHref('javascript:alert(1)')).toBeNull();
+    expect(instagramProfileHref('@michalelenaart')).toBe('https://instagram.com/michalelenaart');
+    expect(instagramProfileHref('javascript:alert(1)')).toBeNull();
   });
 
   it('creates and verifies collector feed tokens', async () => {

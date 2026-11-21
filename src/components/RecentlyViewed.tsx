@@ -4,6 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
 import { Product, formatPrice, productImageSrc } from '@/lib/commerce';
+import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
 
 interface RecentlyViewedProps {
   currentProductId?: string;
@@ -128,6 +129,7 @@ export function RecentlyViewed({
                   fill
                   className="object-cover group-hover:scale-105 transition-transform duration-200"
                   sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 16vw"
+                  unoptimized={shouldUnoptimizeImage(productImageSrc(product))}
                 />
               </div>
               <div className="p-3">

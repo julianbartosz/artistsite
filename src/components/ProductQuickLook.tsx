@@ -10,6 +10,7 @@ import {
   productImageSrc,
   PRODUCT_IMAGE_FALLBACK,
 } from '@/lib/commerce';
+import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
 import AddToCartButton from '@/components/AddToCartButton';
 import { WishlistButton } from '@/components/WishlistButton';
 
@@ -100,7 +101,7 @@ export default function ProductQuickLook({ product, open, onClose }: ProductQuic
               className="object-contain"
               sizes="(max-width: 640px) 100vw, 50vw"
               onError={handleImageError}
-              unoptimized={imageSrc.startsWith('/uploads/') || imageSrc.endsWith('.svg')}
+              unoptimized={imageSrc.startsWith('/uploads/') || shouldUnoptimizeImage(imageSrc)}
             />
             <div className="absolute right-3 top-3">
               <WishlistButton productId={product.id} size="sm" stopNavigation />

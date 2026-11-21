@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'crypto';
 import { draftMode } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { NextRequest } from 'next/server';
@@ -5,13 +6,21 @@ import { withApiErrorHandler, ApiError } from '@/lib/api-error-handler';
 import { db } from '@/lib/db';
 import { UPDATES_PATH, updatesPostPath } from '@/lib/site-content-shared';
 
+function matchesPreviewSecret(provided: string | null, expected: string | undefined): boolean {
+  if (!provided || !expected) return false;
+  const providedBuf = Buffer.from(provided);
+  const expectedBuf = Buffer.from(expected);
+  if (providedBuf.length !== expectedBuf.length) return false;
+  return timingSafeEqual(providedBuf, expectedBuf);
+}
+
 export const GET = withApiErrorHandler(async (request: NextRequest) => {
   const { searchParams } = new URL(request.url);
   const secret = searchParams.get('secret');
   const slug = searchParams.get('slug');
 
   // Check the secret and next parameters
-  if (secret !== process.env.PREVIEW_SECRET || !slug) {
+  if (!matchesPreviewSecret(secret, process.env.PREVIEW_SECRET) || !slug) {
     throw new ApiError(401, 'Invalid token or missing slug', 'INVALID_PREVIEW_TOKEN');
   }
 

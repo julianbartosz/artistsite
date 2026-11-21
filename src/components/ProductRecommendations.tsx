@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Product, productImageSrc } from '@/lib/commerce';
+import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
 import { RecommendationResult } from '@/lib/types';
 import { useSession } from 'next-auth/react';
 
@@ -126,6 +127,7 @@ function ProductCard({ product }: ProductCardProps) {
             alt={product.title}
             fill
             className="object-cover group-hover:scale-105 transition-transform duration-200"
+            unoptimized={shouldUnoptimizeImage(productImageSrc(product))}
           />
         </div>
         

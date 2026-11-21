@@ -17,6 +17,7 @@ function isUniqueConstraintError(error: unknown): boolean {
 
 function revalidateUpdates(slug?: string) {
   revalidateTag('posts');
+  revalidatePath('/');
   revalidatePath('/blog');
   revalidatePath(UPDATES_PATH);
   if (slug) {

@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
     response.cookies.set(CMS_PREVIEW_COOKIE, '1', {
       httpOnly: true,
       sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
       path: '/',
       maxAge: 60 * 60,
     });
@@ -41,7 +42,13 @@ export async function DELETE() {
     await requireAdmin();
     await clearCmsPreviewSnapshot();
     const response = NextResponse.json({ success: true });
-    response.cookies.set(CMS_PREVIEW_COOKIE, '', { httpOnly: true, sameSite: 'lax', path: '/', maxAge: 0 });
+    response.cookies.set(CMS_PREVIEW_COOKIE, '', {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+      maxAge: 0,
+    });
     return response;
   } catch (error) {
     if (error instanceof ApiError) {

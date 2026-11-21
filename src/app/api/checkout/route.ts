@@ -399,7 +399,7 @@ async function resolveOrderItems(items: any[]): Promise<OrderItem[]> {
       selectedVariant?.size?.price || 0,
       selectedVariant?.framing?.price || 0,
       selectedVariant?.material?.price || 0,
-      ...(selectedVariant?.customizations?.map((customization) => customization.price) || []),
+      ...(customizations?.map((customization) => customization.priceModifier || 0) || []),
     ].reduce((sum, price) => sum + price, 0);
     const unitPrice = roundMoney(product.price + variantTotal);
 

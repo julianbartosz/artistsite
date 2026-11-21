@@ -66,10 +66,21 @@ type CmsEditAnchorProps = {
 export default function CmsEditAnchor({ targetKey, fixed = false }: CmsEditAnchorProps) {
   const { data: session, status } = useSession();
   const { enabled, setMode } = useCmsEditMode();
+  const [inPreviewFrame, setInPreviewFrame] = useState(false);
   const target = CMS_EDIT_TARGETS[targetKey];
   const isAdmin = Boolean(session?.user?.isAdmin);
 
-  if (status === 'loading' || !isAdmin || !target) {
+  useEffect(() => {
+    try {
+      const embedded = window.self !== window.top;
+      const previewParam = new URLSearchParams(window.location.search).get('cmsPreview') === '1';
+      setInPreviewFrame(embedded || previewParam);
+    } catch {
+      setInPreviewFrame(true);
+    }
+  }, []);
+
+  if (status === 'loading' || !isAdmin || !target || inPreviewFrame) {
     return null;
   }
 
@@ -101,7 +112,7 @@ export default function CmsEditAnchor({ targetKey, fixed = false }: CmsEditAncho
   }
 
   return (
-    <div className="pointer-events-none absolute right-3 top-3 z-30 opacity-0 transition-opacity duration-200 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
+    <div className="pointer-events-none absolute right-3 top-3 z-30 opacity-90 transition-opacity duration-200 group-focus-within:opacity-100 group-hover:opacity-100">
       <Link
         href={cmsEditHref(targetKey)}
         className="pointer-events-auto inline-flex min-h-11 items-center rounded-full border border-gray-300 bg-white/95 px-4 py-2 text-xs font-medium text-gray-800 shadow-sm hover:bg-white"

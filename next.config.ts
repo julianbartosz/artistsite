@@ -8,6 +8,28 @@ const mdx = withMDX({
   extension: /\.mdx?$/
 })
 
+const remotePatterns: NonNullable<NextConfig['images']>['remotePatterns'] = [
+  {
+    protocol: 'https',
+    hostname: '*.blob.core.windows.net',
+  },
+];
+
+if (process.env.AZURE_STORAGE_PUBLIC_BASE_URL) {
+  try {
+    const parsed = new URL(process.env.AZURE_STORAGE_PUBLIC_BASE_URL);
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      remotePatterns.push({
+        protocol: parsed.protocol === 'http:' ? 'http' : 'https',
+        hostname: parsed.hostname,
+        ...(parsed.port ? { port: parsed.port } : {}),
+      });
+    }
+  } catch {
+    // Ignore invalid AZURE_STORAGE_PUBLIC_BASE_URL during config load.
+  }
+}
+
 const nextConfig: NextConfig = {
   pageExtensions: ['ts', 'tsx', 'js', 'jsx', 'md', 'mdx'],
 
@@ -86,12 +108,7 @@ const nextConfig: NextConfig = {
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
     minimumCacheTTL: 31536000, // 1 year
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '*.blob.core.windows.net',
-      },
-    ],
+    remotePatterns,
     dangerouslyAllowSVG: true,
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },

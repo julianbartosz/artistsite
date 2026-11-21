@@ -44,16 +44,17 @@ export default function PostMedia({ items, title, layout = 'feed' }: PostMediaPr
   const frameClass = layout === 'detail'
     ? 'overflow-hidden rounded-lg bg-gray-100'
     : 'overflow-hidden rounded-xl bg-gray-100';
+  const singleItem = items.length === 1;
 
   return (
-    <div className={items.length > 1 ? 'grid grid-cols-1 gap-2 sm:grid-cols-2' : undefined}>
+    <div className={singleItem ? undefined : 'grid grid-cols-1 gap-2 sm:grid-cols-2'}>
       {items.map((item, index) => (
         <div key={`${item.url}-${index}`} className={frameClass}>
           {item.type === 'video' ? (
             <video
               src={item.url}
               poster={item.poster}
-              className="aspect-[4/5] w-full object-cover sm:aspect-square"
+              className={singleItem ? 'max-h-[75vh] w-full bg-black object-contain' : 'aspect-[4/5] w-full object-cover sm:aspect-square'}
               controls
               playsInline
               preload="metadata"
@@ -62,7 +63,7 @@ export default function PostMedia({ items, title, layout = 'feed' }: PostMediaPr
             <img
               src={item.url}
               alt={item.alt || title}
-              className="aspect-[4/5] w-full object-cover sm:aspect-square"
+              className={singleItem ? 'mx-auto max-h-[75vh] w-full bg-gray-50 object-contain' : 'aspect-[4/5] w-full object-cover sm:aspect-square'}
             />
           )}
         </div>

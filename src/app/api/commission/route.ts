@@ -1,9 +1,55 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { withApiErrorHandler } from '@/lib/api-error-handler';
+import { createHash } from 'crypto';
+import { ApiError, withApiErrorHandler } from '@/lib/api-error-handler';
 import { brandedEmailHtml, emailDetailRows, emailQuoteHtml, getEmailBrand, sendTemplateEmail } from '@/lib/email';
 import { escapeHtml } from '@/lib/email-shell';
 import { getConfig } from '@/lib/config';
+import { db } from '@/lib/db';
 import { linkContactSubmissionToInbox } from '@/lib/studio-inbox';
+
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 3;
+
+function ipHash(ip: string): string {
+  return createHash('sha256').update(ip).digest('hex');
+}
+
+function parseProperties(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+async function isRateLimited(ip: string): Promise<boolean> {
+  const hashedIp = ipHash(ip);
+  const since = new Date(Date.now() - RATE_LIMIT_WINDOW_MS);
+  const attempts = await db.analyticsEvent.findMany({
+    where: {
+      eventName: 'commission_submit_attempt',
+      timestamp: { gte: since },
+    },
+    select: { properties: true },
+    take: 100,
+  });
+
+  const recentAttempts = attempts.filter((event) => parseProperties(event.properties).ip_hash === hashedIp).length;
+  if (recentAttempts >= RATE_LIMIT_MAX_REQUESTS) return true;
+
+  await db.analyticsEvent.create({
+    data: {
+      eventName: 'commission_submit_attempt',
+      properties: JSON.stringify({ ip_hash: hashedIp }),
+      timestamp: new Date(),
+    },
+  });
+
+  return false;
+}
 
 interface CommissionRequestData {
   type: 'similar' | 'custom' | 'consultation';
@@ -38,6 +84,13 @@ async function handleCommissionRequest(req: NextRequest) {
       { error: 'Method not allowed' },
       { status: 405 }
     );
+  }
+
+  const forwarded = req.headers.get('x-forwarded-for');
+  const ip = forwarded ? forwarded.split(',')[0] : req.headers.get('x-real-ip') || 'unknown';
+  const skipRateLimit = process.env.PLAYWRIGHT_E2E === 'true' || (process.env.NODE_ENV !== 'production' && req.headers.get('x-e2e-test') === 'true');
+  if (!skipRateLimit && await isRateLimited(ip)) {
+    throw new ApiError(429, 'Too many requests. Please wait before submitting again.', 'RATE_LIMITED');
   }
 
   const data: CommissionRequestData = await req.json();
@@ -122,6 +175,7 @@ async function handleCommissionRequest(req: NextRequest) {
     });
 
   } catch (error) {
+    if (error instanceof ApiError) throw error;
     console.error('Failed to process commission request:', error);
     return NextResponse.json(
       { error: 'Failed to submit commission request. Please try again.' },
@@ -141,10 +195,15 @@ function commissionDetails(data: CommissionRequestData): Array<[string, string]>
 }
 
 async function sendCommissionRequestEmails(data: CommissionRequestData, requestId: string) {
+  const isE2eLogMode = process.env.PLAYWRIGHT_E2E === 'true';
+  const deliveryMode = isE2eLogMode
+    ? 'log'
+    : (await getConfig('EMAIL_DELIVERY_MODE')) || (process.env.NODE_ENV === 'production' ? 'smtp' : 'log');
   const artistEmail = await getConfig('ARTIST_EMAIL') || await getConfig('CONTACT_EMAIL') || await getConfig('SMTP_FROM') || await getConfig('SMTP_USER');
-  if (!artistEmail) {
-    throw new Error('Artist email recipient is not configured');
+  if (!artistEmail && deliveryMode !== 'log') {
+    throw new ApiError(503, 'Artist email recipient is not configured', 'ARTIST_RECIPIENT_UNCONFIGURED');
   }
+  const resolvedArtistEmail = artistEmail || 'commission-log@localhost';
 
   const brand = await getEmailBrand();
   const { name, email, preferredContact, phone } = data.customerInfo;
@@ -185,7 +244,7 @@ async function sendCommissionRequestEmails(data: CommissionRequestData, requestI
 
   const [customerDelivered, artistDelivered] = await Promise.all([
     sendTemplateEmail(email, customerEmailContent),
-    sendTemplateEmail(artistEmail, artistEmailContent, { replyTo: email }),
+    sendTemplateEmail(resolvedArtistEmail, artistEmailContent, { replyTo: email }),
   ]);
 
   if (!customerDelivered || !artistDelivered) {

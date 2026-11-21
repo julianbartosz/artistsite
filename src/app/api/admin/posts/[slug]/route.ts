@@ -11,6 +11,7 @@ import { UPDATES_PATH } from '@/lib/site-content-shared';
 
 function revalidateUpdates(slug?: string) {
   revalidateTag('posts');
+  revalidatePath('/');
   revalidatePath('/blog');
   revalidatePath(UPDATES_PATH);
   if (slug) {

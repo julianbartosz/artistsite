@@ -1,13 +1,14 @@
 'use client';
 
 import React, { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { CheckboxField, EditorSection, HtmlField, SelectField, TextAreaField, TextField, reorder } from '@/components/admin/EditorFields';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { CheckboxField, EditorSection, HtmlField, ReorderButtons, SelectField, TextAreaField, TextField, reorder } from '@/components/admin/EditorFields';
 import SiteAppearancePanel from '@/components/admin/SiteAppearancePanel';
 import MediaImageField from '@/components/admin/MediaImageField';
 import BioNarrativeWizard from '@/components/admin/BioNarrativeWizard';
 import CommissionIntakeWizard from '@/components/admin/CommissionIntakeWizard';
 import PortfolioPresentationWizard from '@/components/admin/PortfolioPresentationWizard';
+import { useUnsavedChangesGuard } from '@/components/admin/useUnsavedChangesGuard';
 import { cmsSectionElementId } from '@/lib/cms-edit-map';
 import { PRODUCT_IMAGE_FALLBACK } from '@/lib/commerce';
 import type {
@@ -19,6 +20,8 @@ import type {
   BioSectionKey,
 } from '@/lib/site-content-shared';
 import {
+  DEFAULT_PRIVACY_HTML,
+  DEFAULT_TERMS_HTML,
   PAGE_SCHEMAS,
   PORTFOLIO_CATEGORY_STARTERS,
   SITE_CONTENT_DEFAULTS,
@@ -35,6 +38,13 @@ const HOME_SECTION_LABELS: Record<HomeSectionKey, string> = {
   blog: 'Updates preview',
   newsletter: 'Newsletter',
 };
+
+function homeSectionIsVisible(home: SiteContentByPage['home'], sectionKey: HomeSectionKey): boolean {
+  if (sectionKey === 'featured') return home.featured.showSection;
+  if (sectionKey === 'about') return home.about.showSection;
+  if (sectionKey === 'blog') return home.blog.showSection;
+  return home.newsletter.showSection;
+}
 
 const BIO_SECTION_LABELS: Record<BioSectionKey, string> = {
   statement: 'Artist statement',
@@ -110,7 +120,68 @@ const PAGE_TABS: Array<{ key: SiteContentPage; label: string; description: strin
   { key: 'blog', label: 'Updates', description: 'Public feed, studio/journal filters, collector-only section, and subscribe links.' },
 ];
 
-function HeroImagePlacementPicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+function BoundedIntField({
+  label,
+  value,
+  min,
+  max,
+  help,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  help?: string;
+  onChange: (value: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  const [lastPropValue, setLastPropValue] = useState(value);
+
+  if (lastPropValue !== value) {
+    setLastPropValue(value);
+    setDraft(String(value));
+  }
+
+  return (
+    <label className="block text-sm font-medium text-gray-700">
+      {label}
+      <input
+        type="number"
+        min={min}
+        max={max}
+        value={draft}
+        onChange={(event) => {
+          const next = event.target.value;
+          setDraft(next);
+          if (!next.trim()) return;
+          const parsed = Number.parseInt(next, 10);
+          if (Number.isFinite(parsed) && parsed >= min && parsed <= max) {
+            onChange(parsed);
+          }
+        }}
+        onBlur={() => {
+          const parsed = Number.parseInt(draft, 10);
+          const clamped = Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : value;
+          setDraft(String(clamped));
+          if (clamped !== value) onChange(clamped);
+        }}
+        className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900"
+      />
+      {help && <span className="mt-1 block text-xs font-normal text-gray-500">{help}</span>}
+    </label>
+  );
+}
+
+function HeroImagePlacementPicker({
+  value,
+  hasPhoto,
+  onChange,
+}: {
+  value: string;
+  hasPhoto: boolean;
+  onChange: (value: string) => void;
+}) {
   const options = [
     { value: 'inline', label: 'Beside the headline', preview: (
       <div className="flex h-12 w-full gap-1 rounded border border-gray-300 bg-gray-50 p-1">
@@ -160,6 +231,9 @@ function HeroImagePlacementPicker({ value, onChange }: { value: string; onChange
           </label>
         ))}
       </div>
+      {!hasPhoto && (
+        <p className="mt-1.5 text-xs text-gray-500">Upload a photo in “Headline &amp; welcome message” below to see this placement on your homepage.</p>
+      )}
     </fieldset>
   );
 }
@@ -167,6 +241,8 @@ function HeroImagePlacementPicker({ value, onChange }: { value: string; onChange
 function LegalPagesEditor() {
   const [privacyHtml, setPrivacyHtml] = useState('');
   const [termsHtml, setTermsHtml] = useState('');
+  const [savedPrivacyHtml, setSavedPrivacyHtml] = useState('');
+  const [savedTermsHtml, setSavedTermsHtml] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -176,12 +252,18 @@ function LegalPagesEditor() {
       .then((response) => response.json())
       .then((data) => {
         const records = Object.fromEntries((data.settings || []).map((item: { key: string; value?: string }) => [item.key, item.value || '']));
-        setPrivacyHtml(records.LEGAL_PRIVACY_HTML || '');
-        setTermsHtml(records.LEGAL_TERMS_HTML || '');
+        const loadedPrivacy = records.LEGAL_PRIVACY_HTML || '';
+        const loadedTerms = records.LEGAL_TERMS_HTML || '';
+        setPrivacyHtml(loadedPrivacy);
+        setTermsHtml(loadedTerms);
+        setSavedPrivacyHtml(loadedPrivacy);
+        setSavedTermsHtml(loadedTerms);
       })
       .catch(() => setMessage('Could not load legal pages.'))
       .finally(() => setLoading(false));
   }, []);
+
+  const legalDirty = privacyHtml !== savedPrivacyHtml || termsHtml !== savedTermsHtml;
 
   async function saveLegalPages() {
     setSaving(true);
@@ -199,6 +281,8 @@ function LegalPagesEditor() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to save legal pages');
+      setSavedPrivacyHtml(privacyHtml);
+      setSavedTermsHtml(termsHtml);
       setMessage('Legal pages saved.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Failed to save legal pages');
@@ -213,12 +297,52 @@ function LegalPagesEditor() {
 
   return (
     <div className="space-y-4">
-      <HtmlField label="Privacy policy" value={privacyHtml} onChange={setPrivacyHtml} help="Shown at /privacy." />
-      <HtmlField label="Terms of service" value={termsHtml} onChange={setTermsHtml} help="Shown at /terms." />
-      {message && <p className="text-sm text-gray-700">{message}</p>}
-      <button type="button" onClick={() => void saveLegalPages()} disabled={saving} className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50">
-        {saving ? 'Saving legal pages…' : 'Save legal pages'}
-      </button>
+      <div className="space-y-2">
+        <HtmlField
+          label="Privacy policy"
+          value={privacyHtml}
+          onChange={setPrivacyHtml}
+          help="Shown at /privacy. Leave blank to keep the built-in studio policy."
+        />
+        {!privacyHtml.trim() && (
+          <button
+            type="button"
+            onClick={() => setPrivacyHtml(DEFAULT_PRIVACY_HTML)}
+            className="text-xs font-medium text-primary hover:underline"
+          >
+            Load default privacy policy to customize
+          </button>
+        )}
+      </div>
+      <div className="space-y-2">
+        <HtmlField
+          label="Terms of service"
+          value={termsHtml}
+          onChange={setTermsHtml}
+          help="Shown at /terms. Leave blank to keep the built-in studio terms."
+        />
+        {!termsHtml.trim() && (
+          <button
+            type="button"
+            onClick={() => setTermsHtml(DEFAULT_TERMS_HTML)}
+            className="text-xs font-medium text-primary hover:underline"
+          >
+            Load default terms of service to customize
+          </button>
+        )}
+      </div>
+      {message && <p className="text-sm text-gray-700" role="status">{message}</p>}
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={() => void saveLegalPages()}
+          disabled={saving || !legalDirty}
+          className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+        >
+          {saving ? 'Saving legal pages…' : 'Save legal pages'}
+        </button>
+        {legalDirty && <span className="text-xs text-amber-700">Unsaved legal page changes</span>}
+      </div>
     </div>
   );
 }
@@ -239,12 +363,7 @@ function OrderedListEditor<T extends { key: string; label: string; visible: bool
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-semibold text-gray-900">{NAV_PAGE_LABELS[item.key] || item.key}</p>
             <div className="flex gap-2">
-              <button type="button" className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-40" disabled={index === 0} onClick={() => onChange(reorder(items, index, -1))}>
-                Up
-              </button>
-              <button type="button" className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-40" disabled={index === items.length - 1} onClick={() => onChange(reorder(items, index, 1))}>
-                Down
-              </button>
+              <ReorderButtons name={NAV_PAGE_LABELS[item.key] || item.key} index={index} count={items.length} onMove={(direction) => onChange(reorder(items, index, direction))} />
             </div>
           </div>
           <TextField
@@ -333,25 +452,10 @@ function PortfolioCategoryEditor({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-medium text-gray-900">{item.label}</p>
             <div className="flex gap-2">
+              <ReorderButtons name={item.label || 'category'} index={index} count={items.length} onMove={(direction) => onChange(reorder(items, index, direction))} />
               <button
                 type="button"
-                className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-40"
-                disabled={index === 0}
-                onClick={() => onChange(reorder(items, index, -1))}
-              >
-                Up
-              </button>
-              <button
-                type="button"
-                className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-40"
-                disabled={index === items.length - 1}
-                onClick={() => onChange(reorder(items, index, 1))}
-              >
-                Down
-              </button>
-              <button
-                type="button"
-                className="rounded border border-red-200 px-2 py-1 text-xs text-red-700"
+                className="inline-flex min-h-9 items-center rounded border border-red-200 px-3 text-xs text-red-700 hover:bg-red-50"
                 onClick={() => onChange(items.filter((_, currentIndex) => currentIndex !== index))}
               >
                 Remove
@@ -397,6 +501,7 @@ function PortfolioCategoryEditor({
 }
 
 export default function AdminSiteContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [activePage, setActivePage] = useState<SiteContentPage>('identity');
   const [content, setContent] = useState<SiteContentByPage | null>(null);
@@ -411,9 +516,18 @@ export default function AdminSiteContent() {
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasPreviewDraftRef = useRef(false);
 
+  const selectPageTab = useCallback((page: SiteContentPage) => {
+    setActivePage(page);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', 'pages');
+    params.set('page', page);
+    params.delete('section');
+    router.replace(`/admin?${params.toString()}`, { scroll: false });
+  }, [router, searchParams]);
+
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
-    const media = window.matchMedia('(min-width: 1024px)');
+    const media = window.matchMedia('(min-width: 1280px)');
     const sync = () => setPreviewOpen(media.matches);
     sync();
     media.addEventListener('change', sync);
@@ -548,15 +662,7 @@ export default function AdminSiteContent() {
     };
   }, [content, isDirty, pushPreview, clearPreview]);
 
-  useEffect(() => {
-    if (!isDirty) return undefined;
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = '';
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [isDirty]);
+  useUnsavedChangesGuard(isDirty);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -637,7 +743,7 @@ export default function AdminSiteContent() {
             <button
               key={tab.key}
               type="button"
-              onClick={() => setActivePage(tab.key)}
+              onClick={() => selectPageTab(tab.key)}
               aria-current={activePage === tab.key ? 'page' : undefined}
               className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium ${activePage === tab.key ? 'bg-gray-900 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
             >
@@ -696,7 +802,7 @@ export default function AdminSiteContent() {
                   label="Logo (optional)"
                   value={content.identity.logoImage}
                   onChange={(value) => setContent({ ...content, identity: { ...content.identity, logoImage: value } })}
-                  help="A signature or wordmark shown in place of your name in the header. A transparent PNG or SVG works best. Your browser tab icon is made from your initials and main color."
+                  help="A signature or wordmark shown in place of your name in the header. A transparent PNG or WebP works best. Your browser tab icon is made from your initials and main color."
                 />
               </div>
             </div>
@@ -767,30 +873,22 @@ export default function AdminSiteContent() {
               <div className="space-y-3">
                 {content.home.sectionOrder.map((sectionKey, index) => (
                   <div key={sectionKey} className="flex items-center justify-between rounded-md border border-gray-200 p-3">
-                    <span className="text-sm font-medium text-gray-900">{HOME_SECTION_LABELS[sectionKey]}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-900">{HOME_SECTION_LABELS[sectionKey]}</span>
+                      {!homeSectionIsVisible(content.home, sectionKey) && (
+                        <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-500">Hidden</span>
+                      )}
+                    </div>
                     <div className="flex gap-2">
-                      <button
-                        type="button"
-                        className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-40"
-                        disabled={index === 0}
-                        onClick={() => setContent({
+                      <ReorderButtons
+                        name={HOME_SECTION_LABELS[sectionKey]}
+                        index={index}
+                        count={content.home.sectionOrder.length}
+                        onMove={(direction) => setContent({
                           ...content,
-                          home: { ...content.home, sectionOrder: reorder(content.home.sectionOrder, index, -1) },
+                          home: { ...content.home, sectionOrder: reorder(content.home.sectionOrder, index, direction) },
                         })}
-                      >
-                        Up
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-40"
-                        disabled={index === content.home.sectionOrder.length - 1}
-                        onClick={() => setContent({
-                          ...content,
-                          home: { ...content.home, sectionOrder: reorder(content.home.sectionOrder, index, 1) },
-                        })}
-                      >
-                        Down
-                      </button>
+                      />
                     </div>
                   </div>
                 ))}
@@ -810,6 +908,7 @@ export default function AdminSiteContent() {
                 <div className="md:col-span-2">
                   <HeroImagePlacementPicker
                     value={content.home.hero.imagePlacement}
+                    hasPhoto={Boolean(content.home.hero.portraitImage.trim())}
                     onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, imagePlacement: value as typeof content.home.hero.imagePlacement } } })}
                   />
                 </div>
@@ -879,17 +978,15 @@ export default function AdminSiteContent() {
                   { value: 'manual', label: 'Pick specific works' },
                 ]}
               />
-              <TextField
+              <BoundedIntField
                 label="Number of works"
-                value={String(content.home.featured.limit)}
-                onChange={(value) => {
-                  const parsed = Number.parseInt(value, 10);
-                  if (!Number.isFinite(parsed)) return;
-                  setContent({
-                    ...content,
-                    home: { ...content.home, featured: { ...content.home.featured, limit: Math.min(12, Math.max(1, parsed)) } },
-                  });
-                }}
+                value={content.home.featured.limit}
+                min={1}
+                max={12}
+                onChange={(limit) => setContent({
+                  ...content,
+                  home: { ...content.home, featured: { ...content.home.featured, limit } },
+                })}
                 help="Between 1 and 12."
               />
               {content.home.featured.selectionMode === 'manual' && (
@@ -980,28 +1077,15 @@ export default function AdminSiteContent() {
                         )}
                       </div>
                       <div className="flex gap-2">
-                        <button
-                          type="button"
-                          className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-40"
-                          disabled={index === 0}
-                          onClick={() => setContent({
+                        <ReorderButtons
+                          name={BIO_SECTION_LABELS[sectionKey]}
+                          index={index}
+                          count={content.bio.sectionOrder.length}
+                          onMove={(direction) => setContent({
                             ...content,
-                            bio: { ...content.bio, sectionOrder: reorder(content.bio.sectionOrder, index, -1) },
+                            bio: { ...content.bio, sectionOrder: reorder(content.bio.sectionOrder, index, direction) },
                           })}
-                        >
-                          Up
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 disabled:opacity-40"
-                          disabled={index === content.bio.sectionOrder.length - 1}
-                          onClick={() => setContent({
-                            ...content,
-                            bio: { ...content.bio, sectionOrder: reorder(content.bio.sectionOrder, index, 1) },
-                          })}
-                        >
-                          Down
-                        </button>
+                        />
                       </div>
                     </div>
                   );
@@ -1330,7 +1414,7 @@ export default function AdminSiteContent() {
               <TextAreaField label="Checkout trust copy" value={content.shop.checkoutTrustCopy} onChange={(value) => setContent({ ...content, shop: { ...content.shop, checkoutTrustCopy: value } })} help="Displayed below the pay button on checkout." />
               <TextField label="Success page title" value={content.shop.successTitle} onChange={(value) => setContent({ ...content, shop: { ...content.shop, successTitle: value } })} />
               <TextField label="Success page subtitle" value={content.shop.successSubtitle} onChange={(value) => setContent({ ...content, shop: { ...content.shop, successSubtitle: value } })} />
-              <TextAreaField label="What happens next (HTML)" value={content.shop.successNextStepsHtml} onChange={(value) => setContent({ ...content, shop: { ...content.shop, successNextStepsHtml: value } })} help="Use a simple list for post-purchase steps." />
+              <HtmlField label="What happens next" value={content.shop.successNextStepsHtml} onChange={(value) => setContent({ ...content, shop: { ...content.shop, successNextStepsHtml: value } })} help="Shown on the order confirmation page after checkout." />
             </EditorSection>
             <SelectField
               label="Product page layout"
@@ -1410,11 +1494,14 @@ export default function AdminSiteContent() {
             />
             <TextAreaField label="Order progress update template" value={content.blog.autoOrderProgressExcerpt} onChange={(value) => setContent({ ...content, blog: { ...content.blog, autoOrderProgressExcerpt: value } })} help="Use {{summary}} and {{orderNumber}} placeholders." />
             <CheckboxField label="Send public updates digest email" checked={content.blog.digestEnabled} onChange={(value) => setContent({ ...content, blog: { ...content.blog, digestEnabled: value } })} />
-            <TextField label="Digest interval (days)" value={String(content.blog.digestIntervalDays)} onChange={(value) => {
-              const parsed = Number.parseInt(value, 10);
-              if (!Number.isFinite(parsed)) return;
-              setContent({ ...content, blog: { ...content.blog, digestIntervalDays: Math.min(30, Math.max(1, parsed)) } });
-            }} />
+            <BoundedIntField
+              label="Digest interval (days)"
+              value={content.blog.digestIntervalDays}
+              min={1}
+              max={30}
+              onChange={(digestIntervalDays) => setContent({ ...content, blog: { ...content.blog, digestIntervalDays } })}
+              help="Between 1 and 30 days."
+            />
             <TextField label="Digest email subject" value={content.blog.digestSubject} onChange={(value) => setContent({ ...content, blog: { ...content.blog, digestSubject: value } })} />
             <TextAreaField label="Digest email intro" value={content.blog.digestIntro} onChange={(value) => setContent({ ...content, blog: { ...content.blog, digestIntro: value } })} />
             <CheckboxField label="Send collector private-updates digest" checked={content.blog.collectorDigestEnabled} onChange={(value) => setContent({ ...content, blog: { ...content.blog, collectorDigestEnabled: value } })} />
@@ -1426,19 +1513,34 @@ export default function AdminSiteContent() {
           </div>
         )}
 
-        <div className="sticky bottom-above-admin-nav md:bottom-0 -mx-6 -mb-6 flex items-center justify-end gap-3 rounded-b-lg border-t border-gray-200 bg-white/95 px-6 py-3 backdrop-blur">
+        <div className="sticky bottom-above-admin-nav md:bottom-0 -mx-6 -mb-6 flex flex-wrap items-center justify-end gap-3 rounded-b-lg border-t border-gray-200 bg-white/95 px-6 py-3 backdrop-blur">
           <p className="mr-auto text-xs text-gray-600" role="status">
             {isDirty
               ? `Unsaved changes on ${dirtyPages.map((page) => PAGE_TABS.find((tab) => tab.key === page)?.label ?? page).join(', ')}`
               : 'All changes published'}
           </p>
+          {isDirty && saved && (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => {
+                if (!window.confirm('Discard all unsaved page changes?')) return;
+                setContent(saved);
+                setMessage('Unsaved changes discarded.');
+                void clearPreview();
+              }}
+              className="shrink-0 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              Discard changes
+            </button>
+          )}
           <button type="submit" disabled={saving || !isDirty} className="btn-primary shrink-0 whitespace-nowrap px-5 py-2 disabled:opacity-50">
             {saving ? 'Saving…' : 'Save changes'}
           </button>
         </div>
       </form>
 
-      <div className="rounded-lg border bg-white overflow-hidden xl:sticky xl:top-4">
+      <div className="rounded-lg border bg-white overflow-hidden xl:sticky xl:top-28">
         <div className="border-b px-4 py-3 flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 className="text-sm font-semibold text-gray-900">Live preview</h3>
@@ -1448,12 +1550,12 @@ export default function AdminSiteContent() {
             <button
               type="button"
               onClick={() => setPreviewOpen((open) => !open)}
-              className="text-sm font-medium text-gray-700 hover:text-gray-900"
+              className="inline-flex min-h-9 items-center text-sm font-medium text-gray-700 hover:text-gray-900"
               aria-expanded={previewOpen}
             >
               {previewOpen ? 'Hide preview' : 'Show preview'}
             </button>
-            <a href={`${previewHref}?cmsPreview=1&preview=${previewToken}`} target="_blank" rel="noreferrer" className="text-sm font-medium text-primary hover:opacity-80">
+            <a href={`${previewHref}?cmsPreview=1&preview=${previewToken}`} target="_blank" rel="noreferrer" className="inline-flex min-h-9 items-center text-sm font-medium text-primary hover:opacity-80">
               Open full page
             </a>
           </div>

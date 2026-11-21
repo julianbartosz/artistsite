@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCart, CartItem } from '@/components/CartContext';
 import { formatPrice, productImageSrc, cartItemLineTotal } from '@/lib/commerce';
+import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
 
 export function CartDrawer() {
   const { state, removeItem, updateQuantity, closeCart, getItemKey } = useCart();
@@ -153,6 +154,7 @@ function CartItemCard({
           fill
           className="object-cover"
           sizes="80px"
+          unoptimized={shouldUnoptimizeImage(productImageSrc(product))}
         />
       </div>
 

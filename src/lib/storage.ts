@@ -1,7 +1,8 @@
 import { BlobServiceClient } from '@azure/storage-blob';
 import { existsSync } from 'fs';
-import { mkdir, readdir, writeFile } from 'fs/promises';
-import { join } from 'path';
+import { mkdir, readdir, stat, writeFile } from 'fs/promises';
+import { basename, join, resolve } from 'path';
+import { parseVariantFilename, type ImageVariantMap } from '@/lib/image-variant-url';
 
 type MediaFolder = 'images' | 'videos';
 
@@ -24,6 +25,9 @@ export interface MediaLibraryItem {
   filename: string;
   provider: StoredAsset['provider'];
   kind: 'image' | 'video';
+  uploadedAt?: string;
+  /** Resized WebP copies that actually exist in storage for this image. */
+  variants?: ImageVariantMap;
 }
 
 function folderKind(folder: MediaFolder): MediaLibraryItem['kind'] {
@@ -47,21 +51,29 @@ function getAzurePublicBaseUrl(containerName: string): string | undefined {
 
 async function storeLocal(buffer: Buffer, filename: string, folder: MediaFolder): Promise<StoredAsset> {
   if (process.env.NODE_ENV === 'production') {
-    throw new StorageConfigurationError('Image storage is not set up for production. Ask your host to connect Azure blob storage in Settings.');
+    throw new StorageConfigurationError('Media storage is not configured for production. Set AZURE_STORAGE_CONNECTION_STRING in your hosting environment.');
   }
 
-  const directory = join(LOCAL_UPLOAD_ROOT, folder);
+  const safeName = basename(filename);
+  if (!safeName || safeName !== filename || safeName.startsWith('.')) {
+    throw new Error('Invalid media filename');
+  }
+
+  const directory = resolve(LOCAL_UPLOAD_ROOT, folder);
   if (!existsSync(directory)) {
     await mkdir(directory, { recursive: true });
   }
 
-  const filepath = join(directory, filename);
+  const filepath = resolve(directory, safeName);
+  if (!filepath.startsWith(`${directory}/`)) {
+    throw new Error('Invalid media file path');
+  }
   if (!existsSync(filepath)) {
     await writeFile(filepath, buffer);
   }
 
   return {
-    url: `/uploads/${folder}/${filename}`,
+    url: `/uploads/${folder}/${safeName}`,
     provider: 'local',
   };
 }
@@ -117,6 +129,50 @@ export async function storeMediaAsset(
   return storeAsset(buffer, filename, contentType, folder);
 }
 
+type StoredFile = { filename: string; url: string; modifiedAt: number };
+
+/** Newest first. `uploadedAt` is an ISO timestamp, so comparing the strings orders by time. */
+function sortLibraryItems(items: MediaLibraryItem[]): MediaLibraryItem[] {
+  return items.sort((a, b) => (
+    (b.uploadedAt ?? '').localeCompare(a.uploadedAt ?? '') || b.filename.localeCompare(a.filename)
+  ));
+}
+
+/**
+ * Turn a raw folder listing into library items: resized variants are folded into
+ * their original (so each photo appears once) and exposed as `variants`.
+ */
+function toLibraryItems(
+  files: StoredFile[],
+  folder: MediaFolder,
+  provider: StoredAsset['provider'],
+): MediaLibraryItem[] {
+  const variantsByStem = new Map<string, ImageVariantMap>();
+  const originals: StoredFile[] = [];
+
+  for (const file of files) {
+    const variant = folder === 'images' ? parseVariantFilename(file.filename) : null;
+    if (variant) {
+      variantsByStem.set(variant.stem, { ...variantsByStem.get(variant.stem), [variant.size]: file.url });
+    } else {
+      originals.push(file);
+    }
+  }
+
+  return originals.map((file) => {
+    const dot = file.filename.lastIndexOf('.');
+    const variants = variantsByStem.get(dot > 0 ? file.filename.slice(0, dot) : file.filename);
+    return {
+      url: file.url,
+      filename: file.filename,
+      provider,
+      kind: folderKind(folder),
+      ...(file.modifiedAt > 0 ? { uploadedAt: new Date(file.modifiedAt).toISOString() } : {}),
+      ...(variants ? { variants } : {}),
+    };
+  });
+}
+
 async function listLocalFolder(folder: MediaFolder): Promise<MediaLibraryItem[]> {
   const directory = join(LOCAL_UPLOAD_ROOT, folder);
   if (!existsSync(directory)) {
@@ -124,14 +180,21 @@ async function listLocalFolder(folder: MediaFolder): Promise<MediaLibraryItem[]>
   }
 
   const entries = await readdir(directory, { withFileTypes: true });
-  return entries
-    .filter((entry) => entry.isFile())
-    .map((entry) => ({
-      url: `/uploads/${folder}/${entry.name}`,
-      filename: entry.name,
-      provider: 'local' as const,
-      kind: folderKind(folder),
-    }));
+  const files = await Promise.all(
+    entries
+      .filter((entry) => entry.isFile() && !entry.name.startsWith('.'))
+      .map(async (entry): Promise<StoredFile> => {
+        let modifiedAt = 0;
+        try {
+          modifiedAt = (await stat(join(directory, entry.name))).mtimeMs;
+        } catch {
+          modifiedAt = 0;
+        }
+        return { filename: entry.name, url: `/uploads/${folder}/${entry.name}`, modifiedAt };
+      }),
+  );
+
+  return toLibraryItems(files, folder, 'local');
 }
 
 async function listAzureFolder(folder: MediaFolder): Promise<MediaLibraryItem[]> {
@@ -144,36 +207,35 @@ async function listAzureFolder(folder: MediaFolder): Promise<MediaLibraryItem[]>
   const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
   const containerClient = blobServiceClient.getContainerClient(containerName);
   const publicBaseUrl = getAzurePublicBaseUrl(containerName);
-  const items: MediaLibraryItem[] = [];
+  const files: StoredFile[] = [];
 
   for await (const blob of containerClient.listBlobsFlat({ prefix: `${folder}/` })) {
     const filename = blob.name.slice(folder.length + 1);
     if (!filename) continue;
-    items.push({
-      url: publicBaseUrl ? `${publicBaseUrl}/${folder}/${filename}` : containerClient.getBlockBlobClient(blob.name).url,
+    const lastModified = blob.properties.lastModified;
+    files.push({
       filename,
-      provider: 'azure_blob',
-      kind: folderKind(folder),
+      url: publicBaseUrl ? `${publicBaseUrl}/${folder}/${filename}` : containerClient.getBlockBlobClient(blob.name).url,
+      modifiedAt: lastModified instanceof Date ? lastModified.getTime() : 0,
     });
   }
 
-  return items;
+  return toLibraryItems(files, folder, 'azure_blob');
 }
 
-async function listFolder(folder: MediaFolder): Promise<MediaLibraryItem[]> {
+async function listFolderRaw(folder: MediaFolder): Promise<MediaLibraryItem[]> {
   const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
   const containerName = getAzureContainerName();
-  const items = connectionString && containerName
-    ? await listAzureFolder(folder)
-    : await listLocalFolder(folder);
-  return items.sort((a, b) => b.filename.localeCompare(a.filename));
+  return connectionString && containerName
+    ? listAzureFolder(folder)
+    : listLocalFolder(folder);
 }
 
 export async function listStoredImages(): Promise<MediaLibraryItem[]> {
-  return listFolder('images');
+  return sortLibraryItems(await listFolderRaw('images'));
 }
 
 export async function listStoredMedia(): Promise<MediaLibraryItem[]> {
-  const [images, videos] = await Promise.all([listFolder('images'), listFolder('videos')]);
-  return [...videos, ...images].sort((a, b) => b.filename.localeCompare(a.filename));
+  const [images, videos] = await Promise.all([listFolderRaw('images'), listFolderRaw('videos')]);
+  return sortLibraryItems([...videos, ...images]);
 }

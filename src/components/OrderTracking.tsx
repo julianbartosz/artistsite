@@ -12,6 +12,7 @@ import {
 } from '@/lib/order-status-shared';
 import { shippingAddressIsPopulated } from '@/lib/shipping-address';
 import { formatCartItemVariant, formatPrice, productImageSrc } from '@/lib/commerce';
+import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
 import { shippingCarrierLabel, trackingUrl } from '@/lib/shipping';
 import { OrderProgressSteps } from '@/components/admin/OrderStatusStepper';
 import OrderMessageComposer from '@/components/OrderMessageComposer';
@@ -207,6 +208,7 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
                 width={64}
                 height={64}
                 className="w-16 h-16 object-cover rounded-lg"
+                unoptimized={shouldUnoptimizeImage(productImageSrc(item.product))}
               />
               <div className="flex-1">
                 <h3 className="font-medium text-gray-900">{item.product.title}</h3>

@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
 import type { OrderCelebration } from '@/lib/order-celebration-shared';
 import { formatPrice } from '@/lib/commerce';
 
@@ -63,6 +64,7 @@ export default function OrderCelebrationCard({ celebration, onDismiss }: OrderCe
               fill
               className="object-cover"
               sizes="112px"
+              unoptimized={shouldUnoptimizeImage(primaryItem.imageUrl)}
             />
           </div>
           <div className="flex flex-wrap gap-3">

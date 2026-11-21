@@ -37,10 +37,6 @@ export async function buildImageVariants(buffer: Buffer, filename: string): Prom
   const variants: GeneratedImageVariant[] = [];
 
   for (const variant of VARIANTS) {
-    if (metadata.width <= variant.maxWidth && variant.suffix !== 'thumb') {
-      continue;
-    }
-
     const outBuffer = await sharp(buffer)
       .rotate()
       .resize({ width: variant.maxWidth, withoutEnlargement: true })

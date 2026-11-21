@@ -50,25 +50,53 @@ export function RichTextEditorInner({ value, onChange, mergeFields }: RichTextEd
   };
 
   const setLink = () => {
-    const url = window.prompt('Link URL');
-    if (url) editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+    const previousUrl = editor.getAttributes('link').href || '';
+    const raw = window.prompt('Link URL (https://..., mailto:..., or /path)', previousUrl);
+    if (raw === null) return;
+    const url = raw.trim();
+    if (!url) {
+      editor.chain().focus().extendMarkRange('link').unsetLink().run();
+      return;
+    }
+    const isRelative = url.startsWith('/') && !url.startsWith('//');
+    let isSafeAbsolute = false;
+    if (!isRelative) {
+      try {
+        const parsed = new URL(url);
+        isSafeAbsolute = parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'mailto:';
+      } catch {
+        isSafeAbsolute = false;
+      }
+    }
+    if (!isRelative && !isSafeAbsolute) {
+      window.alert('Please enter a valid http://, https://, mailto:, or site-relative (/...) URL.');
+      return;
+    }
+    editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
   };
 
-  const buttonClass = 'px-3 py-1 text-sm border border-gray-300 bg-white hover:bg-gray-50 rounded';
+  const buttonClass = (active = false) =>
+    `px-3 py-1 text-sm border rounded transition-colors ${
+      active
+        ? 'border-gray-900 bg-gray-900 text-white'
+        : 'border-gray-300 bg-white text-gray-800 hover:bg-gray-50'
+    }`;
 
   return (
     <div>
       <div className="flex flex-wrap gap-2 rounded-t-md border border-gray-300 bg-gray-50 p-2">
-        <button type="button" className={buttonClass} onClick={() => editor.chain().focus().toggleBold().run()}>Bold</button>
-        <button type="button" className={buttonClass} onClick={() => editor.chain().focus().toggleItalic().run()}>Italic</button>
-        <button type="button" className={buttonClass} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>Heading</button>
-        <button type="button" className={buttonClass} onClick={() => editor.chain().focus().toggleBulletList().run()}>Bullets</button>
-        <button type="button" className={buttonClass} onClick={setLink}>Link</button>
-        <button type="button" className={buttonClass} onClick={addImage}>Image</button>
+        <button type="button" aria-pressed={editor.isActive('bold')} className={buttonClass(editor.isActive('bold'))} onClick={() => editor.chain().focus().toggleBold().run()}>Bold</button>
+        <button type="button" aria-pressed={editor.isActive('italic')} className={buttonClass(editor.isActive('italic'))} onClick={() => editor.chain().focus().toggleItalic().run()}>Italic</button>
+        <button type="button" aria-pressed={editor.isActive('heading', { level: 2 })} className={buttonClass(editor.isActive('heading', { level: 2 }))} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>Heading</button>
+        <button type="button" aria-pressed={editor.isActive('bulletList')} className={buttonClass(editor.isActive('bulletList'))} onClick={() => editor.chain().focus().toggleBulletList().run()}>Bullets</button>
+        <button type="button" aria-pressed={editor.isActive('link')} className={buttonClass(editor.isActive('link'))} onClick={setLink}>Link</button>
+        <button type="button" className={buttonClass()} onClick={addImage}>Image</button>
+        <button type="button" disabled={!editor.can().undo()} className={`${buttonClass()} disabled:opacity-40`} onClick={() => editor.chain().focus().undo().run()}>Undo</button>
+        <button type="button" disabled={!editor.can().redo()} className={`${buttonClass()} disabled:opacity-40`} onClick={() => editor.chain().focus().redo().run()}>Redo</button>
         {mergeFields && mergeFields.length > 0 && (
           <select
             aria-label="Insert personalization field"
-            className={`${buttonClass} ml-auto`}
+            className={`${buttonClass()} ml-auto`}
             value=""
             onChange={(event) => {
               if (event.target.value) editor.chain().focus().insertContent(event.target.value).run();
@@ -85,9 +113,9 @@ export function RichTextEditorInner({ value, onChange, mergeFields }: RichTextEd
       <MediaPickerModal
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        onSelect={(url) => {
-          const alt = window.prompt('Describe this image for accessibility (alt text)', '')?.trim();
-          editor.chain().focus().setImage({ src: url, alt: alt || 'Image' }).run();
+        showAltInput
+        onSelect={(url, alt) => {
+          editor.chain().focus().setImage({ src: url, alt: alt || '' }).run();
         }}
       />
     </div>

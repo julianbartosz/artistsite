@@ -21,16 +21,7 @@ function isNeutral([r, g, b]: Rgb): boolean {
 const SAMPLE_SIZE = 64;
 const MIN_SWATCH_DISTANCE = 56;
 
-/**
- * Samples an image in the browser and returns its most prominent distinct colors,
- * most common first. Returns null when the image cannot be read (e.g. cross-origin).
- */
-export async function extractSwatchesFromImageUrl(
-  imageUrl: string,
-  maxSwatches = ARTWORK_PALETTE_MAX_SWATCHES,
-): Promise<string[] | null> {
-  if (typeof window === 'undefined' || !imageUrl.trim()) return null;
-
+function sampleCanvasSwatches(src: string, maxSwatches: number): Promise<string[] | null> {
   return new Promise((resolve) => {
     const image = new Image();
     image.crossOrigin = 'anonymous';
@@ -82,6 +73,36 @@ export async function extractSwatchesFromImageUrl(
       }
     };
     image.onerror = () => resolve(null);
-    image.src = imageUrl;
+    image.src = src;
   });
+}
+
+function isCrossOriginUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url, window.location.href);
+    return parsed.origin !== window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Samples an image in the browser and returns its most prominent distinct colors,
+ * most common first. For cross-origin images (such as Azure Blob uploads), routes
+ * through Next's same-origin image optimizer first so canvas reads do not fail on CORS.
+ */
+export async function extractSwatchesFromImageUrl(
+  imageUrl: string,
+  maxSwatches = ARTWORK_PALETTE_MAX_SWATCHES,
+): Promise<string[] | null> {
+  if (typeof window === 'undefined' || !imageUrl.trim()) return null;
+
+  const trimmed = imageUrl.trim();
+  if (isCrossOriginUrl(trimmed)) {
+    const proxied = `/_next/image?url=${encodeURIComponent(trimmed)}&w=128&q=75`;
+    const fromProxy = await sampleCanvasSwatches(proxied, maxSwatches);
+    if (fromProxy) return fromProxy;
+  }
+
+  return sampleCanvasSwatches(trimmed, maxSwatches);
 }

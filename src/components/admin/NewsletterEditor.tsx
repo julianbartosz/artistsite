@@ -4,6 +4,7 @@ import React, { FormEvent, useEffect, useMemo, useState } from 'react';
 import { adminSettingFieldHref } from '@/components/AdminSettings';
 import MediaImageField from '@/components/admin/MediaImageField';
 import { EditorSection, HtmlField, TextField, reorder } from '@/components/admin/EditorFields';
+import { useUnsavedChangesGuard } from '@/components/admin/useUnsavedChangesGuard';
 import { formatPrice } from '@/lib/commerce';
 import { pickVariantUrl } from '@/lib/image-variant-url';
 import {
@@ -469,15 +470,7 @@ export function NewsletterEditor({ newsletter, context, onSaved, onDeleted, onSt
     return map;
   }, [sendIssues]);
 
-  useEffect(() => {
-    if (!dirty) return undefined;
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = '';
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [dirty]);
+  useUnsavedChangesGuard(dirty);
 
   const update = (patch: Partial<NewsletterDocument>) => setDraft((current) => ({ ...current, ...patch }));
   const scheduled = newsletter?.status === 'scheduled';

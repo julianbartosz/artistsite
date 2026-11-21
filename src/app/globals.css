@@ -137,6 +137,16 @@ h4 {
   }
 }
 
+/* iOS Safari zooms the whole page when a focused field's text is smaller than 16px. */
+@media (hover: none) and (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']),
+  textarea,
+  select,
+  [contenteditable='true'] {
+    font-size: max(1rem, 16px) !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

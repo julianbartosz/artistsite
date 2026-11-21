@@ -1,9 +1,9 @@
 import { notFound } from 'next/navigation';
-import Image from 'next/image';
 import Link from 'next/link';
 import { getArtworkBySlug } from '@/lib/portfolio';
 import { getSiteContent } from '@/lib/site-content';
 import { displayFilterLabel } from '@/lib/search-params';
+import ArtworkGallery from '@/components/ArtworkGallery';
 import { MDXContent } from '@/components/MDXContent';
 import { htmlHasVisibleText } from '@/lib/content-sanitize';
 import { generatePortfolioMetadata, getSeoBrand } from '@/lib/seo';
@@ -51,37 +51,18 @@ export default async function ArtworkDetail({ params }: ArtworkDetailProps) {
     { name: artwork.title, url: `/portfolio/${slug}` },
   ], siteUrl);
 
-  const gallery = (
-    <div className="space-y-4">
-      {artwork.images.main && (
-        <div className={`relative rounded-lg overflow-hidden bg-gray-100 shadow-sm ${galleryFocus ? 'aspect-[4/3] md:aspect-[21/9]' : 'aspect-square'}`}>
-          <Image
-            src={artwork.images.main}
-            alt={artwork.title}
-            fill
-            className="object-cover"
-            sizes={galleryFocus ? '100vw' : '(max-width: 1024px) 100vw, 50vw'}
-            priority
-          />
-        </div>
-      )}
+  const inquiryHref = `/contact?${new URLSearchParams({
+    inquiryType: 'purchase',
+    subject: `Inquiry about ${artwork.title}`,
+  }).toString()}`;
 
-      {artwork.images.gallery && artwork.images.gallery.length > 0 && (
-        <div className={`grid gap-2 ${galleryFocus ? 'grid-cols-4 md:grid-cols-6' : 'grid-cols-3'}`}>
-          {artwork.images.gallery.slice(0, galleryFocus ? 6 : 3).map((image, index) => (
-            <div key={index} className="relative aspect-square rounded overflow-hidden bg-gray-100">
-              <Image
-                src={image}
-                alt={`${artwork.title} - View ${index + 1}`}
-                fill
-                className="object-cover"
-                sizes={galleryFocus ? '(max-width: 768px) 25vw, 16vw' : '(max-width: 1024px) 33vw, 16vw'}
-              />
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+  const gallery = (
+    <ArtworkGallery
+      title={artwork.title}
+      mainImage={artwork.images.main}
+      galleryImages={artwork.images.gallery}
+      galleryFocus={galleryFocus}
+    />
   );
 
   const details = (
@@ -167,7 +148,7 @@ export default async function ArtworkDetail({ params }: ArtworkDetailProps) {
           </Link>
           {artwork.available && (
             <Link
-              href="/contact"
+              href={inquiryHref}
               className="btn-primary-outline inline-flex w-full sm:w-auto justify-center px-6 py-3 font-medium transition-colors"
             >
               Inquire about this work
@@ -176,7 +157,7 @@ export default async function ArtworkDetail({ params }: ArtworkDetailProps) {
         </div>
       ) : artwork.available ? (
         <Link
-          href="/contact"
+          href={inquiryHref}
           className="btn-primary inline-flex w-full sm:w-auto justify-center px-6 py-3 font-medium transition-colors"
         >
           Inquire about this work

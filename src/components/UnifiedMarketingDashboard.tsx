@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { safeExternalHref } from '@/lib/site-content-shared';
 import type { LucideIcon } from 'lucide-react';
 import { BarChart3, Bot, CreditCard, DollarSign, LineChart, Mail, Megaphone, Smartphone, Target, Users } from 'lucide-react';
 
@@ -571,9 +572,19 @@ function CampaignsTab() {
 }
 
 function ShareAssistPanel({ assist }: { assist: ShareAssistPayload }) {
+  const [copied, setCopied] = useState(false);
+
   const copyCaption = async () => {
     await navigator.clipboard?.writeText(assist.caption);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2000);
   };
+
+  const safeMediaUrls = assist.mediaUrls.filter((url) => {
+    const trimmed = url.trim();
+    return Boolean(safeExternalHref(trimmed) || (trimmed.startsWith('/') && !trimmed.startsWith('//')));
+  });
+  const safeLinks = assist.links.filter((link) => Boolean(safeExternalHref(link.url)));
 
   return (
     <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
@@ -585,16 +596,18 @@ function ShareAssistPanel({ assist }: { assist: ShareAssistPayload }) {
             {assist.instructions.map((instruction) => <li key={instruction}>{instruction}</li>)}
           </ul>
         </div>
-        <button type="button" onClick={copyCaption} className="rounded bg-amber-900 px-3 py-2 text-white">Copy caption</button>
+        <button type="button" onClick={copyCaption} className="rounded bg-amber-900 px-3 py-2 text-white">
+          {copied ? 'Copied!' : 'Copy caption'}
+        </button>
       </div>
       <div className="mt-4 rounded border border-amber-200 bg-white p-3 whitespace-pre-wrap">{assist.caption}</div>
-      {assist.mediaUrls.length > 0 && (
+      {safeMediaUrls.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
-          {assist.mediaUrls.map((url) => <a key={url} href={url} target="_blank" rel="noreferrer" className="rounded border border-amber-300 bg-white px-3 py-1 text-amber-900">Open media</a>)}
+          {safeMediaUrls.map((url) => <a key={url} href={url} target="_blank" rel="noopener noreferrer" className="rounded border border-amber-300 bg-white px-3 py-1 text-amber-900">Open media</a>)}
         </div>
       )}
       <div className="mt-3 flex flex-wrap gap-2">
-        {assist.links.map((link) => <a key={link.url} href={link.url} target="_blank" rel="noreferrer" className="rounded bg-gray-900 px-3 py-2 text-white">{link.label}</a>)}
+        {safeLinks.map((link) => <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" className="rounded bg-gray-900 px-3 py-2 text-white">{link.label}</a>)}
       </div>
     </div>
   );
@@ -614,6 +627,7 @@ function PromoCodesPanel() {
   const [promoCodes, setPromoCodes] = useState<PromoCodeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [draft, setDraft] = useState({
     code: '',
     discountType: 'percentage' as 'percentage' | 'fixed',
@@ -678,6 +692,22 @@ function PromoCodesPanel() {
     setMessage(`Cart recovery will use promo code ${code}.`);
   }
 
+  async function deletePromoCode(promo: PromoCodeRecord) {
+    if (!window.confirm(`Delete promo code ${promo.code}?`)) return;
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/admin/promo-codes/${encodeURIComponent(promo.id)}`, {
+        method: 'DELETE',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Failed to delete promo code');
+      setMessage(`Promo code ${promo.code} deleted.`);
+      await loadPromoCodes();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Failed to delete promo code');
+    }
+  }
+
   return (
     <section className="rounded-lg border bg-white p-6 space-y-4">
       <div>
@@ -724,9 +754,28 @@ function PromoCodesPanel() {
                 <span className="text-gray-600"> · {promo.discountType === 'percentage' ? `${promo.discountValue}%` : `$${promo.discountValue}`}</span>
                 <span className="text-gray-500"> · used {promo.usageCount}{promo.usageLimit ? `/${promo.usageLimit}` : ''}</span>
               </div>
-              <div className="flex gap-2">
-                <button type="button" onClick={() => navigator.clipboard?.writeText(promo.code)} className="rounded border px-2 py-1">Copy</button>
-                <button type="button" onClick={() => assignCartRecoveryPromo(promo.code)} className="rounded border px-2 py-1">Use for cart recovery</button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await navigator.clipboard?.writeText(promo.code);
+                    setCopiedCode(promo.code);
+                    window.setTimeout(() => setCopiedCode((current) => (current === promo.code ? null : current)), 2000);
+                  }}
+                  className="rounded border px-2 py-1 hover:bg-gray-50"
+                >
+                  {copiedCode === promo.code ? 'Copied!' : 'Copy'}
+                </button>
+                <button type="button" onClick={() => assignCartRecoveryPromo(promo.code)} className="rounded border px-2 py-1 hover:bg-gray-50">Use for cart recovery</button>
+                {promo.usageCount === 0 && (
+                  <button
+                    type="button"
+                    onClick={() => void deletePromoCode(promo)}
+                    className="rounded border border-red-200 px-2 py-1 text-red-700 hover:bg-red-50"
+                  >
+                    Delete
+                  </button>
+                )}
               </div>
             </li>
           ))}

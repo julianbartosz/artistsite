@@ -64,7 +64,10 @@ describe('Contact Page', () => {
       
       expect(screen.getByText(/hello@artistsite.com/i)).toBeInTheDocument();
       expect(screen.getByText(/milwaukee, wi/i)).toBeInTheDocument();
-      expect(screen.getAllByText(/@michalelenaart/i).length).toBeGreaterThan(0);
+      const igLink = screen.getByRole('link', { name: /@michalelenaart/i });
+      expect(igLink).toHaveAttribute('href', 'https://instagram.com/michalelenaart');
+      expect(igLink).toHaveAttribute('target', '_blank');
+      expect(igLink).toHaveAttribute('rel', 'noopener noreferrer');
 
       const headings = screen.getAllByRole('heading').map((heading) => heading.textContent);
       expect(headings.indexOf("Let's Connect")).toBeGreaterThan(-1);

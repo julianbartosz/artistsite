@@ -292,7 +292,7 @@ export default function SiteAppearancePanel({ theme, savedTheme, onChange, artwo
                     type="button"
                     onClick={() => setSwatchTarget(role)}
                     aria-pressed={swatchTarget === role}
-                    className={`rounded px-2.5 py-1 font-medium ${swatchTarget === role ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+                    className={`inline-flex min-h-9 items-center rounded px-3 font-medium ${swatchTarget === role ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
                   >
                     {role === 'primary' ? 'Set main color' : 'Set highlight'}
                   </button>

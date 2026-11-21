@@ -33,6 +33,7 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [listQuery, setListQuery] = useState('');
   const [stageFilter, setStageFilter] = useState<'all' | CrmStage>('all');
   const [tagFilter, setTagFilter] = useState<'all' | 'commission' | 'unread'>('all');
@@ -56,12 +57,16 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
   async function loadThread(threadId: string) {
     setSelectedId(threadId);
     setError(null);
+    setStatusMessage(null);
     try {
       const response = await fetch(`${apiBase}/${threadId}`, { cache: 'no-store' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to load conversation');
       const loaded = data.thread || null;
       setThread(loaded);
+      setThreads((current) => current.map((entry) => (
+        entry.id === threadId ? { ...entry, unread: false } : entry
+      )));
       if (loaded) {
         setCrmStage(loaded.crmStage || 'new');
         setTagsInput(Array.isArray(loaded.tags) ? loaded.tags.join(', ') : '');
@@ -97,6 +102,7 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
   async function saveCrm() {
     if (mode !== 'admin' || !selectedId) return;
     const tags = tagsInput.split(',').map((tag) => tag.trim()).filter(Boolean);
+    setStatusMessage(null);
     try {
       const response = await fetch(`${apiBase}/${selectedId}`, {
         method: 'PATCH',
@@ -108,26 +114,29 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
       setError(null);
       await loadThreads();
       await loadThread(selectedId);
+      setStatusMessage('CRM details saved.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save CRM details');
     }
   }
 
-  async function closeThread() {
+  async function updateThreadStatus(nextStatus: 'open' | 'closed') {
     if (mode !== 'admin' || !selectedId) return;
+    setStatusMessage(null);
     try {
       const response = await fetch(`${apiBase}/${selectedId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'closed' }),
+        body: JSON.stringify({ status: nextStatus }),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Failed to close conversation');
+      if (!response.ok) throw new Error(data.error || `Failed to ${nextStatus === 'closed' ? 'close' : 'reopen'} conversation`);
       setError(null);
       await loadThreads();
       await loadThread(selectedId);
+      setStatusMessage(nextStatus === 'closed' ? 'Conversation closed.' : 'Conversation reopened.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to close conversation');
+      setError(err instanceof Error ? err.message : 'Failed to update conversation status');
     }
   }
 
@@ -303,11 +312,19 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
                   </Link>
                 )}
                 {mode === 'admin' && thread.status === 'open' && (
-                  <button type="button" onClick={() => void closeThread()} className="text-gray-600 hover:text-gray-900">
+                  <button type="button" onClick={() => void updateThreadStatus('closed')} className="text-gray-600 hover:text-gray-900">
                     Mark closed
                   </button>
                 )}
+                {mode === 'admin' && thread.status === 'closed' && (
+                  <button type="button" onClick={() => void updateThreadStatus('open')} className="font-medium text-primary hover:opacity-80">
+                    Reopen conversation
+                  </button>
+                )}
               </div>
+              {statusMessage && (
+                <p role="status" className="mt-2 text-xs font-medium text-green-700">{statusMessage}</p>
+              )}
             </div>
 
             <div className="flex-1 space-y-3 overflow-y-auto py-4">
@@ -345,7 +362,11 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
         {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
       </div>
 
-      {mode === 'admin' && <HiddenCommentsPanel />}
+      {mode === 'admin' && (
+        <div className="lg:col-span-3">
+          <HiddenCommentsPanel />
+        </div>
+      )}
     </div>
   );
 }
