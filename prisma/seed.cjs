@@ -96,9 +96,13 @@ async function seedProducts() {
     const editionTotal = Number(product.edition?.total);
     const editionRemaining = Number(product.edition?.remaining);
     if (Number.isFinite(editionTotal) && editionTotal > 0) {
+      // Limited editions are stock-tracked. Upsert both sides so re-seed restores demo stock
+      // instead of leaving a prior admin edit (e.g. stock 0 → catalog "sold") in place.
       const startingStock = Number.isFinite(editionRemaining)
         ? Math.max(0, Math.min(editionTotal, Math.floor(editionRemaining)))
         : Math.floor(editionTotal);
+      const lowStockThreshold = Math.max(1, Math.min(5, Math.floor(editionTotal / 10) || 1));
+      const stockStatus = startingStock === 0 ? 'out_of_stock' : startingStock <= lowStockThreshold ? 'low_stock' : 'in_stock';
       await prisma.productInventory.upsert({
         where: { productId: product.id },
         create: {
@@ -106,13 +110,25 @@ async function seedProducts() {
           currentStock: startingStock,
           reservedStock: 0,
           availableStock: startingStock,
-          lowStockThreshold: Math.max(1, Math.min(5, Math.floor(editionTotal / 10) || 1)),
-          stockStatus: startingStock === 0 ? 'out_of_stock' : startingStock <= 5 ? 'low_stock' : 'in_stock',
+          lowStockThreshold,
+          stockStatus,
           isTrackingEnabled: true,
           allowBackorders: false,
         },
-        update: {},
+        update: {
+          currentStock: startingStock,
+          reservedStock: 0,
+          availableStock: startingStock,
+          lowStockThreshold,
+          stockStatus,
+          isTrackingEnabled: true,
+          allowBackorders: false,
+        },
       });
+    } else {
+      // One-of-a-kind catalog items stay untracked (null inventory ⇒ purchasable while available).
+      // Clear any leftover tracking row from Studio edits so re-seed matches that contract.
+      await prisma.productInventory.deleteMany({ where: { productId: product.id } });
     }
   }
 }
@@ -193,6 +209,94 @@ async function seedArtworks() {
       },
     });
   }
+}
+
+
+/** Mirror src/lib/site-content-shared normalizePortfolioCategoryKey (no regex). */
+function normalizePortfolioCategoryKey(value) {
+  const lower = String(value || '').trim().toLowerCase();
+  const chars = [];
+  let pendingHyphen = false;
+  for (const char of lower) {
+    const isAlphaNum = (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9');
+    if (isAlphaNum) {
+      if (pendingHyphen && chars.length > 0) chars.push('-');
+      chars.push(char);
+      pendingHyphen = false;
+    } else if (chars.length > 0) {
+      pendingHyphen = true;
+    }
+  }
+  return chars.join('') || 'category';
+}
+
+function humanizeCategoryLabel(value) {
+  const parts = [];
+  let current = '';
+  for (const char of String(value || '')) {
+    if (char === '-' || char === '_' || char === ' ') {
+      if (current) {
+        parts.push(current);
+        current = '';
+      }
+      continue;
+    }
+    current += char;
+  }
+  if (current) parts.push(current);
+  return parts.map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ') || value;
+}
+
+/**
+ * First-run demo only: curated portfolio filters from seeded artwork tags.
+ * Skips when PAGE_PORTFOLIO_JSON already exists so Studio edits are preserved.
+ */
+async function seedPortfolioPageContent() {
+  const key = 'PAGE_PORTFOLIO_JSON';
+  const existing = await prisma.siteSetting.findUnique({ where: { key } });
+  if (existing) return;
+
+  const artworks = await prisma.artwork.findMany({ select: { category: true } });
+  const seen = new Set();
+  const categories = [];
+  for (const artwork of artworks) {
+    const tags = Array.isArray(artwork.category) ? artwork.category : [];
+    for (const tag of tags) {
+      const normalized = normalizePortfolioCategoryKey(tag);
+      if (!normalized || normalized === 'category' || normalized === 'uncategorized' || seen.has(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      categories.push({ key: normalized, label: humanizeCategoryLabel(normalized), visible: true });
+    }
+  }
+  categories.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+
+  await prisma.siteSetting.create({
+    data: {
+      key,
+      encrypted: false,
+      value: JSON.stringify({
+        title: 'Portfolio',
+        subtitle: '',
+        hero: { height: 'compact' },
+        layout: {
+          gridColumns: '3',
+          showFilters: true,
+          masonry: false,
+          imageFit: 'cover',
+          thumbAspect: 'square',
+          showFeaturedBadge: true,
+          showSoldBadge: true,
+          showMeta: true,
+          showPrice: false,
+          includeUnlistedCategories: false,
+        },
+        categories,
+        artworkDetailLayout: 'standard',
+      }),
+    },
+  });
 }
 
 function productSnapshotFromRecord(product) {
@@ -321,6 +425,7 @@ async function main() {
   await seedProducts();
   await seedBlogPosts();
   await seedArtworks();
+  await seedPortfolioPageContent();
   await seedDemoCustomer();
 }
 
