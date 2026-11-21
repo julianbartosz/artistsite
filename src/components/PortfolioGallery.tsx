@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import type { ArtworkPiece } from '@/lib/portfolio';
 import { PRODUCT_IMAGE_FALLBACK } from '@/lib/commerce';
+import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
 import {
   normalizePortfolioCategoryKey,
   type PortfolioPageContent,
@@ -71,7 +72,7 @@ function PortfolioArtworkCard({
             fill
             className={`${imageFitClass(layout)} transition-transform duration-300 group-hover:scale-105 motion-reduce:transform-none`}
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-            unoptimized={imageSrc.endsWith('.svg')}
+            unoptimized={shouldUnoptimizeImage(imageSrc)}
             onError={() => {
               if (imageSrc !== PRODUCT_IMAGE_FALLBACK) {
                 setImageSrc(PRODUCT_IMAGE_FALLBACK);

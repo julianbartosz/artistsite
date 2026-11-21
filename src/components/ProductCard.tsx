@@ -3,8 +3,8 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useState } from 'react';
-import { Product } from '@/lib/commerce';
-import { formatPrice, productImageSrc } from '@/lib/commerce';
+import { Product, PRODUCT_IMAGE_FALLBACK, formatPrice, productImageSrc } from '@/lib/commerce';
+import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
 import StockIndicator from '@/components/StockIndicator';
 import { WishlistButton } from '@/components/WishlistButton';
 import ProductQuickLook from '@/components/ProductQuickLook';
@@ -15,8 +15,20 @@ interface ProductCardProps {
 
 export function ShopProductCard({ product }: ProductCardProps) {
   const [quickLookOpen, setQuickLookOpen] = useState(false);
+  const rawImage = product.images.thumbnail?.trim()
+    || product.images.gallery.find((image) => image.trim())
+    || PRODUCT_IMAGE_FALLBACK;
+  const [imageSrc, setImageSrc] = useState(() => productImageSrc(product));
   const isLimitedEdition = product.edition && product.edition.remaining < product.edition.total;
   const productHref = `/shop/${product.id}`;
+
+  function handleImageError() {
+    if (imageSrc !== rawImage) {
+      setImageSrc(rawImage);
+    } else if (imageSrc !== PRODUCT_IMAGE_FALLBACK) {
+      setImageSrc(PRODUCT_IMAGE_FALLBACK);
+    }
+  }
 
   return (
     <>
@@ -27,11 +39,13 @@ export function ShopProductCard({ product }: ProductCardProps) {
       <div className="relative aspect-square bg-gray-100 flex-shrink-0">
         <Link href={productHref} data-testid="product-card-link" className="absolute inset-0 z-10 block">
           <Image
-            src={productImageSrc(product)}
+            src={imageSrc}
             alt={product.title}
             fill
             className="object-cover group-hover:scale-105 transition-transform duration-300 motion-reduce:transform-none"
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            unoptimized={shouldUnoptimizeImage(imageSrc)}
+            onError={handleImageError}
           />
         </Link>
         <div

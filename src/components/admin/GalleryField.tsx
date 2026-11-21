@@ -1,17 +1,22 @@
 'use client';
 
-import React, { ChangeEvent, DragEvent, useState } from 'react';
-import { fetchMediaLibrary, uploadImageFile, uploadMediaFile, type MediaLibraryItem } from '@/lib/image-upload-client';
+import React, { ChangeEvent, DragEvent, useEffect, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, X } from 'lucide-react';
+import {
+  IMAGE_FILE_ACCEPT,
+  isSupportedImageFile,
+  isSupportedMediaFile,
+  isSupportedVideoFile,
+  MEDIA_FILE_ACCEPT,
+  uploadImageFile,
+  uploadMediaFile,
+  type MediaLibraryItem,
+} from '@/lib/image-upload-client';
 import type { PostMediaItem } from '@/lib/admin-content';
+import { reorder } from '@/components/admin/EditorFields';
+import MediaPickerModal from '@/components/admin/MediaPickerModal';
+import MediaThumb from '@/components/admin/MediaThumb';
 import { useFileUploadInput } from '@/components/admin/useFileUploadInput';
-
-function reorder<T>(items: T[], index: number, direction: -1 | 1): T[] {
-  const target = index + direction;
-  if (target < 0 || target >= items.length) return items;
-  const next = items.slice();
-  [next[index], next[target]] = [next[target], next[index]];
-  return next;
-}
 
 function asMediaItems(value: string[] | PostMediaItem[]): PostMediaItem[] {
   return value.map((entry) => (
@@ -22,6 +27,8 @@ function asMediaItems(value: string[] | PostMediaItem[]): PostMediaItem[] {
 type GalleryFieldBase = {
   label: string;
   help?: string;
+  /** Badge shown on the first item when its position is meaningful, e.g. "Cover". */
+  firstItemLabel?: string;
 };
 
 type ImageGalleryProps = GalleryFieldBase & {
@@ -38,69 +45,83 @@ type MediaGalleryProps = GalleryFieldBase & {
 
 type GalleryFieldProps = ImageGalleryProps | MediaGalleryProps;
 
+const ACTION_BUTTON = 'inline-flex min-h-10 items-center rounded-md border border-gray-300 bg-white px-3.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50';
+const TILE_ACTION = 'flex h-9 items-center justify-center text-gray-700 hover:bg-gray-100 disabled:text-gray-300 disabled:hover:bg-transparent';
+
+/** An ordered set of photos (and optionally videos) with upload, library, reorder, and remove. */
 export default function GalleryField(props: GalleryFieldProps) {
-  const { label, help } = props;
+  const { label, help, firstItemLabel } = props;
   const acceptMedia = props.accept === 'media';
   const items = asMediaItems(props.value);
-  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
-  const [libraryLoading, setLibraryLoading] = useState(false);
-  const [libraryItems, setLibraryItems] = useState<MediaLibraryItem[]>([]);
   const { inputRef, openFilePicker } = useFileUploadInput();
+  const uploading = uploadProgress !== null;
+
+  // Uploads finish long after they start; always apply them to the newest value and handler
+  // so edits made in the meantime (here or elsewhere in the form) are never overwritten.
+  const latestProps = useRef(props);
+  useEffect(() => {
+    latestProps.current = props;
+  });
+
+  function currentItems(): PostMediaItem[] {
+    return asMediaItems(latestProps.current.value);
+  }
 
   function emit(next: PostMediaItem[]) {
-    if (props.accept === 'media') {
-      props.onChange(next);
+    const current = latestProps.current;
+    if (current.accept === 'media') {
+      current.onChange(next);
       return;
     }
-    props.onChange(next.map((item) => item.url));
+    current.onChange(next.map((item) => item.url));
+  }
+
+  function addItem(item: PostMediaItem) {
+    const existing = currentItems();
+    if (existing.some((entry) => entry.url === item.url)) return;
+    emit([...existing, item]);
   }
 
   async function uploadFiles(files: FileList | File[]) {
-    const selected = Array.from(files).filter((file) => (
-      acceptMedia
-        ? file.type.startsWith('image/') || file.type.startsWith('video/')
-        : file.type.startsWith('image/')
+    const allFiles = Array.from(files);
+    const selected = allFiles.filter((file) => (
+      acceptMedia ? isSupportedMediaFile(file) : isSupportedImageFile(file)
     ));
-    if (selected.length === 0) return;
+    const skippedCount = allFiles.length - selected.length;
+    if (selected.length === 0) {
+      setError(
+        acceptMedia
+          ? 'Unsupported file type. Use JPG, PNG, WebP, GIF, HEIC, MP4, WebM, or MOV.'
+          : 'Unsupported file type. Use JPG, PNG, WebP, GIF, or HEIC.',
+      );
+      return;
+    }
 
-    setUploading(true);
-    setError(null);
-    const uploaded: PostMediaItem[] = [];
-    try {
-      for (const file of selected) {
+    const problems: string[] = skippedCount > 0
+      ? [`Skipped ${skippedCount} unsupported file${skippedCount === 1 ? '' : 's'}.`]
+      : [];
+    setError(problems.join(' ') || null);
+
+    for (let i = 0; i < selected.length; i += 1) {
+      const file = selected[i];
+      setUploadProgress({ current: i + 1, total: selected.length });
+      try {
         const item = acceptMedia ? await uploadMediaFile(file) : await uploadImageFile(file);
-        uploaded.push({
+        addItem({
           url: item.url,
-          type: item.kind === 'video' || file.type.startsWith('video/') ? 'video' : 'image',
+          type: item.kind === 'video' || isSupportedVideoFile(file) ? 'video' : 'image',
         });
-        if (libraryOpen) {
-          setLibraryItems((current) => [item, ...current]);
-        }
+      } catch (uploadError) {
+        const reason = uploadError instanceof Error ? uploadError.message : 'Upload failed';
+        problems.push(selected.length > 1 ? `${file.name}: ${reason}` : reason);
+        setError(problems.join(' '));
       }
-      emit([...items, ...uploaded]);
-    } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : 'Upload failed');
-      if (uploaded.length > 0) emit([...items, ...uploaded]);
-    } finally {
-      setUploading(false);
     }
-  }
-
-  async function openLibrary() {
-    setLibraryOpen(true);
-    setLibraryLoading(true);
-    setError(null);
-    try {
-      setLibraryItems(await fetchMediaLibrary({ includeVideo: acceptMedia }));
-    } catch (libraryError) {
-      setError(libraryError instanceof Error ? libraryError.message : 'Failed to load media library');
-      setLibraryItems([]);
-    } finally {
-      setLibraryLoading(false);
-    }
+    setUploadProgress(null);
   }
 
   function handleFileInput(event: ChangeEvent<HTMLInputElement>) {
@@ -114,44 +135,54 @@ export default function GalleryField(props: GalleryFieldProps) {
     if (event.dataTransfer.files?.length) void uploadFiles(event.dataTransfer.files);
   }
 
-  function addFromLibrary(item: MediaLibraryItem) {
-    if (items.some((current) => current.url === item.url)) return;
-    emit([...items, { url: item.url, type: item.kind === 'video' ? 'video' : 'image' }]);
+  function toggleFromLibrary(item: MediaLibraryItem) {
+    const existing = currentItems();
+    if (existing.some((entry) => entry.url === item.url)) {
+      emit(existing.filter((entry) => entry.url !== item.url));
+      return;
+    }
+    emit([...existing, { url: item.url, type: item.kind === 'video' ? 'video' : 'image' }]);
   }
-
-  function removeAt(index: number) {
-    emit(items.filter((_, currentIndex) => currentIndex !== index));
-  }
-
-  const selectedUrls = new Set(items.map((item) => item.url));
 
   return (
-    <div className="block text-sm font-medium text-gray-700">
-      <span>{label}</span>
+    <div className="text-sm font-medium text-gray-700" role="group" aria-label={label}>
+      <span className="block">{label}</span>
       {help && <p className="mt-1 text-xs font-normal text-gray-500">{help}</p>}
 
       {items.length > 0 && (
-        <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
+        <ul className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
           {items.map((item, index) => (
-            <div key={`${item.url}-${index}`} className="relative aspect-square overflow-hidden rounded border border-gray-200 bg-gray-100">
-              {item.type === 'video' ? (
-                <video src={item.url} className="h-full w-full object-cover" muted playsInline preload="metadata" />
-              ) : (
-                <img src={item.url} alt="" className="h-full w-full object-cover" />
+            <li key={`${item.url}-${index}`} className="relative overflow-hidden rounded border border-gray-200 bg-white">
+              <MediaThumb
+                src={item.url}
+                kind={item.type === 'video' ? 'video' : 'image'}
+                sizes="(max-width: 640px) 33vw, 160px"
+                className="aspect-square w-full"
+              />
+              {index === 0 && firstItemLabel && (
+                <span className="absolute left-1 top-1 rounded bg-gray-900/85 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                  {firstItemLabel}
+                </span>
               )}
               {item.type === 'video' && (
-                <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                <span className="absolute right-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
                   Video
                 </span>
               )}
-              <div className="absolute inset-x-0 bottom-0 flex justify-between gap-1 bg-black/60 p-1">
-                <button type="button" disabled={index === 0} onClick={() => emit(reorder(items, index, -1))} className="rounded px-1 text-xs text-white disabled:opacity-40" title="Move earlier">←</button>
-                <button type="button" onClick={() => removeAt(index)} className="rounded px-1 text-xs text-white" title="Remove">✕</button>
-                <button type="button" disabled={index === items.length - 1} onClick={() => emit(reorder(items, index, 1))} className="rounded px-1 text-xs text-white disabled:opacity-40" title="Move later">→</button>
+              <div className="grid grid-cols-3 border-t border-gray-200">
+                <button type="button" disabled={index === 0} onClick={() => emit(reorder(items, index, -1))} className={TILE_ACTION} aria-label="Move earlier">
+                  <ChevronLeft size={16} aria-hidden="true" />
+                </button>
+                <button type="button" onClick={() => emit(items.filter((_, currentIndex) => currentIndex !== index))} className={`${TILE_ACTION} hover:text-red-700`} aria-label="Remove">
+                  <X size={16} aria-hidden="true" />
+                </button>
+                <button type="button" disabled={index === items.length - 1} onClick={() => emit(reorder(items, index, 1))} className={TILE_ACTION} aria-label="Move later">
+                  <ChevronRight size={16} aria-hidden="true" />
+                </button>
               </div>
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
 
       <div
@@ -160,74 +191,44 @@ export default function GalleryField(props: GalleryFieldProps) {
         onDrop={handleDrop}
         className={`mt-2 rounded-md border-2 border-dashed p-3 transition-colors ${dragging ? 'border-primary bg-primary/5' : 'border-gray-200'}`}
       >
-        <div className="flex flex-wrap items-center gap-3">
-          <input
-            ref={inputRef}
-            type="file"
-            accept={acceptMedia ? 'image/*,video/mp4,video/webm,video/quicktime' : 'image/*'}
-            multiple
-            disabled={uploading}
-            onChange={handleFileInput}
-            className="hidden"
-            tabIndex={-1}
-            aria-hidden="true"
-          />
-          <button
-            type="button"
-            disabled={uploading}
-            onClick={openFilePicker}
-            className="inline-flex cursor-pointer items-center rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            {uploading ? 'Uploading...' : acceptMedia ? 'Add photos or video' : 'Add photos'}
+        <input
+          ref={inputRef}
+          type="file"
+          accept={acceptMedia ? MEDIA_FILE_ACCEPT : IMAGE_FILE_ACCEPT}
+          multiple
+          disabled={uploading}
+          onChange={handleFileInput}
+          className="hidden"
+          tabIndex={-1}
+          aria-hidden="true"
+        />
+        <div className="flex flex-wrap gap-2">
+          <button type="button" disabled={uploading} onClick={openFilePicker} className={ACTION_BUTTON}>
+            {uploadProgress
+              ? (uploadProgress.total > 1 ? `Uploading ${uploadProgress.current} of ${uploadProgress.total}…` : 'Uploading…')
+              : acceptMedia ? 'Add photos or video' : 'Add photos'}
           </button>
-          <button
-            type="button"
-            onClick={() => void openLibrary()}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
-          >
-            Browse library
+          <button type="button" onClick={() => setLibraryOpen(true)} className={ACTION_BUTTON}>
+            Library
           </button>
-          <span className="text-xs text-gray-500">
-            {acceptMedia ? 'Drop photos or short videos here.' : 'Drop photos here or select multiple files.'}
-          </span>
         </div>
+        <p className="mt-2 text-xs font-normal text-gray-500">
+          {acceptMedia
+            ? 'Photos up to 25 MB (JPG, PNG, WebP, GIF, HEIC) · videos up to 80 MB (MP4, MOV, WebM)'
+            : 'JPG, PNG, WebP, GIF, or HEIC · up to 25 MB each'}
+        </p>
       </div>
 
-      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+      {error && <p className="mt-1 text-xs text-red-600" role="alert">{error}</p>}
 
-      {libraryOpen && (
-        <div className="mt-3 rounded-md border border-gray-200 p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-sm font-semibold text-gray-900">Media library</p>
-            <button type="button" onClick={() => setLibraryOpen(false)} className="text-xs text-gray-600 hover:text-gray-900">
-              Close
-            </button>
-          </div>
-          {libraryLoading ? (
-            <p className="text-xs text-gray-500">Loading media...</p>
-          ) : libraryItems.length === 0 ? (
-            <p className="text-xs text-gray-500">No uploaded media yet.</p>
-          ) : (
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
-              {libraryItems.map((item) => (
-                <button
-                  key={item.url}
-                  type="button"
-                  onClick={() => addFromLibrary(item)}
-                  className={`relative aspect-square overflow-hidden rounded border ${selectedUrls.has(item.url) ? 'border-primary ring-2 ring-primary' : 'border-gray-200 hover:border-gray-400'}`}
-                  title={item.filename}
-                >
-                  {item.kind === 'video' ? (
-                    <video src={item.url} className="h-full w-full object-cover" muted playsInline preload="metadata" />
-                  ) : (
-                    <img src={item.url} alt="" className="h-full w-full object-cover" />
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      <MediaPickerModal
+        open={libraryOpen}
+        onClose={() => setLibraryOpen(false)}
+        title={label}
+        includeVideo={acceptMedia}
+        selectedUrls={items.map((item) => item.url)}
+        onToggle={toggleFromLibrary}
+      />
     </div>
   );
 }

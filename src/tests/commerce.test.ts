@@ -14,7 +14,7 @@ import {
 } from '@/lib/commerce';
 import { resolvePublicAssetUrl } from '@/lib/public-asset';
 import { normalizeProductPayload } from '@/lib/admin-content';
-import { pickVariantUrl } from '@/lib/image-variant-url';
+import { parseVariantFilename, pickVariantUrl, shouldUnoptimizeImage } from '@/lib/image-variant-url';
 import { createCartRecoveryToken, verifyCartRecoveryToken } from '@/lib/cart-recovery';
 import {
   stableSearchParamsKey,
@@ -302,6 +302,27 @@ describe('normalizeProductPayload purchase options', () => {
 describe('image variant urls', () => {
   it('maps upload urls to webp variants', () => {
     expect(pickVariantUrl('/uploads/images/photo.jpg', 'md')).toBe('/uploads/images/photo-md.webp');
+  });
+
+  it.each([
+    ['abc123-thumb.webp', { stem: 'abc123', size: 'thumb' }],
+    ['abc123-md.webp', { stem: 'abc123', size: 'md' }],
+    ['abc123-lg.webp', { stem: 'abc123', size: 'lg' }],
+    ['abc123.webp', null],
+    ['abc123.jpg', null],
+  ])('parses generated variant filename %s', (filename, expected) => {
+    expect(parseVariantFilename(filename)).toEqual(expected);
+  });
+
+  it.each([
+    ['/images/portfolio/piece.jpg', false],
+    ['/uploads/images/abc123.jpg', false],
+    ['https://myaccount.blob.core.windows.net/assets/images/abc.jpg', false],
+    ['/images/fallback-artwork.svg', true],
+    ['https://cdn.example.com/painting.jpg', true],
+    ['data:image/png;base64,abc', true],
+  ])('computes shouldUnoptimizeImage(%s) -> %s', (src, expected) => {
+    expect(shouldUnoptimizeImage(src)).toBe(expected);
   });
 });
 

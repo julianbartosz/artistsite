@@ -3,16 +3,27 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 export default function CmsPreviewBanner() {
   const { data: session } = useSession();
   const pathname = usePathname() || '';
   const router = useRouter();
   const [exiting, setExiting] = useState(false);
+  const [inPreviewFrame, setInPreviewFrame] = useState(false);
 
-  // Studio already has its own chrome; keep preview notice on public pages only.
-  if (!session?.user?.isAdmin || pathname.startsWith('/admin')) {
+  useEffect(() => {
+    try {
+      const embedded = window.self !== window.top;
+      const previewParam = new URLSearchParams(window.location.search).get('cmsPreview') === '1';
+      setInPreviewFrame(embedded || previewParam);
+    } catch {
+      setInPreviewFrame(true);
+    }
+  }, []);
+
+  // Studio already has its own chrome; keep preview notice on standalone public pages only.
+  if (!session?.user?.isAdmin || pathname.startsWith('/admin') || inPreviewFrame) {
     return null;
   }
 

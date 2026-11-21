@@ -24,6 +24,26 @@ export function reorder<T>(items: T[], index: number, direction: -1 | 1): T[] {
   return next;
 }
 
+/** Up/Down pair for reordering one row of a list; `name` describes the row for screen readers. */
+export function ReorderButtons({ name, index, count, onMove }: {
+  name: string;
+  index: number;
+  count: number;
+  onMove: (direction: -1 | 1) => void;
+}) {
+  const buttonClass = 'inline-flex min-h-9 items-center rounded border border-gray-300 px-3 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:hover:bg-transparent';
+  return (
+    <>
+      <button type="button" className={buttonClass} disabled={index === 0} onClick={() => onMove(-1)} aria-label={`Move ${name} up`}>
+        Up
+      </button>
+      <button type="button" className={buttonClass} disabled={index >= count - 1} onClick={() => onMove(1)} aria-label={`Move ${name} down`}>
+        Down
+      </button>
+    </>
+  );
+}
+
 export function TextField({
   label, value, onChange, help, placeholder, disabled, type = 'text', maxLength,
 }: TextInputProps & { type?: 'text' | 'email' | 'url'; maxLength?: number }) {

@@ -101,7 +101,7 @@ export function Header({ siteIdentity = DEFAULT_SITE_IDENTITY }: HeaderProps) {
             </div>
 
             {/* Desktop Navigation */}
-            <div className="hidden md:block flex-shrink-0">
+            <div className="hidden lg:block flex-shrink-0">
               <div className="flex items-center gap-6">
                 {navigation.map((item) => (
                   <Link
@@ -124,14 +124,14 @@ export function Header({ siteIdentity = DEFAULT_SITE_IDENTITY }: HeaderProps) {
               {session?.user?.isAdmin && (
                 <Link
                   href="/admin"
-                  className="hidden md:inline-flex items-center rounded-full border border-gray-200 bg-surface-muted px-3 py-1 text-xs font-medium text-gray-700 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:text-gray-900 mr-1"
+                  className="hidden lg:inline-flex items-center rounded-full border border-gray-200 bg-surface-muted px-3 py-1 text-xs font-medium text-gray-700 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:text-gray-900 mr-1"
                 >
                   Studio
                 </Link>
               )}
 
               {/* Account menu (desktop): single calm icon whether signed in or out */}
-              <div className="hidden md:block relative" ref={userMenuRef}>
+              <div className="hidden lg:block relative" ref={userMenuRef}>
                 <button
                   type="button"
                   disabled={isAuthLoading}
@@ -247,7 +247,7 @@ export function Header({ siteIdentity = DEFAULT_SITE_IDENTITY }: HeaderProps) {
               </button>
 
               {/* Mobile menu button */}
-              <div className="md:hidden">
+              <div className="lg:hidden">
                 <button
                   type="button"
                   onClick={() => setIsMenuOpen(!isMenuOpen)}
@@ -297,7 +297,7 @@ export function Header({ siteIdentity = DEFAULT_SITE_IDENTITY }: HeaderProps) {
 
           {/* Mobile Navigation Menu */}
           {isMenuOpen && (
-            <div className="md:hidden" data-testid="mobile-menu">
+            <div className="lg:hidden" data-testid="mobile-menu">
               <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3 border-t border-gray-200">
                 {navigation.map((item) => (
                   <Link

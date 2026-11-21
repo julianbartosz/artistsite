@@ -1,7 +1,9 @@
 'use client';
 
-import React, { ChangeEvent, DragEvent, useState } from 'react';
-import { fetchMediaLibrary, uploadImageFile, type MediaLibraryItem } from '@/lib/image-upload-client';
+import React, { ChangeEvent, DragEvent, useEffect, useId, useRef, useState } from 'react';
+import { IMAGE_FILE_ACCEPT, isSupportedImageFile, uploadImageFile } from '@/lib/image-upload-client';
+import MediaPickerModal from '@/components/admin/MediaPickerModal';
+import MediaThumb from '@/components/admin/MediaThumb';
 import { useFileUploadInput } from '@/components/admin/useFileUploadInput';
 
 type MediaImageFieldProps = {
@@ -11,42 +13,39 @@ type MediaImageFieldProps = {
   help?: string;
 };
 
+const ACTION_BUTTON = 'inline-flex min-h-10 items-center rounded-md border border-gray-300 bg-white px-3.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50';
+
+/** One photo slot: shows the current photo with upload, library, and remove actions. */
 export default function MediaImageField({ label, value, onChange, help }: MediaImageFieldProps) {
+  const linkInputId = useId();
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
-  const [libraryLoading, setLibraryLoading] = useState(false);
-  const [libraryItems, setLibraryItems] = useState<MediaLibraryItem[]>([]);
+  const [linkOpen, setLinkOpen] = useState(false);
   const { inputRef, openFilePicker } = useFileUploadInput();
 
+  // An upload can finish after other fields were edited; hand the result to the newest
+  // onChange so the parent form never rebuilds itself from the state it had when the upload began.
+  const latestOnChange = useRef(onChange);
+  useEffect(() => {
+    latestOnChange.current = onChange;
+  });
+
   async function upload(file: File) {
+    if (!isSupportedImageFile(file)) {
+      setError('Unsupported image format. Use JPG, PNG, WebP, GIF, or HEIC.');
+      return;
+    }
     setUploading(true);
     setError(null);
     try {
       const item = await uploadImageFile(file);
-      onChange(item.url);
-      if (libraryOpen) {
-        setLibraryItems((current) => [item, ...current]);
-      }
+      latestOnChange.current(item.url);
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : 'Image upload failed');
     } finally {
       setUploading(false);
-    }
-  }
-
-  async function openLibrary() {
-    setLibraryOpen(true);
-    setLibraryLoading(true);
-    setError(null);
-    try {
-      setLibraryItems(await fetchMediaLibrary());
-    } catch (libraryError) {
-      setError(libraryError instanceof Error ? libraryError.message : 'Failed to load media library');
-      setLibraryItems([]);
-    } finally {
-      setLibraryLoading(false);
     }
   }
 
@@ -60,102 +59,92 @@ export default function MediaImageField({ label, value, onChange, help }: MediaI
     event.preventDefault();
     setDragging(false);
     const file = event.dataTransfer.files?.[0];
-    if (file && file.type.startsWith('image/')) void upload(file);
+    if (file) void upload(file);
   }
 
   return (
-    <div className="block text-sm font-medium text-gray-700">
-      <span>{label}</span>
-      <input
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900"
-        placeholder="/images/example.jpg"
-      />
+    <div className="text-sm font-medium text-gray-700" role="group" aria-label={label}>
+      <span className="block">{label}</span>
       <div
         onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={handleDrop}
-        className={`mt-2 rounded-md border-2 border-dashed p-3 transition-colors ${dragging ? 'border-primary bg-primary/5' : 'border-gray-200'}`}
+        className={`mt-1 flex items-center gap-3 rounded-md border-2 border-dashed p-3 transition-colors ${dragging ? 'border-primary bg-primary/5' : 'border-gray-200'}`}
       >
-        <div className="flex flex-wrap items-center gap-3">
+        {value && (
+          <MediaThumb src={value} fit="contain" sizes="96px" className="h-20 w-20 shrink-0 rounded border border-gray-200" />
+        )}
+        <div className="min-w-0 flex-1">
           <input
             ref={inputRef}
             type="file"
-            accept="image/*"
+            accept={IMAGE_FILE_ACCEPT}
             disabled={uploading}
             onChange={handleFileInput}
             className="hidden"
             tabIndex={-1}
             aria-hidden="true"
           />
-          <button
-            type="button"
-            disabled={uploading}
-            onClick={openFilePicker}
-            className="inline-flex cursor-pointer items-center rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            {uploading ? 'Uploading...' : 'Upload image'}
-          </button>
-          <button
-            type="button"
-            onClick={() => void openLibrary()}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
-          >
-            Browse library
-          </button>
-          <span className="text-xs text-gray-500">Drop a photo here or click to browse. JPG or PNG, at least 1200px wide recommended.</span>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={uploading} onClick={openFilePicker} className={ACTION_BUTTON}>
+              {uploading ? 'Uploading…' : value ? 'Replace' : 'Upload photo'}
+            </button>
+            <button type="button" onClick={() => setLibraryOpen(true)} className={ACTION_BUTTON}>
+              Library
+            </button>
+            {value && (
+              <button
+                type="button"
+                onClick={() => {
+                  onChange('');
+                  setError(null);
+                }}
+                className={`${ACTION_BUTTON} hover:text-red-700`}
+              >
+                Remove
+              </button>
+            )}
+          </div>
+          <p className="mt-2 text-xs font-normal text-gray-500">JPG, PNG, WebP, GIF, or HEIC · up to 25 MB</p>
         </div>
       </div>
-      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
-      {help && <p className="mt-1 text-xs text-gray-500">{help}</p>}
-      {value && (
-        <div className="mt-2 flex items-center gap-3">
-          <img src={value} alt="" className="h-24 w-24 rounded object-cover border border-gray-200" />
-          <button
-            type="button"
-            onClick={() => {
-              onChange('');
-              setError(null);
-            }}
-            className="rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 hover:text-red-700"
-          >
-            Remove image
-          </button>
-        </div>
+      {error && <p className="mt-1 text-xs text-red-600" role="alert">{error}</p>}
+      {help && <p className="mt-1 text-xs font-normal text-gray-500">{help}</p>}
+      {linkOpen ? (
+        <label htmlFor={linkInputId} className="mt-2 block text-xs font-medium text-gray-700">
+          Image link
+          <input
+            id={linkInputId}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            inputMode="url"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            placeholder="https://example.com/photo.jpg"
+            className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal text-gray-900"
+          />
+        </label>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setLinkOpen(true)}
+          className="mt-1 inline-flex min-h-8 items-center text-xs font-normal text-gray-500 underline underline-offset-2 hover:text-gray-800"
+        >
+          Use an image link instead
+        </button>
       )}
-      {libraryOpen && (
-        <div className="mt-3 rounded-md border border-gray-200 p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-sm font-semibold text-gray-900">Media library</p>
-            <button type="button" onClick={() => setLibraryOpen(false)} className="text-xs text-gray-600 hover:text-gray-900">
-              Close
-            </button>
-          </div>
-          {libraryLoading ? (
-            <p className="text-xs text-gray-500">Loading images...</p>
-          ) : libraryItems.length === 0 ? (
-            <p className="text-xs text-gray-500">No uploaded images yet. Upload one to get started.</p>
-          ) : (
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
-              {libraryItems.map((item) => (
-                <button
-                  key={item.url}
-                  type="button"
-                  onClick={() => {
-                    onChange(item.url);
-                    setLibraryOpen(false);
-                  }}
-                  className={`relative aspect-square overflow-hidden rounded border ${value === item.url ? 'border-primary ring-2 ring-primary' : 'border-gray-200 hover:border-gray-400'}`}
-                  title={item.filename}
-                >
-                  <img src={item.url} alt="" className="h-full w-full object-cover" />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      <MediaPickerModal
+        open={libraryOpen}
+        onClose={() => setLibraryOpen(false)}
+        title={label}
+        allowUpload={false}
+        selectedUrls={value ? [value] : []}
+        onSelect={(url) => {
+          onChange(url);
+          setError(null);
+        }}
+      />
     </div>
   );
 }

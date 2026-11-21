@@ -11,12 +11,13 @@ import {
   type SiteContentPage,
   type BioPageContent,
   type ContactPageContent,
+  type ShopPageContent,
   type SiteContentByPage,
 } from '@/lib/site-content-shared';
 
 export * from '@/lib/site-content-shared';
 
-function sanitizeHtmlFields(page: SiteContentPage, content: unknown) {
+export function sanitizeSiteContentHtmlFields(page: SiteContentPage, content: unknown) {
   if (page === 'identity') {
     const identity = content as SiteContentByPage['identity'];
     return {
@@ -55,10 +56,18 @@ function sanitizeHtmlFields(page: SiteContentPage, content: unknown) {
     };
   }
 
+  if (page === 'shop') {
+    const shop = content as ShopPageContent;
+    return {
+      ...shop,
+      successNextStepsHtml: sanitizeRichHtml(shop.successNextStepsHtml),
+    };
+  }
+
   return content;
 }
 
-function mergePageContent(defaults: unknown, parsed: unknown): unknown {
+export function mergePageContent(defaults: unknown, parsed: unknown): unknown {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return defaults;
   if (!defaults || typeof defaults !== 'object' || Array.isArray(defaults)) return parsed;
 
@@ -141,7 +150,7 @@ export async function setSiteContentPages(
 ): Promise<Partial<SiteContentByPage>> {
   const entries = (Object.keys(pages) as SiteContentPage[]).map((page) => {
     const parsed = PAGE_SCHEMAS[page].parse(pages[page]);
-    return [page, sanitizeHtmlFields(page, parsed)] as const;
+    return [page, sanitizeSiteContentHtmlFields(page, parsed)] as const;
   });
 
   await setConfigMany(entries.map(([page, value]) => ({
@@ -167,6 +176,17 @@ export async function getAllPublicSiteContent() {
   return { identity, home, bio, contact, portfolio, shop, blog };
 }
 
+/** Studio editor must always hydrate from published truth, never an unsaved preview snapshot. */
 export async function getAllAdminSiteContent() {
-  return getAllPublicSiteContent();
+  const [identity, home, bio, contact, portfolio, shop, blog] = await Promise.all([
+    getPublishedSiteContent('identity'),
+    getPublishedSiteContent('home'),
+    getPublishedSiteContent('bio'),
+    getPublishedSiteContent('contact'),
+    getPublishedSiteContent('portfolio'),
+    getPublishedSiteContent('shop'),
+    getPublishedSiteContent('blog'),
+  ]);
+
+  return { identity, home, bio, contact, portfolio, shop, blog };
 }

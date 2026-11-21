@@ -15,6 +15,7 @@ import { InventoryDashboard } from '@/components/InventoryDashboard';
 import { UnifiedMarketingDashboard } from '@/components/UnifiedMarketingDashboard';
 import OrderCelebrationCard, { useOrderCelebration } from '@/components/admin/OrderCelebrationCard';
 import StudioInboxPanel from '@/components/StudioInboxPanel';
+import { confirmLeaveWithUnsavedChanges } from '@/components/admin/useUnsavedChangesGuard';
 import { buildLaunchReadinessItems } from '@/lib/setup-readiness';
 import { 
   FileText, 
@@ -129,6 +130,7 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
   const moreTabActive = moreTabs.some((tab) => tab.key === activeTab);
 
   const selectTab = useCallback((tab: AdminTab, hash?: string, options?: { create?: boolean }) => {
+    if (tab !== activeTab && !confirmLeaveWithUnsavedChanges()) return;
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', tab);
     if (tab !== 'pages') {
@@ -144,7 +146,7 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
     const query = params.toString();
     const path = query ? `/admin?${query}` : '/admin';
     router.replace(hash ? `${path}#${hash}` : path, { scroll: false });
-  }, [router, searchParams]);
+  }, [activeTab, router, searchParams]);
 
   const selectGroup = useCallback((groupId: string) => {
     const group = ADMIN_TAB_GROUPS.find((entry) => entry.id === groupId);
@@ -458,7 +460,7 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
                       aria-expanded={isActive}
                       aria-controls={isActive ? 'admin-group-tabs' : undefined}
                       onClick={() => selectGroup(group.id)}
-                      className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors ${
+                      className={`inline-flex min-h-9 shrink-0 items-center rounded-md px-2.5 text-xs font-semibold uppercase tracking-wide transition-colors ${
                         isActive
                           ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-200'
                           : 'text-gray-500 hover:bg-white/70 hover:text-gray-800'
@@ -474,6 +476,9 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <Link
               href="/"
+              onClick={(event) => {
+                if (!confirmLeaveWithUnsavedChanges()) event.preventDefault();
+              }}
               className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium text-gray-700 hover:bg-white hover:text-gray-900"
             >
               <ExternalLink size={14} aria-hidden="true" />
@@ -482,6 +487,7 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
             <button
               type="button"
               onClick={() => {
+                if (!confirmLeaveWithUnsavedChanges()) return;
                 void signOut({ callbackUrl: '/' });
               }}
               className="rounded-md px-2.5 py-1.5 text-sm font-medium text-gray-600 hover:bg-white hover:text-gray-900"
@@ -621,7 +627,10 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
             <Link
               href="/"
               className="mb-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-800"
-              onClick={() => setMobileMoreOpen(false)}
+              onClick={(event) => {
+                setMobileMoreOpen(false);
+                if (!confirmLeaveWithUnsavedChanges()) event.preventDefault();
+              }}
             >
               <ExternalLink size={16} aria-hidden="true" />
               View site

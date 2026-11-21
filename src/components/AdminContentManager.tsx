@@ -1,13 +1,18 @@
 'use client';
 
-import React, { FormEvent, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import RichTextEditor from '@/components/RichTextEditor';
+import { ChevronLeft } from 'lucide-react';
 import GalleryField from '@/components/admin/GalleryField';
 import MediaImageField from '@/components/admin/MediaImageField';
+import MediaThumb from '@/components/admin/MediaThumb';
 import ProductPurchaseOptionsFields from '@/components/admin/ProductPurchaseOptionsFields';
+import { useUnsavedChangesGuard } from '@/components/admin/useUnsavedChangesGuard';
 import type { PostMediaItem } from '@/lib/admin-content';
 import { POST_PROCESS_STAGES } from '@/lib/admin-content';
+import { formatPrice, PRODUCT_IMAGE_FALLBACK } from '@/lib/commerce';
+import type { PortfolioCategory } from '@/lib/site-content-shared';
 
 type Section = 'products' | 'posts' | 'artworks';
 
@@ -51,7 +56,7 @@ const blankPost = {
 };
 
 const blankArtwork = {
-  title: '', description: '', medium: 'Mixed Media', dimensions: '', year: String(new Date().getFullYear()), category: [] as string[], featured: false, available: false, price: '', images: { main: '', thumbnail: '', gallery: [] as string[] }, content: '<p></p>',
+  title: '', description: '', medium: 'Mixed Media', dimensions: '', year: String(new Date().getFullYear()), category: [] as string[], featured: false, available: true, price: '', images: { main: '', thumbnail: '', gallery: [] as string[] }, content: '<p></p>',
 };
 
 function csv(value: string[] | undefined): string {
@@ -60,6 +65,69 @@ function csv(value: string[] | undefined): string {
 
 function list(value: string): string[] {
   return value.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
+function parseNumberField(value: string): number | '' {
+  if (!value.trim()) return '';
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : '';
+}
+
+function coerceNumber(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+function extractApiError(data: unknown, fallback: string): string {
+  if (!data || typeof data !== 'object') return fallback;
+  const record = data as { error?: unknown; details?: unknown };
+  if (Array.isArray(record.details) && record.details.length > 0) {
+    const first = record.details[0] as { message?: unknown };
+    if (typeof first?.message === 'string' && first.message.trim()) {
+      return first.message.trim();
+    }
+  }
+  if (typeof record.error === 'string' && record.error.trim()) {
+    return record.error.trim();
+  }
+  return fallback;
+}
+
+function hydratePostForm(item: any) {
+  return {
+    ...blankPost,
+    ...item,
+    publishedAt: item.publishedAt?.slice(0, 10) || blankPost.publishedAt,
+    media: Array.isArray(item.media) ? item.media : [],
+    audienceEmails: Array.isArray(item.audienceEmails) ? item.audienceEmails : [],
+    relatedProductId: item.relatedProductId || '',
+    relatedArtworkSlug: item.relatedArtworkSlug || '',
+    pullQuote: item.pullQuote || '',
+    location: item.location || '',
+    processStage: item.processStage || '',
+  };
+}
+
+/**
+ * The photos an item shows publicly, in order: the cover first, then the rest of the gallery.
+ * The stock placeholder the server stores for photo-less items is not one of the artist's photos.
+ */
+function orderedPhotos(cover: string | undefined, gallery: string[] | undefined): string[] {
+  return [cover, ...(Array.isArray(gallery) ? gallery : [])]
+    .map((url) => (typeof url === 'string' ? url.trim() : ''))
+    .filter((url, index, all) => Boolean(url) && url !== PRODUCT_IMAGE_FALLBACK && all.indexOf(url) === index);
+}
+
+function formatListDate(value: unknown): string {
+  if (typeof value !== 'string' || !value) return '';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? ''
+    : date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 export function AdminContentManager({ section }: AdminContentManagerProps) {
@@ -76,33 +144,84 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [inventoryByProduct, setInventoryByProduct] = useState<Record<string, { currentStock: number; stockStatus: string }>>({});
-  const [productStock, setProductStock] = useState<number>(1);
+  const [productStock, setProductStock] = useState<number | ''>(1);
   const [collectors, setCollectors] = useState<Array<{ id: string; email: string; name: string; orderCount: number }>>([]);
+  const [artistName, setArtistName] = useState<string>('Artist');
+  const [portfolioCategories, setPortfolioCategories] = useState<PortfolioCategory[]>([]);
   const [isCreating, setIsCreating] = useState(false);
+  const [savedSnapshot, setSavedSnapshot] = useState<string>('');
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const editorRef = useRef<HTMLFormElement>(null);
+  const revealEditorOnOpen = useRef(false);
+
+  const currentSnapshot =
+    section === 'products'
+      ? JSON.stringify({ form: productForm, stock: productStock })
+      : section === 'posts'
+        ? JSON.stringify(postForm)
+        : JSON.stringify(artworkForm);
+  const isDirty = Boolean((selectedId || isCreating) && savedSnapshot && currentSnapshot !== savedSnapshot);
+
+  useUnsavedChangesGuard(isDirty);
+
+  function confirmDiscardIfDirty(): boolean {
+    if (!isDirty) return true;
+    return window.confirm('You have unsaved changes. Discard them?');
+  }
+
+  function closeEditor() {
+    if (!confirmDiscardIfDirty()) return;
+    setSelectedId(null);
+    setIsCreating(false);
+    setSavedSnapshot('');
+    setMessage(null);
+  }
 
   useEffect(() => {
-    loadAll();
+    void loadAll();
   }, []);
 
-  function startNewProduct() {
+  // When an item is opened, bring the editor to the top if it is off-screen
+  // (on phones and tablets it takes the place of the list).
+  const openEditorKey = isCreating ? 'new' : selectedId;
+  useEffect(() => {
+    if (!openEditorKey || !revealEditorOnOpen.current) return;
+    revealEditorOnOpen.current = false;
+    const node = editorRef.current;
+    if (!node) return;
+    const { top } = node.getBoundingClientRect();
+    if (top < 0 || top > window.innerHeight / 2) node.scrollIntoView({ block: 'start' });
+  }, [openEditorKey]);
+
+  function startNewProduct(skipConfirm = false) {
+    if (!skipConfirm && !confirmDiscardIfDirty()) return;
+    revealEditorOnOpen.current = true;
     setSelectedId(null);
     setIsCreating(true);
     setProductForm(blankProduct);
     setProductStock(1);
+    setSavedSnapshot(JSON.stringify({ form: blankProduct, stock: 1 }));
     setMessage(null);
   }
 
-  function startNewPost() {
+  function startNewPost(skipConfirm = false) {
+    if (!skipConfirm && !confirmDiscardIfDirty()) return;
+    revealEditorOnOpen.current = true;
+    const nextPost = { ...blankPost, author: artistName || 'Artist' };
     setSelectedId(null);
     setIsCreating(true);
-    setPostForm(blankPost);
+    setPostForm(nextPost);
+    setSavedSnapshot(JSON.stringify(nextPost));
     setMessage(null);
   }
 
-  function startNewArtwork() {
+  function startNewArtwork(skipConfirm = false) {
+    if (!skipConfirm && !confirmDiscardIfDirty()) return;
+    revealEditorOnOpen.current = true;
     setSelectedId(null);
     setIsCreating(true);
     setArtworkForm(blankArtwork);
+    setSavedSnapshot(JSON.stringify(blankArtwork));
     setMessage(null);
   }
 
@@ -110,15 +229,16 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
     createIntentConsumed.current = false;
     setIsCreating(false);
     setSelectedId(null);
+    setSavedSnapshot('');
     setMessage(null);
   }, [section]);
 
   useEffect(() => {
     if (searchParams.get('create') !== '1' || createIntentConsumed.current) return;
     createIntentConsumed.current = true;
-    if (section === 'products') startNewProduct();
-    else if (section === 'posts') startNewPost();
-    else startNewArtwork();
+    if (section === 'products') startNewProduct(true);
+    else if (section === 'posts') startNewPost(true);
+    else startNewArtwork(true);
 
     const params = new URLSearchParams(searchParams.toString());
     params.delete('create');
@@ -143,20 +263,44 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
   }
 
   async function loadAll() {
-    const [productResponse, postResponse, artworkResponse] = await Promise.all([
-      fetch('/api/admin/products'),
-      fetch('/api/admin/posts'),
-      fetch('/api/admin/artworks'),
-    ]);
-    const [productData, postData, artworkData] = await Promise.all([
-      productResponse.json(), postResponse.json(), artworkResponse.json()
-    ]);
-    const loadedProducts = productData.products || [];
-    setProducts(loadedProducts);
-    setPosts(Array.isArray(postData) ? postData : postData.posts || []);
-    setCollectors(Array.isArray(postData?.collectors) ? postData.collectors : []);
-    setArtworks(artworkData.artworks || []);
-    await loadInventory(loadedProducts.map((product: { id: string }) => product.id));
+    try {
+      const [productResponse, postResponse, artworkResponse, siteContentResponse] = await Promise.all([
+        fetch('/api/admin/products'),
+        fetch('/api/admin/posts'),
+        fetch('/api/admin/artworks'),
+        fetch('/api/admin/site-content', { cache: 'no-store' }).catch(() => null),
+      ]);
+      if (!productResponse.ok || !postResponse.ok || !artworkResponse.ok) {
+        throw new Error('Content request failed');
+      }
+      const [productData, postData, artworkData, siteContentData] = await Promise.all([
+        productResponse.json(),
+        postResponse.json(),
+        artworkResponse.json(),
+        siteContentResponse && siteContentResponse.ok ? siteContentResponse.json().catch(() => null) : Promise.resolve(null),
+      ]);
+      if (siteContentData?.identity?.siteName) {
+        setArtistName(siteContentData.identity.siteName);
+      }
+      if (Array.isArray(siteContentData?.portfolio?.categories)) {
+        setPortfolioCategories(siteContentData.portfolio.categories);
+      }
+      const loadedProducts = productData.products || [];
+      setProducts(loadedProducts);
+      setPosts(Array.isArray(postData) ? postData : postData.posts || []);
+      setCollectors(Array.isArray(postData?.collectors) ? postData.collectors : []);
+      setArtworks(artworkData.artworks || []);
+      setLoadState('ready');
+      await loadInventory(loadedProducts.map((product: { id: string }) => product.id));
+    } catch {
+      // Keep whatever is already listed (e.g. after a save); only an empty first load shows the retry state.
+      setLoadState((current) => (current === 'ready' ? current : 'error'));
+    }
+  }
+
+  function retryLoad() {
+    setLoadState('loading');
+    void loadAll();
   }
 
   async function saveStock(productId: string, stock: number) {
@@ -179,8 +323,8 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Save failed');
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(extractApiError(data, 'Save failed'));
       const savedProductId = data.product?.id || options?.productId;
       if (savedProductId && typeof options?.stock === 'number') {
         await saveStock(savedProductId, options.stock);
@@ -192,9 +336,27 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
         || options?.productId
         || selectedId;
       await loadAll();
+      let nextSnapshot = currentSnapshot;
+      if (section === 'products' && data.product) {
+        const nextStock = typeof options?.stock === 'number' ? options.stock : productStock;
+        setProductForm(data.product);
+        setProductStock(nextStock);
+        nextSnapshot = JSON.stringify({ form: data.product, stock: nextStock });
+      } else if (section === 'artworks' && data.artwork) {
+        setArtworkForm(data.artwork);
+        nextSnapshot = JSON.stringify(data.artwork);
+      } else if (section === 'posts' && data.post) {
+        const hydratedPost = hydratePostForm({
+          ...data.post,
+          audienceEmails: Array.isArray(postForm.audienceEmails) ? postForm.audienceEmails : [],
+        });
+        setPostForm(hydratedPost);
+        nextSnapshot = JSON.stringify(hydratedPost);
+      }
       setSelectedId(savedId || null);
       setIsCreating(false);
-      setMessage({ type: 'success', text: 'Saved successfully.' });
+      setSavedSnapshot(nextSnapshot);
+      setMessage({ type: 'success', text: 'Saved' });
     } catch (error) {
       setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Save failed' });
     } finally {
@@ -212,7 +374,8 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
       await loadAll();
       setSelectedId(null);
       setIsCreating(false);
-      setMessage({ type: 'success', text: 'Deleted successfully.' });
+      setSavedSnapshot('');
+      setMessage({ type: 'success', text: 'Deleted.' });
     } catch (error) {
       setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Delete failed' });
     } finally {
@@ -227,23 +390,34 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
     const showEditor = Boolean(selectedProduct) || isCreating;
     return (
       <div className="space-y-4">
-        <SectionIntro title={intro.title} body={intro.body} />
+        <SectionIntro title={intro.title} body={intro.body} collapsedOnSmall={showEditor} />
+        {!showEditor && <FormMessage message={message} />}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <ContentList
           title="Products"
           items={products}
+          loadState={loadState}
+          onRetry={retryLoad}
+          hiddenOnSmall={showEditor}
           selectedKey={selectedId}
           labelKey="title"
+          getThumb={(item) => orderedPhotos(item.images?.thumbnail, item.images?.gallery)[0] || ''}
+          getMeta={(item) => [formatPrice(coerceNumber(item.price, 0), item.currency || 'USD'), item.category].filter(Boolean).join(' · ')}
           searchable
           searchPlaceholder="Search title, category, tags…"
           emptyTitle="No products yet"
           emptyHint="Add your first shop listing so collectors can check out."
-          onNew={startNewProduct}
+          onNew={() => startNewProduct()}
           onSelect={(item) => {
+            if (item.id !== selectedId && !confirmDiscardIfDirty()) return;
+            const nextStock = inventoryByProduct[item.id]?.currentStock ?? 1;
+            revealEditorOnOpen.current = true;
             setSelectedId(item.id);
             setIsCreating(false);
             setProductForm(item);
-            setProductStock(inventoryByProduct[item.id]?.currentStock ?? 1);
+            setProductStock(nextStock);
+            setSavedSnapshot(JSON.stringify({ form: item, stock: nextStock }));
+            setMessage(null);
           }}
           badge={(item) => {
             const status = inventoryByProduct[item.id]?.stockStatus;
@@ -255,39 +429,51 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
           }}
         />
         {showEditor ? (
-        <form className="lg:col-span-2 bg-white rounded-lg border p-6 space-y-4" onSubmit={(event) => {
-          event.preventDefault();
+        <EditorShell
+          editorRef={editorRef}
+          heading={selectedProduct ? 'Editing product' : 'New product'}
+          backLabel="All products"
+          onBack={closeEditor}
+          liveHref={selectedProduct ? `/shop/${encodeURIComponent(selectedProduct.id)}` : undefined}
+          message={message}
+          saving={saving}
+          isDirty={isDirty}
+          onDelete={selectedProduct ? () => remove(`/api/admin/products/${selectedProduct.id}`) : undefined}
+          onSubmit={() => {
+          const stockCount = Math.max(0, Math.floor(coerceNumber(productStock, 0)));
+          const normalizedPayload = {
+            ...productForm,
+            price: coerceNumber(productForm.price, 0),
+            year: Math.floor(coerceNumber(productForm.year, new Date().getFullYear())),
+            shipping: {
+              ...productForm.shipping,
+              domestic: coerceNumber(productForm.shipping?.domestic, 0),
+              international: coerceNumber(productForm.shipping?.international, 0),
+            },
+            edition: productForm.edition?.total
+              ? {
+                  total: productForm.edition.total,
+                  remaining: Math.min(productForm.edition.total, stockCount),
+                }
+              : null,
+          };
           save(
             selectedProduct ? `/api/admin/products/${selectedProduct.id}` : '/api/admin/products',
             selectedProduct ? 'PUT' : 'POST',
-            productForm,
-            { productId: selectedProduct?.id, stock: productStock },
+            normalizedPayload,
+            { productId: selectedProduct?.id, stock: stockCount },
           );
         }}>
-          <FormMessage message={message} />
-          {selectedProduct?.id && (
-            <div className="flex items-center justify-between gap-2 border-b border-gray-100 pb-3">
-              <span className="text-xs text-gray-500">Editing product</span>
-              <a
-                href={`/shop/${encodeURIComponent(selectedProduct.id)}`}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs font-medium text-primary hover:underline"
-              >
-                View live ↗
-              </a>
-            </div>
-          )}
           <TextField label="Title" value={productForm.title} onChange={(value) => setProductForm({ ...productForm, title: value })} />
           <TextArea label="Description" value={productForm.description} onChange={(value) => setProductForm({ ...productForm, description: value })} />
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <TextField label="Price" type="number" value={productForm.price} onChange={(value) => setProductForm({ ...productForm, price: Number(value) })} />
+            <TextField label="Price" type="number" value={productForm.price} onChange={(value) => setProductForm({ ...productForm, price: parseNumberField(value) })} />
             <TextField label="Category" value={productForm.category} onChange={(value) => setProductForm({ ...productForm, category: value })} />
             <TextField label="Medium" value={productForm.medium} onChange={(value) => setProductForm({ ...productForm, medium: value })} />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <TextField label="Dimensions" value={productForm.dimensions} onChange={(value) => setProductForm({ ...productForm, dimensions: value })} />
-            <TextField label="Year" type="number" value={productForm.year} onChange={(value) => setProductForm({ ...productForm, year: Number(value) })} />
+            <TextField label="Year" type="number" value={productForm.year} onChange={(value) => setProductForm({ ...productForm, year: parseNumberField(value) })} />
             <SelectField
               label="Availability"
               value={productForm.availability}
@@ -301,30 +487,40 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
               onChange={(value) => setProductForm({ ...productForm, availability: value })}
             />
           </div>
-          <MediaImageField
-            label="Thumbnail"
-            value={productForm.images?.thumbnail || ''}
-            onChange={(value) => setProductForm({
-              ...productForm,
-              images: {
-                ...productForm.images,
-                thumbnail: value,
-                gallery: productForm.images.gallery?.length ? productForm.images.gallery : value ? [value] : [],
-              },
-            })}
-          />
           <GalleryField
-            label="Photo gallery"
-            value={productForm.images?.gallery || []}
-            onChange={(gallery) => setProductForm({ ...productForm, images: { ...productForm.images, gallery } })}
-            help="Add multiple photos for the product detail page."
+            label="Photos"
+            firstItemLabel="Cover"
+            value={orderedPhotos(productForm.images?.thumbnail, productForm.images?.gallery)}
+            onChange={(photos) => setProductForm({
+              ...productForm,
+              images: { ...productForm.images, thumbnail: photos[0] || '', gallery: photos },
+            })}
+            help="The first photo is the cover shown in the shop. Use the arrows to change the order."
           />
           <TextField label="Tags (comma-separated)" value={csv(productForm.tags)} onChange={(value) => setProductForm({ ...productForm, tags: list(value) })} />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <TextField label="Domestic Shipping" type="number" value={productForm.shipping?.domestic || 0} onChange={(value) => setProductForm({ ...productForm, shipping: { ...productForm.shipping, domestic: Number(value) } })} />
-            <TextField label="International Shipping" type="number" value={productForm.shipping?.international || 0} onChange={(value) => setProductForm({ ...productForm, shipping: { ...productForm.shipping, international: Number(value) } })} />
+            <TextField label="Domestic Shipping" type="number" value={productForm.shipping?.domestic ?? ''} onChange={(value) => setProductForm({ ...productForm, shipping: { ...productForm.shipping, domestic: parseNumberField(value) } })} />
+            <TextField label="International Shipping" type="number" value={productForm.shipping?.international ?? ''} onChange={(value) => setProductForm({ ...productForm, shipping: { ...productForm.shipping, international: parseNumberField(value) } })} />
           </div>
-          <TextField label="How many do you have?" type="number" value={productStock} onChange={(value) => setProductStock(Number(value) || 0)} />
+          <TextField
+            label="How many do you have?"
+            type="number"
+            value={productStock}
+            onChange={(value) => {
+              const parsed = parseNumberField(value);
+              const numericStock = parsed === '' ? 0 : Math.max(0, Math.floor(parsed));
+              setProductStock(parsed === '' ? '' : numericStock);
+              if (productForm.edition?.total) {
+                setProductForm({
+                  ...productForm,
+                  edition: {
+                    total: productForm.edition.total,
+                    remaining: Math.min(productForm.edition.total, numericStock),
+                  },
+                });
+              }
+            }}
+          />
           <TextField
             label="Edition size (optional)"
             type="number"
@@ -335,17 +531,35 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
                 setProductForm({ ...productForm, edition: null });
                 return;
               }
+              const stockCount = Math.max(0, Math.floor(coerceNumber(productStock, 0)));
               setProductForm({
                 ...productForm,
                 edition: {
                   total: Math.floor(total),
-                  remaining: Math.min(Math.floor(total), Math.max(0, productStock)),
+                  remaining: Math.min(Math.floor(total), stockCount),
                 },
               });
             }}
           />
           <p className="text-xs text-gray-500 -mt-2">For limited prints, set the edition size. Remaining copies follow “How many do you have?”</p>
-          <CheckboxField label="Featured" checked={Boolean(productForm.featured)} onChange={(checked) => setProductForm({ ...productForm, featured: checked })} />
+          <div className="flex flex-wrap gap-x-6 gap-y-2">
+            <CheckboxField label="Featured" checked={Boolean(productForm.featured)} onChange={(checked) => setProductForm({ ...productForm, featured: checked })} />
+            <CheckboxField
+              label="Signed"
+              checked={Boolean(productForm.specifications?.signed)}
+              onChange={(checked) => setProductForm({ ...productForm, specifications: { ...productForm.specifications, signed: checked } })}
+            />
+            <CheckboxField
+              label="Certificate included"
+              checked={Boolean(productForm.specifications?.certificate)}
+              onChange={(checked) => setProductForm({ ...productForm, specifications: { ...productForm.specifications, certificate: checked } })}
+            />
+            <CheckboxField
+              label="Framed"
+              checked={Boolean(productForm.specifications?.framed)}
+              onChange={(checked) => setProductForm({ ...productForm, specifications: { ...productForm.specifications, framed: checked } })}
+            />
+          </div>
           <ProductPurchaseOptionsFields
             value={{
               variants: productForm.variants,
@@ -359,8 +573,7 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
               commissionInfo: next.commissionInfo,
             })}
           />
-          <ActionRow saving={saving} onDelete={selectedProduct ? () => remove(`/api/admin/products/${selectedProduct.id}`) : undefined} />
-        </form>
+        </EditorShell>
         ) : (
           <EditorPlaceholder
             title="Select or create a product"
@@ -379,32 +592,34 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
     const showEditor = Boolean(selectedPost) || isCreating;
     return (
       <div className="space-y-4">
-        <SectionIntro title={intro.title} body={intro.body} />
+        <SectionIntro title={intro.title} body={intro.body} collapsedOnSmall={showEditor} />
+        {!showEditor && <FormMessage message={message} />}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <ContentList
           title="Updates"
           items={posts}
+          loadState={loadState}
+          onRetry={retryLoad}
+          hiddenOnSmall={showEditor}
+          getMeta={(item) => formatListDate(item.publishedAt)}
           selectedKey={selectedId}
           labelKey="title"
+          getThumb={(item) => item.coverImage || item.media?.find((entry: PostMediaItem) => entry.type === 'image')?.url || ''}
+          searchable
+          searchPlaceholder="Search title, caption, tags…"
           emptyTitle="No updates yet"
           emptyHint="Publish a studio note or journal post for your Updates feed."
           getLabel={(item) => item.title || item.excerpt || item.slug || 'Untitled update'}
-          onNew={startNewPost}
+          onNew={() => startNewPost()}
           onSelect={(item) => {
+            if (item.slug !== selectedId && !confirmDiscardIfDirty()) return;
+            const nextForm = hydratePostForm(item);
+            revealEditorOnOpen.current = true;
             setSelectedId(item.slug);
             setIsCreating(false);
-            setPostForm({
-              ...blankPost,
-              ...item,
-              publishedAt: item.publishedAt?.slice(0, 10) || blankPost.publishedAt,
-              media: Array.isArray(item.media) ? item.media : [],
-              audienceEmails: Array.isArray(item.audienceEmails) ? item.audienceEmails : [],
-              relatedProductId: item.relatedProductId || '',
-              relatedArtworkSlug: item.relatedArtworkSlug || '',
-              pullQuote: item.pullQuote || '',
-              location: item.location || '',
-              processStage: item.processStage || '',
-            });
+            setPostForm(nextForm);
+            setSavedSnapshot(JSON.stringify(nextForm));
+            setMessage(null);
           }}
           badge={(item) => (
             <span className="flex flex-wrap gap-1">
@@ -420,21 +635,18 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
           )}
         />
         {showEditor ? (
-        <form className="lg:col-span-2 bg-white rounded-lg border p-6 space-y-4" onSubmit={(event) => { event.preventDefault(); save(selectedPost ? `/api/admin/posts/${selectedPost.slug}` : '/api/admin/posts', selectedPost ? 'PUT' : 'POST', postForm); }}>
-          <FormMessage message={message} />
-          {selectedPost?.slug && !postForm.isDraft && postForm.visibility !== 'private' && (
-            <div className="flex items-center justify-between gap-2 border-b border-gray-100 pb-3">
-              <span className="text-xs text-gray-500">Published update</span>
-              <a
-                href={`/updates/${encodeURIComponent(selectedPost.slug)}`}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs font-medium text-primary hover:underline"
-              >
-                View live ↗
-              </a>
-            </div>
-          )}
+        <EditorShell
+          editorRef={editorRef}
+          heading={!selectedPost ? 'New update' : selectedPost.isDraft ? 'Editing draft' : 'Editing published update'}
+          backLabel="All updates"
+          onBack={closeEditor}
+          liveHref={selectedPost && !selectedPost.isDraft && selectedPost.visibility !== 'private' ? `/updates/${encodeURIComponent(selectedPost.slug)}` : undefined}
+          message={message}
+          saving={saving}
+          isDirty={isDirty}
+          onDelete={selectedPost ? () => remove(`/api/admin/posts/${selectedPost.slug}`) : undefined}
+          onSubmit={() => save(selectedPost ? `/api/admin/posts/${selectedPost.slug}` : '/api/admin/posts', selectedPost ? 'PUT' : 'POST', postForm)}
+        >
           <SelectField
             label="Update type"
             value={isShort ? 'short' : 'article'}
@@ -534,8 +746,7 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
           {selectedPost?.slug && postForm.isDraft && (
             <PreviewLink slug={selectedPost.slug} />
           )}
-          <ActionRow saving={saving} onDelete={selectedPost ? () => remove(`/api/admin/posts/${selectedPost.slug}`) : undefined} />
-        </form>
+        </EditorShell>
         ) : (
           <EditorPlaceholder
             title="Select or create an update"
@@ -552,38 +763,55 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
   const showArtworkEditor = Boolean(selectedArtwork) || isCreating;
   return (
     <div className="space-y-4">
-      <SectionIntro title={intro.title} body={intro.body} />
+      <SectionIntro title={intro.title} body={intro.body} collapsedOnSmall={showArtworkEditor} />
+      {!showArtworkEditor && <FormMessage message={message} />}
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <ContentList
         title="Portfolio"
         items={artworks}
+        loadState={loadState}
+        onRetry={retryLoad}
+        hiddenOnSmall={showArtworkEditor}
         selectedKey={selectedId}
         labelKey="title"
+        getThumb={(item) => orderedPhotos(item.images?.thumbnail, [item.images?.main])[0] || ''}
+        getMeta={(item) => [item.medium, item.year].filter(Boolean).join(' · ')}
+        searchable
+        searchPlaceholder="Search title, medium, category…"
         emptyTitle="No portfolio pieces yet"
         emptyHint="Add works collectors can browse and inquire about."
-        onNew={startNewArtwork}
+        onNew={() => startNewArtwork()}
         onSelect={(item) => {
+          if (item.slug !== selectedId && !confirmDiscardIfDirty()) return;
+          revealEditorOnOpen.current = true;
           setSelectedId(item.slug);
           setIsCreating(false);
           setArtworkForm(item);
+          setSavedSnapshot(JSON.stringify(item));
+          setMessage(null);
         }}
+        badge={(item) => (
+          <span className="flex flex-wrap gap-1">
+            {item.featured && <span className="rounded bg-primary/10 px-2 py-0.5 text-xs text-primary">Featured</span>}
+            {item.available
+              ? <span className="rounded bg-green-100 px-2 py-0.5 text-xs text-green-800">Available</span>
+              : <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">Sold</span>}
+          </span>
+        )}
       />
       {showArtworkEditor ? (
-      <form className="lg:col-span-2 bg-white rounded-lg border p-6 space-y-4" onSubmit={(event) => { event.preventDefault(); save(selectedArtwork ? `/api/admin/artworks/${selectedArtwork.slug}` : '/api/admin/artworks', selectedArtwork ? 'PUT' : 'POST', artworkForm); }}>
-        <FormMessage message={message} />
-        {selectedArtwork?.slug && (
-          <div className="flex items-center justify-between gap-2 border-b border-gray-100 pb-3">
-            <span className="text-xs text-gray-500">Editing portfolio piece</span>
-            <a
-              href={`/portfolio/${encodeURIComponent(selectedArtwork.slug)}`}
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs font-medium text-primary hover:underline"
-            >
-              View live ↗
-            </a>
-          </div>
-        )}
+      <EditorShell
+        editorRef={editorRef}
+        heading={selectedArtwork ? 'Editing portfolio piece' : 'New portfolio piece'}
+        backLabel="All portfolio pieces"
+        onBack={closeEditor}
+        liveHref={selectedArtwork ? `/portfolio/${encodeURIComponent(selectedArtwork.slug)}` : undefined}
+        message={message}
+        saving={saving}
+        isDirty={isDirty}
+        onDelete={selectedArtwork ? () => remove(`/api/admin/artworks/${selectedArtwork.slug}`) : undefined}
+        onSubmit={() => save(selectedArtwork ? `/api/admin/artworks/${selectedArtwork.slug}` : '/api/admin/artworks', selectedArtwork ? 'PUT' : 'POST', artworkForm)}
+      >
         <TextField label="Title" value={artworkForm.title} onChange={(value) => setArtworkForm({ ...artworkForm, title: value })} />
         <TextArea label="Description" value={artworkForm.description} onChange={(value) => setArtworkForm({ ...artworkForm, description: value })} />
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -593,39 +821,72 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
         </div>
         <TextField label="Price (display only)" value={artworkForm.price || ''} onChange={(value) => setArtworkForm({ ...artworkForm, price: value })} />
         <p className="text-xs text-gray-500 -mt-2">Shown on the portfolio page. Online checkout still needs a matching product under Products.</p>
-        <MediaImageField
-          label="Main image"
-          value={artworkForm.images?.main || ''}
-          onChange={(value) => setArtworkForm({
-            ...artworkForm,
-            images: {
-              ...artworkForm.images,
-              main: value,
-              thumbnail:
-                !artworkForm.images.thumbnail || artworkForm.images.thumbnail === artworkForm.images.main
-                  ? value
-                  : artworkForm.images.thumbnail,
-            },
-          })}
-        />
         <GalleryField
-          label="Additional photos"
-          value={artworkForm.images?.gallery || []}
-          onChange={(gallery) => setArtworkForm({ ...artworkForm, images: { ...artworkForm.images, gallery } })}
+          label="Photos"
+          firstItemLabel="Main"
+          value={orderedPhotos(artworkForm.images?.main, artworkForm.images?.gallery)}
+          onChange={(photos) => {
+            const main = photos[0] || '';
+            const mainChanged = main !== (artworkForm.images?.main || '');
+            setArtworkForm({
+              ...artworkForm,
+              images: {
+                ...artworkForm.images,
+                main,
+                // Grids show the thumbnail, so it must follow the main photo whenever that changes.
+                thumbnail: mainChanged ? main : artworkForm.images?.thumbnail || main,
+                gallery: photos,
+              },
+            });
+          }}
+          help="The first photo is the main image. Add detail shots, framed views, or studio angles after it."
         />
-        <TextField
-          label="Categories (comma-separated)"
-          value={csv(artworkForm.category)}
-          onChange={(value) => setArtworkForm({ ...artworkForm, category: list(value) })}
-          help="Match keys from Pages → Portfolio → Categories (for example: paintings, works-on-paper)."
-        />
-        <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
-          <CheckboxField label="Featured" checked={Boolean(artworkForm.featured)} onChange={(checked) => setArtworkForm({ ...artworkForm, featured: checked })} />
-          <CheckboxField label="Available for inquiry" checked={Boolean(artworkForm.available)} onChange={(checked) => setArtworkForm({ ...artworkForm, available: checked })} />
+        <div className="space-y-2">
+          <TextField
+            label="Categories (comma-separated)"
+            value={csv(artworkForm.category)}
+            onChange={(value) => setArtworkForm({ ...artworkForm, category: list(value) })}
+            help="Match keys from Pages → Portfolio → Categories (for example: paintings, works-on-paper)."
+          />
+          {portfolioCategories.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {portfolioCategories.map((cat) => {
+                const current: string[] = Array.isArray(artworkForm.category) ? artworkForm.category : [];
+                const active = current.includes(cat.key);
+                return (
+                  <button
+                    key={cat.key}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => {
+                      const next = active
+                        ? current.filter((item) => item !== cat.key)
+                        : [...current, cat.key];
+                      setArtworkForm({ ...artworkForm, category: next });
+                    }}
+                    className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                      active
+                        ? 'border-gray-900 bg-gray-900 text-white'
+                        : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    {cat.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
+        <SelectField
+          label="Status"
+          value={artworkForm.available ? 'available' : 'sold'}
+          options={['available', 'sold']}
+          optionLabels={{ available: 'Available — collectors can inquire', sold: 'Sold — shown with a Sold badge' }}
+          onChange={(value) => setArtworkForm({ ...artworkForm, available: value === 'available' })}
+        />
+        <CheckboxField label="Featured" checked={Boolean(artworkForm.featured)} onChange={(checked) => setArtworkForm({ ...artworkForm, featured: checked })} />
         <RichTextEditor value={artworkForm.content || '<p></p>'} onChange={(content) => setArtworkForm({ ...artworkForm, content })} />
-        <ActionRow saving={saving} onDelete={selectedArtwork ? () => remove(`/api/admin/artworks/${selectedArtwork.slug}`) : undefined} />
-      </form>
+      </EditorShell>
       ) : (
         <EditorPlaceholder
           title="Select or create a portfolio piece"
@@ -638,9 +899,9 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
   );
 }
 
-function SectionIntro({ title, body }: { title: string; body: string }) {
+function SectionIntro({ title, body, collapsedOnSmall }: { title: string; body: string; collapsedOnSmall: boolean }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
+    <div className={`rounded-lg border border-gray-200 bg-white px-4 py-3 ${collapsedOnSmall ? 'hidden lg:block' : ''}`}>
       <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
       <p className="mt-1 text-sm text-gray-600">{body}</p>
     </div>
@@ -648,8 +909,9 @@ function SectionIntro({ title, body }: { title: string; body: string }) {
 }
 
 function EditorPlaceholder({ title, body, onNew }: { title: string; body: string; onNew: () => void }) {
+  // Phones and tablets show the list on its own, which already offers New.
   return (
-    <div className="lg:col-span-2 flex flex-col items-start justify-center rounded-lg border border-dashed border-gray-300 bg-white p-8">
+    <div className="hidden flex-col items-start justify-center rounded-lg border border-dashed border-gray-300 bg-white p-8 lg:col-span-2 lg:flex">
       <h3 className="text-base font-semibold text-gray-900">{title}</h3>
       <p className="mt-1 max-w-md text-sm text-gray-600">{body}</p>
       <button type="button" onClick={onNew} className="mt-4 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
@@ -659,9 +921,91 @@ function EditorPlaceholder({ title, body, onNew }: { title: string; body: string
   );
 }
 
-function ContentList({ title, items, labelKey, selectedKey, onNew, onSelect, badge, emptyTitle, emptyHint, getLabel, searchable, searchPlaceholder }: {
+/**
+ * Frame shared by the product, update, and portfolio editors: a way back to the list on small
+ * screens, the form fields, and a save bar that stays in view with the current save status.
+ */
+function EditorShell({
+  editorRef,
+  heading,
+  backLabel,
+  onBack,
+  liveHref,
+  message,
+  saving,
+  isDirty,
+  onDelete,
+  onSubmit,
+  children,
+}: {
+  editorRef: React.Ref<HTMLFormElement>;
+  heading: string;
+  backLabel: string;
+  onBack: () => void;
+  liveHref?: string;
+  message: { type: 'success' | 'error'; text: string } | null;
+  saving: boolean;
+  isDirty: boolean;
+  onDelete?: () => void;
+  onSubmit: () => void;
+  children: React.ReactNode;
+}) {
+  const status = message?.type === 'error'
+    ? { text: message.text, tone: 'text-red-700', role: 'alert' as const }
+    : isDirty
+      ? { text: 'Unsaved changes', tone: 'text-gray-600', role: 'status' as const }
+      : message
+        ? { text: message.text, tone: 'text-green-700', role: 'status' as const }
+        : { text: onDelete ? 'All changes saved' : 'Not saved yet', tone: 'text-gray-600', role: 'status' as const };
+
+  return (
+    <form
+      ref={editorRef}
+      className="scroll-mt-24 space-y-4 rounded-lg border bg-white p-4 sm:p-6 lg:col-span-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <div className="flex min-h-10 items-center justify-between gap-3 border-b border-gray-100 pb-3">
+        <button
+          type="button"
+          onClick={onBack}
+          className="-ml-2 inline-flex min-h-10 items-center gap-1 rounded-md px-2 text-sm font-medium text-gray-700 hover:bg-gray-100 lg:hidden"
+        >
+          <ChevronLeft size={16} aria-hidden="true" />
+          {backLabel}
+        </button>
+        <span className="hidden text-xs text-gray-500 lg:inline">{heading}</span>
+        {liveHref && (
+          <a href={liveHref} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center text-sm font-medium text-primary hover:underline lg:text-xs">
+            View live ↗
+          </a>
+        )}
+      </div>
+      {children}
+      <div className="sticky bottom-above-admin-nav -mx-4 -mb-4 flex flex-wrap items-center justify-end gap-x-3 gap-y-2 rounded-b-lg border-t border-gray-200 bg-white/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:-mb-6 sm:px-6 md:bottom-0">
+        <p className={`mr-auto min-w-0 basis-32 grow text-xs ${status.tone}`} role={status.role}>{status.text}</p>
+        {onDelete && (
+          <button type="button" onClick={onDelete} disabled={saving} className="min-h-10 shrink-0 rounded-md px-3 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50">
+            Delete
+          </button>
+        )}
+        <button type="submit" disabled={saving || !isDirty} className="btn-primary min-h-10 shrink-0 px-5 text-sm disabled:opacity-50">
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function ContentList({ title, items, loadState, onRetry, hiddenOnSmall, labelKey, selectedKey, onNew, onSelect, badge, emptyTitle, emptyHint, getLabel, getThumb, getMeta, searchable, searchPlaceholder }: {
   title: string;
   items: any[];
+  loadState: 'loading' | 'ready' | 'error';
+  onRetry: () => void;
+  /** On phones and tablets the open editor takes the list's place. */
+  hiddenOnSmall: boolean;
   labelKey: string;
   selectedKey?: string | null;
   onNew: () => void;
@@ -670,6 +1014,8 @@ function ContentList({ title, items, labelKey, selectedKey, onNew, onSelect, bad
   emptyTitle?: string;
   emptyHint?: string;
   getLabel?: (item: any) => string;
+  getThumb?: (item: any) => string;
+  getMeta?: (item: any) => string;
   searchable?: boolean;
   searchPlaceholder?: string;
 }) {
@@ -679,11 +1025,13 @@ function ContentList({ title, items, labelKey, selectedKey, onNew, onSelect, bad
     : items.filter((item) => {
         const needle = query.trim().toLowerCase();
         const tags = Array.isArray(item.tags) ? item.tags.join(' ') : '';
+        const categories = Array.isArray(item.category) ? item.category.join(' ') : item.category;
         const haystack = [
           getLabel ? getLabel(item) : item[labelKey],
           item.slug,
           item.id,
-          item.category,
+          item.excerpt,
+          categories,
           item.medium,
           tags,
           item.availability,
@@ -692,26 +1040,44 @@ function ContentList({ title, items, labelKey, selectedKey, onNew, onSelect, bad
       });
 
   return (
-    <div className="bg-white rounded-lg border p-4 space-y-3">
+    <div className={`space-y-3 rounded-lg border bg-white p-4 ${hiddenOnSmall ? 'hidden lg:block' : ''}`}>
       <div className="flex items-center justify-between">
         <h2 className="font-semibold text-gray-900">{title}</h2>
-        <button type="button" onClick={onNew} className="px-3 py-1 rounded bg-blue-600 text-white text-sm">New</button>
+        <button type="button" onClick={onNew} className="inline-flex min-h-9 items-center rounded bg-blue-600 px-3.5 text-sm font-medium text-white hover:bg-blue-700">New</button>
       </div>
-      {searchable && (
+      {searchable && items.length > 0 && (
         <input
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder={searchPlaceholder || 'Search…'}
+          aria-label={`Search ${title.toLowerCase()}`}
           className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
         />
       )}
-      <div className="space-y-2 max-h-[36rem] overflow-y-auto">
-        {items.length === 0 ? (
+      <div className="space-y-2 lg:max-h-[36rem] lg:overflow-y-auto">
+        {items.length === 0 && loadState === 'loading' ? (
+          <div className="space-y-2" role="status" aria-label={`Loading ${title.toLowerCase()}`}>
+            {[0, 1, 2].map((row) => (
+              <div key={row} className="flex items-center gap-3 rounded border border-gray-200 p-3">
+                <span className="h-10 w-10 shrink-0 animate-pulse rounded bg-gray-100" />
+                <span className="h-4 flex-1 animate-pulse rounded bg-gray-100" />
+              </div>
+            ))}
+          </div>
+        ) : items.length === 0 && loadState === 'error' ? (
+          <div className="rounded border border-dashed border-red-200 px-3 py-6 text-center" role="alert">
+            <p className="text-sm font-medium text-gray-900">Couldn’t load {title.toLowerCase()}</p>
+            <p className="mt-1 text-xs text-gray-500">Check your connection and try again.</p>
+            <button type="button" onClick={onRetry} className="mt-3 inline-flex min-h-9 items-center text-sm font-medium text-blue-700 hover:text-blue-800">
+              Try again
+            </button>
+          </div>
+        ) : items.length === 0 ? (
           <div className="rounded border border-dashed border-gray-200 px-3 py-6 text-center">
             <p className="text-sm font-medium text-gray-900">{emptyTitle || `No ${title.toLowerCase()} yet`}</p>
             {emptyHint && <p className="mt-1 text-xs text-gray-500">{emptyHint}</p>}
-            <button type="button" onClick={onNew} className="mt-3 text-sm font-medium text-blue-700 hover:text-blue-800">
+            <button type="button" onClick={onNew} className="mt-3 inline-flex min-h-9 items-center text-sm font-medium text-blue-700 hover:text-blue-800">
               Create one
             </button>
           </div>
@@ -723,6 +1089,8 @@ function ContentList({ title, items, labelKey, selectedKey, onNew, onSelect, bad
           filteredItems.map((item) => {
             const itemKey = item.id || item.slug;
             const isSelected = selectedKey != null && itemKey === selectedKey;
+            const thumb = getThumb?.(item)?.trim() || '';
+            const meta = getMeta?.(item) || '';
             return (
               <button
                 key={itemKey}
@@ -735,11 +1103,14 @@ function ContentList({ title, items, labelKey, selectedKey, onNew, onSelect, bad
                     : 'border-gray-200 hover:bg-gray-50'
                 }`}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="font-medium text-gray-900">{getLabel ? getLabel(item) : item[labelKey]}</div>
-                  {badge?.(item)}
+                <div className="flex items-center gap-3">
+                  <MediaThumb src={thumb} sizes="40px" className="h-10 w-10 shrink-0 rounded border border-gray-200" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium text-gray-900">{getLabel ? getLabel(item) : item[labelKey]}</div>
+                    {meta && <div className="truncate text-xs text-gray-500">{meta}</div>}
+                    {badge && <div className="mt-1 empty:hidden">{badge(item)}</div>}
+                  </div>
                 </div>
-                <div className="text-xs text-gray-500">{item.slug || item.id}</div>
               </button>
             );
           })
@@ -790,7 +1161,7 @@ function SelectField({ label, value, options, onChange, optionLabels, id }: { la
 }
 
 function CheckboxField({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
-  return <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-700"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />{label}</label>;
+  return <label className="inline-flex min-h-9 items-center gap-2 text-sm font-medium text-gray-700"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4" />{label}</label>;
 }
 
 function PreviewLink({ slug }: { slug: string }) {
@@ -824,10 +1195,6 @@ function PreviewLink({ slug }: { slug: string }) {
   );
 }
 
-function ActionRow({ saving, onDelete }: { saving: boolean; onDelete?: () => void }) {
-  return <div className="flex justify-between pt-4"><button type="submit" disabled={saving} className="rounded bg-gray-900 px-4 py-2 text-white disabled:opacity-50">{saving ? 'Saving...' : 'Save'}</button>{onDelete && <button type="button" onClick={onDelete} disabled={saving} className="rounded bg-red-600 px-4 py-2 text-white disabled:opacity-50">Delete</button>}</div>;
-}
-
 function CollectorWhitelist({
   collectors,
   selected,
@@ -837,6 +1204,8 @@ function CollectorWhitelist({
   selected: string[];
   onChange: (emails: string[]) => void;
 }) {
+  const [draftEmail, setDraftEmail] = useState('');
+  const [emailError, setEmailError] = useState<string | null>(null);
   const selectedSet = new Set(selected.map((email) => email.trim().toLowerCase()));
   const extra = selected.filter((email) => !collectors.some((collector) => collector.email === email.trim().toLowerCase()));
 
@@ -847,6 +1216,17 @@ function CollectorWhitelist({
       return;
     }
     onChange(selected.filter((value) => value.trim().toLowerCase() !== normalized));
+  }
+
+  function addDraftEmail() {
+    const email = draftEmail.trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setEmailError('Enter a valid email address.');
+      return;
+    }
+    toggle(email, true);
+    setDraftEmail('');
+    setEmailError(null);
   }
 
   return (
@@ -879,22 +1259,37 @@ function CollectorWhitelist({
           ))}
         </div>
       )}
-      <label className="mt-3 block text-xs font-medium text-gray-700">
-        Add email
-        <input
-          type="email"
-          className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-          placeholder="collector@email.com"
-          onKeyDown={(event) => {
-            if (event.key !== 'Enter') return;
-            event.preventDefault();
-            const email = event.currentTarget.value.trim().toLowerCase();
-            if (!email || !email.includes('@')) return;
-            toggle(email, true);
-            event.currentTarget.value = '';
-          }}
-        />
-      </label>
+      <div className="mt-3">
+        <label className="block text-xs font-medium text-gray-700">
+          Add email
+          <div className="mt-1 flex gap-2">
+            <input
+              type="email"
+              value={draftEmail}
+              onChange={(event) => {
+                setDraftEmail(event.target.value);
+                if (emailError) setEmailError(null);
+              }}
+              className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              placeholder="collector@email.com"
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                addDraftEmail();
+              }}
+            />
+            <button
+              type="button"
+              onClick={addDraftEmail}
+              disabled={!draftEmail.trim()}
+              className="shrink-0 rounded-md border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+            >
+              Add
+            </button>
+          </div>
+        </label>
+        {emailError && <p className="mt-1 text-xs text-red-600">{emailError}</p>}
+      </div>
     </div>
   );
 }

@@ -11,8 +11,9 @@ import {
   type ValidationErrors,
 } from '@/lib/form-validation';
 import type { ContactPageContent } from '@/lib/site-content-shared';
-import { defaultInquiryType, htmlHasVisibleText, visibleInquiryTypes } from '@/lib/site-content-shared';
+import { defaultInquiryType, htmlHasVisibleText, instagramProfileHref, visibleInquiryTypes } from '@/lib/site-content-shared';
 import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
+import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
 
 const EMPTY_CONTACT_FORM = (inquiryType: string): ContactFormData => ({
   name: '',
@@ -168,7 +169,14 @@ export default function ContactPageClient({
             <div className="text-center lg:text-left">
               {pageContent.portraitImage && (
                 <div className="relative w-24 h-24 lg:w-48 lg:h-48 mx-auto lg:mx-0 mb-4 lg:mb-6 rounded-full overflow-hidden">
-                  <Image src={pageContent.portraitImage} alt="Artist portrait" fill className="object-cover" sizes="(max-width: 1024px) 96px, 192px" />
+                  <Image
+                    src={pageContent.portraitImage}
+                    alt="Artist portrait"
+                    fill
+                    className="object-cover"
+                    sizes="(max-width: 1024px) 96px, 192px"
+                    unoptimized={shouldUnoptimizeImage(pageContent.portraitImage)}
+                  />
                 </div>
               )}
               <h3 className="text-xl font-semibold text-gray-900 mb-2">{pageContent.sidebar.connectTitle}</h3>
@@ -188,7 +196,22 @@ export default function ContactPageClient({
                   <p className="text-sm text-gray-500">Use the form to reach the studio.</p>
                 )}
                 {pageContent.sidebar.location && <p>{pageContent.sidebar.location}</p>}
-                {pageContent.sidebar.instagramHandle && <p>{pageContent.sidebar.instagramHandle}</p>}
+                {pageContent.sidebar.instagramHandle && (
+                  <p>
+                    {instagramProfileHref(pageContent.sidebar.instagramHandle) ? (
+                      <a
+                        href={instagramProfileHref(pageContent.sidebar.instagramHandle)!}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary underline-offset-2 hover:underline"
+                      >
+                        {pageContent.sidebar.instagramHandle}
+                      </a>
+                    ) : (
+                      pageContent.sidebar.instagramHandle
+                    )}
+                  </p>
+                )}
               </div>
             </div>
 

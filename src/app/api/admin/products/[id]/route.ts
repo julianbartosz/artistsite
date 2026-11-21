@@ -13,12 +13,16 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const payload = normalizeProductPayload(productPayloadSchema.parse(await request.json()));
     const product = await db.product.update({ where: { id }, data: payload as any });
     revalidateTag('products');
+    revalidatePath('/');
     revalidatePath('/shop');
     revalidatePath(`/shop/${product.slug || product.id}`);
     return NextResponse.json({ product });
   } catch (error) {
     if (error instanceof ApiError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     if (error instanceof ZodError) return NextResponse.json({ error: 'Invalid product data', details: error.issues }, { status: 400 });
+    if (typeof error === 'object' && error && (error as { code?: string }).code === 'P2002') {
+      return NextResponse.json({ error: 'Another product already uses this slug. Choose a different title or slug.' }, { status: 409 });
+    }
     console.error('Admin product update error:', error);
     return NextResponse.json({ error: 'Failed to update product' }, { status: 500 });
   }
@@ -28,8 +32,13 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   try {
     await requireAdmin();
     const { id } = await params;
-    await db.product.delete({ where: { id } });
+    await db.$transaction([
+      db.stockAlert.deleteMany({ where: { productId: id } }),
+      db.productInventory.deleteMany({ where: { productId: id } }),
+      db.product.delete({ where: { id } }),
+    ]);
     revalidateTag('products');
+    revalidatePath('/');
     revalidatePath('/shop');
     return NextResponse.json({ success: true });
   } catch (error) {

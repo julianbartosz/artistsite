@@ -1,8 +1,24 @@
 // End-to-End User Journey Tests
 import { test, expect, type Page } from '@playwright/test';
 
+/** Seeded limited edition with tracked stock — survives a prior purchase in the same suite. */
+const DEMO_PURCHASABLE_PRODUCT_HREF = '/shop/print-limited-golden-hour';
+
 async function addVisibleProductToCart(page: Page) {
   await page.locator('[data-testid="add-to-cart"]:visible').first().click();
+}
+
+async function openPurchasableProduct(page: Page) {
+  await page.goto('/shop');
+  await page.waitForSelector('[data-testid="product-card-link"]', { timeout: 15000 });
+  const seededCard = page.locator(`[data-testid="product-card-link"][href="${DEMO_PURCHASABLE_PRODUCT_HREF}"]`);
+  if (await seededCard.count()) {
+    await seededCard.first().click();
+  } else {
+    await page.goto(DEMO_PURCHASABLE_PRODUCT_HREF);
+  }
+  await expect(page).toHaveURL(new RegExp(`${DEMO_PURCHASABLE_PRODUCT_HREF}$`));
+  await expect(page.locator('[data-testid="add-to-cart"]:visible').first()).toBeVisible();
 }
 
 async function openCheckoutFromCart(page: Page) {
@@ -21,12 +37,7 @@ test.describe('Critical User Journeys', () => {
 
   test('Complete purchase flow', async ({ page }) => {
     test.setTimeout(60_000);
-    await page.goto('/shop');
-    await expect(page).toHaveURL(/\/shop/);
-    await page.waitForSelector('[data-testid="product-card-link"]', { timeout: 15000 });
-
-    await page.locator('[data-testid="product-card-link"]').first().click();
-    await expect(page.locator('[data-testid="add-to-cart"]:visible').first()).toBeVisible();
+    await openPurchasableProduct(page);
     await addVisibleProductToCart(page);
     await expect(page.locator('[data-testid="cart-count"]')).toContainText('1');
 
@@ -72,9 +83,6 @@ test.describe('Critical User Journeys', () => {
 
   test('Portfolio browsing and filtering', async ({ page }) => {
     await page.goto('/portfolio');
-    await page.waitForSelector('[data-testid="portfolio-item"]');
-
-    await page.click('[data-testid="filter-all"]');
     const portfolioItems = page.locator('[data-testid="portfolio-item"]');
     await expect(portfolioItems.first()).toBeVisible();
 
@@ -82,22 +90,34 @@ test.describe('Critical User Journeys', () => {
     await expect(firstImage).toBeVisible();
     const src = await firstImage.getAttribute('src');
     expect(src || '').not.toContain('fallback-artwork.svg');
+    // Cards badge sold works only — never an "Available" chip on the grid.
     await expect(portfolioItems.first().getByText('Available')).toHaveCount(0);
 
+    // Curated filters come from seeded PAGE_PORTFOLIO_JSON (or Studio). Drive the
+    // assertion from whatever category is actually on the page — not a hardcoded label.
     const categoryFilter = page.getByLabel('Portfolio categories');
     await expect(categoryFilter).toBeVisible();
+    await page.getByTestId('filter-all').click();
+
     const filterTag = await categoryFilter.evaluate((el) => el.tagName);
     if (filterTag === 'SELECT') {
-      await categoryFilter.selectOption({ label: 'Light Studies' });
-      await expect(categoryFilter).toHaveValue('light-studies');
+      const options = categoryFilter.locator('option');
+      await expect(options).not.toHaveCount(1);
+      const value = await options.nth(1).getAttribute('value');
+      expect(value).toBeTruthy();
+      await categoryFilter.selectOption({ value: value! });
+      await expect(categoryFilter).toHaveValue(value!);
+      await expect(page).toHaveURL(new RegExp(`category=${encodeURIComponent(value!)}`));
     } else {
-      await categoryFilter.getByRole('link', { name: 'Light Studies' }).click();
-      await expect(categoryFilter.getByRole('link', { name: 'Light Studies' })).toHaveAttribute(
-        'aria-current',
-        'page',
-      );
+      const categoryLink = categoryFilter.locator('a[data-testid^="filter-"]:not([data-testid="filter-all"])').first();
+      await expect(categoryLink).toBeVisible();
+      const testId = await categoryLink.getAttribute('data-testid');
+      const key = (testId || '').replace(/^filter-/, '');
+      expect(key).toBeTruthy();
+      await categoryLink.click();
+      await expect(categoryLink).toHaveAttribute('aria-current', 'page');
+      await expect(page).toHaveURL(new RegExp(`category=${encodeURIComponent(key)}`));
     }
-    await expect(page).toHaveURL(/category=light-studies/);
     await expect(page.locator('[data-testid="portfolio-item"]').first()).toBeVisible();
   });
 
@@ -107,9 +127,7 @@ test.describe('Critical User Journeys', () => {
     await page.click('[data-testid="mobile-menu-toggle"]');
     await expect(page.locator('[data-testid="mobile-menu"]')).toBeVisible();
 
-    await page.goto('/shop');
-    await page.waitForSelector('[data-testid="product-card-link"]', { timeout: 15000 });
-    await page.locator('[data-testid="product-card-link"]').first().click();
+    await openPurchasableProduct(page);
     await addVisibleProductToCart(page);
     await expect(page.locator('[data-testid="cart-count"]')).toContainText('1');
   });

@@ -1252,10 +1252,48 @@ export function headerDisplayName(identity: SiteIdentityContent): string {
 /** Reject placeholder CMS strings so stored drafts do not override seeded defaults on public pages. */
 export function isMeaningfulSiteText(value: string): boolean {
   const trimmed = value.trim();
-  if (trimmed.length < 3) return false;
+  if (!trimmed) return false;
   const normalized = trimmed.toLowerCase();
   return normalized !== 'untitled' && normalized !== 'filler' && normalized !== 'placeholder' && normalized !== 'tbd';
 }
+
+export function safeExternalHref(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.toString();
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function instagramProfileHref(handleOrUrl: string | null | undefined): string | null {
+  const trimmed = handleOrUrl?.trim();
+  if (!trimmed) return null;
+  const direct = safeExternalHref(trimmed);
+  if (direct) return direct;
+  const username = trimmed.replace(/^@+/, '').trim();
+  if (!username || !/^[a-zA-Z0-9._]{1,30}$/.test(username)) return null;
+  return `https://instagram.com/${encodeURIComponent(username)}`;
+}
+
+export const DEFAULT_PRIVACY_HTML = [
+  '<p>We collect the information needed to operate this site, respond to inquiries, process orders, deliver artwork, and send updates when a visitor subscribes or creates an account.</p>',
+  '<p>Order and payment details are handled through secure service providers. Payment card details are processed by Stripe and are not stored by this site.</p>',
+  '<p>Marketing emails are sent only when a visitor subscribes, creates an account, or begins a purchase flow that supports customer service follow-up. Each email may include unsubscribe or contact options where applicable.</p>',
+  '<p>Contact the studio to request access, correction, or deletion of personal information associated with your account or order history.</p>',
+].join('\n');
+
+export const DEFAULT_TERMS_HTML = [
+  "<p>By using this site, you agree to use it for lawful purchases, inquiries, and account activity related to the artist's work.</p>",
+  '<p>Artwork availability, pricing, shipping costs, and estimated delivery dates may change before checkout is completed. A purchase is confirmed only after payment is successfully processed.</p>',
+  '<p>Original artwork and digital content remain protected by copyright. Purchasing an artwork does not transfer reproduction, licensing, or commercial-use rights unless separately agreed in writing.</p>',
+  '<p>Questions about an order, commission, shipment, return, or damaged delivery should be sent through the contact page so the studio can review the request.</p>',
+].join('\n');
 
 export function visibleNavItems(identity: SiteIdentityContent): NavItem[] {
   return normalizeNavigation(identity.navigation).filter((item) => item.visible);

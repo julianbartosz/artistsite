@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { formatPrice } from '@/lib/commerce';
+import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
 import { orderStatusLabel } from '@/lib/order-status-shared';
 import { mergeGuestWishlistIntoAccount } from '@/components/WishlistButton';
 import RecentlyViewed from '@/components/RecentlyViewed';
@@ -428,7 +429,14 @@ export default function AccountDashboard() {
                       <div key={item.id} className="border border-gray-200 rounded-lg overflow-hidden">
                         <Link href={`/shop/${item.productId}`} className="block">
                           <div className="relative aspect-square bg-gray-100">
-                            <Image src={item.productImage} alt={item.productTitle} fill className="object-cover" sizes="(max-width: 768px) 100vw, 33vw" />
+                            <Image
+                              src={item.productImage}
+                              alt={item.productTitle}
+                              fill
+                              className="object-cover"
+                              sizes="(max-width: 768px) 100vw, 33vw"
+                              unoptimized={shouldUnoptimizeImage(item.productImage)}
+                            />
                           </div>
                           <div className="p-4">
                             <h3 className="font-medium text-gray-900 line-clamp-2">{item.productTitle}</h3>

@@ -13,12 +13,17 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const payload = sanitizeArtworkPayload(artworkPayloadSchema.parse(await request.json()));
     const artwork = await db.artwork.update({ where: { slug }, data: payload });
     revalidateTag('artworks');
+    revalidatePath('/');
     revalidatePath('/portfolio');
     revalidatePath(`/portfolio/${artwork.slug}`);
+    if (artwork.slug !== slug) revalidatePath(`/portfolio/${slug}`);
     return NextResponse.json({ artwork });
   } catch (error) {
     if (error instanceof ApiError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     if (error instanceof ZodError) return NextResponse.json({ error: 'Invalid artwork data', details: error.issues }, { status: 400 });
+    if (typeof error === 'object' && error && (error as { code?: string }).code === 'P2002') {
+      return NextResponse.json({ error: 'Another artwork already uses this slug. Choose a different title or slug.' }, { status: 409 });
+    }
     console.error('Admin artwork update error:', error);
     return NextResponse.json({ error: 'Failed to update artwork' }, { status: 500 });
   }
@@ -30,7 +35,9 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
     const { slug } = await params;
     await db.artwork.delete({ where: { slug } });
     revalidateTag('artworks');
+    revalidatePath('/');
     revalidatePath('/portfolio');
+    revalidatePath(`/portfolio/${slug}`);
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof ApiError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });

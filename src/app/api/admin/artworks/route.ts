@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
 
     const artwork = await db.artwork.create({ data: payload });
     revalidateTag('artworks');
+    revalidatePath('/');
     revalidatePath('/portfolio');
     return NextResponse.json({ artwork }, { status: 201 });
   } catch (error) {

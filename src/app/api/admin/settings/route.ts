@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth';
 import { ApiError } from '@/lib/api-error-handler';
 import { getConfig, isSecretSettingKey, maskSecret, setConfig } from '@/lib/config';
+import { sanitizeRichHtml } from '@/lib/content-sanitize';
 import { SITE_CONTENT_KEYS } from '@/lib/site-content-shared';
 
 const SETTING_KEYS = [
@@ -73,6 +75,9 @@ const SETTING_KEYS = [
 
 const SETTING_KEY_SET = new Set<string>(SETTING_KEYS);
 const SITE_CONTENT_SETTING_KEYS = new Set<string>(Object.values(SITE_CONTENT_KEYS));
+// Site content JSON is managed exclusively via /api/admin/site-content; CRON_LAST_RUN_AT is system-owned.
+const READ_ONLY_SETTING_KEYS = new Set<string>(['CRON_LAST_RUN_AT', ...SITE_CONTENT_SETTING_KEYS]);
+const HTML_SETTING_KEYS = new Set<string>(['LEGAL_PRIVACY_HTML', 'LEGAL_TERMS_HTML']);
 
 const SettingsPayloadSchema = z.object({
   settings: z.record(z.string(), z.union([z.string(), z.boolean(), z.number(), z.null()])).default({}),
@@ -121,14 +126,33 @@ export async function PUT(request: NextRequest) {
     await requireAdmin();
     const payload = SettingsPayloadSchema.parse(await request.json());
 
+    const updatedKeys = new Set<string>();
     for (const [rawKey, rawValue] of Object.entries(payload.settings)) {
       const key = rawKey.trim().toUpperCase();
-      if (!SETTING_KEY_SET.has(key)) continue;
+      if (!SETTING_KEY_SET.has(key) || READ_ONLY_SETTING_KEYS.has(key)) continue;
 
-      const value = rawValue === null ? '' : String(rawValue).trim();
+      let value = rawValue === null ? '' : String(rawValue).trim();
       if (isSecretSettingKey(key) && !value) continue;
+      if (HTML_SETTING_KEYS.has(key) && value) {
+        value = sanitizeRichHtml(value);
+      }
 
       await setConfig(key, value, { encrypt: isSecretSettingKey(key) });
+      updatedKeys.add(key);
+    }
+
+    if (updatedKeys.has('LEGAL_PRIVACY_HTML')) revalidatePath('/privacy');
+    if (updatedKeys.has('LEGAL_TERMS_HTML')) revalidatePath('/terms');
+    if (
+      updatedKeys.has('CONTACT_EMAIL')
+      || updatedKeys.has('ARTIST_EMAIL')
+      || updatedKeys.has('SUPPORT_EMAIL')
+      || updatedKeys.has('SOCIAL_INSTAGRAM_URL')
+      || updatedKeys.has('SOCIAL_FACEBOOK_URL')
+      || updatedKeys.has('SOCIAL_X_URL')
+      || updatedKeys.has('SOCIAL_PINTEREST_URL')
+    ) {
+      revalidatePath('/', 'layout');
     }
 
     const settings = await Promise.all(

@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useCart } from '@/components/CartContext';
 import { useAnalytics } from '@/components/AnalyticsProvider';
 import { formatPrice, productImageSrc, cartItemLineTotal, formatCartItemVariant, E2E_CHECKOUT_SESSION_PREFIX } from '@/lib/commerce';
+import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
 import { DEFAULT_SHOP_PAGE } from '@/lib/site-content-shared';
 import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
 import { loadStripe } from '@stripe/stripe-js';
@@ -389,6 +390,7 @@ function CheckoutPageContent() {
                   fill
                   className="object-cover"
                   sizes="64px"
+                  unoptimized={shouldUnoptimizeImage(productImageSrc(item.product))}
                 />
               </div>
               <div className="flex-1 min-w-0">

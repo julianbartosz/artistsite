@@ -201,6 +201,19 @@ const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: Setting
 ];
 
 const ADVANCED_GROUP_TITLES = new Set(['Marketing Signals', 'Automation']);
+const EDITABLE_SETTING_KEYS = new Set<string>(
+  SETTINGS_GROUPS.flatMap((group) => group.keys.map((field) => field.key)),
+);
+
+function buildEditableDraft(records: SettingRecord[]): Record<string, string> {
+  const raw: Record<string, string> = {};
+  for (const item of records) {
+    if (EDITABLE_SETTING_KEYS.has(item.key)) {
+      raw[item.key] = item.value || '';
+    }
+  }
+  return applySettingFieldDefaults(raw);
+}
 
 export function adminSettingFieldId(key: string): string {
   return `setting-${key}`;
@@ -317,9 +330,7 @@ export default function AdminSettings() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to load settings');
       const records = Object.fromEntries((data.settings || []).map((item: SettingRecord) => [item.key, item]));
-      const nextDraft = applySettingFieldDefaults(
-        Object.fromEntries((data.settings || []).map((item: SettingRecord) => [item.key, item.value || ''])),
-      );
+      const nextDraft = buildEditableDraft(data.settings || []);
       setSettings(records);
       setDraft(nextDraft);
       setSavedDraft(nextDraft);
@@ -335,7 +346,11 @@ export default function AdminSettings() {
     setSaving(true);
     setMessage(null);
     try {
-      const settingsPayload = applySettingFieldDefaults(draft);
+      const settingsPayload = applySettingFieldDefaults(
+        Object.fromEntries(
+          Object.entries(draft).filter(([key]) => EDITABLE_SETTING_KEYS.has(key)),
+        ),
+      );
       const response = await fetch('/api/admin/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -344,9 +359,7 @@ export default function AdminSettings() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to save settings');
       const records = Object.fromEntries((data.settings || []).map((item: SettingRecord) => [item.key, item]));
-      const nextDraft = applySettingFieldDefaults(
-        Object.fromEntries((data.settings || []).map((item: SettingRecord) => [item.key, item.value || ''])),
-      );
+      const nextDraft = buildEditableDraft(data.settings || []);
       setSettings(records);
       setDraft(nextDraft);
       setSavedDraft(nextDraft);
@@ -367,7 +380,10 @@ export default function AdminSettings() {
       if (!response.ok) throw new Error(data.error || 'Automation run failed');
       setMessage({ type: 'success', text: `Automations completed. Processed ${data.processed ?? 0} job(s).` });
       if (typeof data.lastRunAt === 'string' && data.lastRunAt) {
-        setDraft((prev) => ({ ...prev, CRON_LAST_RUN_AT: data.lastRunAt }));
+        setSettings((prev) => ({
+          ...prev,
+          CRON_LAST_RUN_AT: { key: 'CRON_LAST_RUN_AT', value: data.lastRunAt, status: 'configured', secret: false },
+        }));
       }
       await loadSettings();
     } catch (error) {
@@ -480,7 +496,7 @@ export default function AdminSettings() {
           automation secret is saved. Use the button to run them right away.
         </p>
         <p className="mt-2 text-sm text-gray-600">
-          Last run: {draft.CRON_LAST_RUN_AT ? new Date(draft.CRON_LAST_RUN_AT).toLocaleString() : 'Not recorded yet'}
+          Last run: {settings.CRON_LAST_RUN_AT?.value ? new Date(settings.CRON_LAST_RUN_AT.value).toLocaleString() : 'Not recorded yet'}
         </p>
         <button
           type="button"

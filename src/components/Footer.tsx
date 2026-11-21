@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import type { SiteFooterContent, SiteIdentityContent } from '@/lib/site-content-shared';
-import { DEFAULT_SITE_IDENTITY, footerNavItems } from '@/lib/site-content-shared';
+import { DEFAULT_SITE_IDENTITY, footerNavItems, safeExternalHref } from '@/lib/site-content-shared';
 import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
 
 const DEFAULT_FOOTER = DEFAULT_SITE_IDENTITY.footer;
@@ -35,14 +35,14 @@ export function Footer({
       { name: 'Terms of Service', href: '/terms' },
     ],
     social: [
-      socialUrls.instagram ? { name: 'Instagram', href: socialUrls.instagram, icon: 'instagram' } : null,
-      socialUrls.facebook ? { name: 'Facebook', href: socialUrls.facebook, icon: 'facebook' } : null,
-      socialUrls.twitter ? { name: 'X', href: socialUrls.twitter, icon: 'twitter' } : null,
-      socialUrls.pinterest ? { name: 'Pinterest', href: socialUrls.pinterest, icon: 'pinterest' } : null,
+      safeExternalHref(socialUrls.instagram) ? { name: 'Instagram', href: safeExternalHref(socialUrls.instagram)!, icon: 'instagram', external: true } : null,
+      safeExternalHref(socialUrls.facebook) ? { name: 'Facebook', href: safeExternalHref(socialUrls.facebook)!, icon: 'facebook', external: true } : null,
+      safeExternalHref(socialUrls.twitter) ? { name: 'X', href: safeExternalHref(socialUrls.twitter)!, icon: 'twitter', external: true } : null,
+      safeExternalHref(socialUrls.pinterest) ? { name: 'Pinterest', href: safeExternalHref(socialUrls.pinterest)!, icon: 'pinterest', external: true } : null,
       contactEmail
-        ? { name: 'Email', href: `mailto:${contactEmail}`, icon: 'email' }
-        : { name: 'Contact', href: '/contact', icon: 'email' },
-    ].filter(Boolean) as Array<{ name: string; href: string; icon: string }>,
+        ? { name: 'Email', href: `mailto:${contactEmail}`, icon: 'email', external: false }
+        : { name: 'Contact', href: '/contact', icon: 'email', external: false },
+    ].filter(Boolean) as Array<{ name: string; href: string; icon: string; external: boolean }>,
   };
 
   const extraColumn = footerContent.extraColumn;
@@ -111,6 +111,7 @@ export function Footer({
                 <a
                   key={item.name}
                   href={item.href}
+                  {...(item.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                   className="tap-target rounded-md text-gray-300 hover:text-white transition-colors"
                   aria-label={item.name}
                 >

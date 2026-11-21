@@ -8,6 +8,7 @@ import {
   type BioSectionKey,
 } from '@/lib/site-content-shared';
 import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
+import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,6 +57,7 @@ function BioHero({ bio }: { bio: BioPageContent }) {
                   className="object-cover"
                   sizes="(max-width: 1024px) 100vw, 50vw"
                   priority
+                  unoptimized={shouldUnoptimizeImage(bio.hero.portraitImage)}
                 />
               </div>
             </div>
@@ -85,32 +87,21 @@ function BioBackgroundAchievements({ bio }: { bio: BioPageContent }) {
   if (!showBackground && !showAchievements) return null;
 
   return (
-    <section className="bg-surface-muted section-space-tight">
+    <section className="relative group bg-surface-muted section-space-tight">
+      <CmsEditAnchor targetKey="bio:background" />
       <div className="max-w-6xl mx-auto px-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-12">
+        <div className={`grid grid-cols-1 ${showBackground && showAchievements ? 'lg:grid-cols-2' : ''} gap-10 lg:gap-12`}>
           {showBackground && (
-            <>
-              <details className="lg:hidden group">
-                <summary className="cursor-pointer text-2xl font-bold text-gray-900 mb-4">{bio.backgroundTitle}</summary>
-                <div className="prose prose-lg text-gray-700" dangerouslySetInnerHTML={{ __html: bio.backgroundHtml }} />
-              </details>
-              <div className="hidden lg:block">
-                <h2 className="text-3xl font-bold text-gray-900 mb-8">{bio.backgroundTitle}</h2>
-                <div className="prose prose-lg text-gray-700" dangerouslySetInnerHTML={{ __html: bio.backgroundHtml }} />
-              </div>
-            </>
+            <div>
+              <h2 className="text-3xl font-bold text-gray-900 mb-6 lg:mb-8">{bio.backgroundTitle}</h2>
+              <div className="prose prose-lg text-gray-700" dangerouslySetInnerHTML={{ __html: bio.backgroundHtml }} />
+            </div>
           )}
           {showAchievements && (
-            <>
-              <details className="lg:hidden">
-                <summary className="cursor-pointer text-2xl font-bold text-gray-900 mb-4">{bio.achievementsTitle}</summary>
-                <div className="prose prose-lg text-gray-700" dangerouslySetInnerHTML={{ __html: bio.achievementsHtml }} />
-              </details>
-              <div className="hidden lg:block">
-                <h2 className="text-3xl font-bold text-gray-900 mb-8">{bio.achievementsTitle}</h2>
-                <div className="prose prose-lg text-gray-700" dangerouslySetInnerHTML={{ __html: bio.achievementsHtml }} />
-              </div>
-            </>
+            <div>
+              <h2 className="text-3xl font-bold text-gray-900 mb-6 lg:mb-8">{bio.achievementsTitle}</h2>
+              <div className="prose prose-lg text-gray-700" dangerouslySetInnerHTML={{ __html: bio.achievementsHtml }} />
+            </div>
           )}
         </div>
       </div>
@@ -160,6 +151,7 @@ function BioStudio({ bio }: { bio: BioPageContent }) {
                 fill
                 className="object-cover"
                 sizes="(max-width: 1024px) 100vw, 50vw"
+                unoptimized={shouldUnoptimizeImage(bio.studioImage)}
               />
             </div>
           )}
@@ -217,7 +209,7 @@ function BioCta({ bio }: { bio: BioPageContent }) {
           {bio.cta.contactLabel.trim() && (
             <Link
               href="/contact"
-              className="inline-flex w-full sm:w-auto items-center justify-center rounded-lg border border-gray-300 px-8 py-3 font-medium text-gray-700 transition-colors hover:border-gray-900 hover:text-gray-900 whitespace-nowrap"
+              className="inline-flex w-full sm:w-auto items-center justify-center rounded-button border border-gray-300 px-8 py-3 font-medium text-gray-700 transition-colors hover:border-gray-900 hover:text-gray-900 whitespace-nowrap"
             >
               {bio.cta.contactLabel}
             </Link>

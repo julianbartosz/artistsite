@@ -18,6 +18,7 @@ import type { ArtworkPiece } from "@/lib/portfolio";
 import type { BlogPost } from "@/lib/markdown";
 import { NewsletterSignup } from "@/components/NewsletterSignup";
 import CmsEditAnchor from "@/components/admin/CmsEditAnchor";
+import { shouldUnoptimizeImage } from "@/lib/image-variant-url";
 
 export const dynamic = 'force-dynamic';
 
@@ -36,6 +37,7 @@ type HomeSectionContext = {
   home: HomePageContent;
   featuredArtworks: ArtworkPiece[];
   recentPosts: BlogPost[];
+  artworkImageFit: 'cover' | 'contain';
 };
 
 const HOME_EDIT_TARGETS: Partial<Record<HomeSectionKey, string>> = {
@@ -58,7 +60,8 @@ function wrapHomeSection(sectionKey: HomeSectionKey, node: React.ReactNode) {
 }
 
 function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
-  const { home, featuredArtworks, recentPosts } = ctx;
+  const { home, featuredArtworks, recentPosts, artworkImageFit } = ctx;
+  const featuredFitClass = artworkImageFit === 'contain' ? 'object-contain' : 'object-cover';
 
   switch (key) {
     case 'featured':
@@ -79,9 +82,9 @@ function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
                       src={artwork.images.thumbnail}
                       alt={artwork.title}
                       fill
-                      className="object-cover transition-transform duration-300 group-hover:scale-105 motion-reduce:transform-none"
+                      className={`${featuredFitClass} transition-transform duration-300 group-hover:scale-105 motion-reduce:transform-none`}
                       sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                      unoptimized={artwork.images.thumbnail.endsWith('.svg')}
+                      unoptimized={shouldUnoptimizeImage(artwork.images.thumbnail)}
                     />
                     {!artwork.available && (
                       <span className="absolute right-3 top-3 bg-white/95 px-2 py-1 text-xs font-medium text-gray-900">
@@ -133,6 +136,7 @@ function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
                     fill
                     className="object-cover"
                     sizes="(max-width: 1024px) 100vw, 50vw"
+                    unoptimized={shouldUnoptimizeImage(home.about.studioImage)}
                   />
                 </div>
               )}
@@ -157,10 +161,12 @@ function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
                   <article className="bg-surface-muted rounded-lg overflow-hidden h-full hover:shadow-lg transition-shadow card-surface">
                     {(post.coverImage || post.media[0]) && (
                       <div className="aspect-[4/3] overflow-hidden bg-gray-200">
-                        {post.media[0]?.type === 'video' ? (
+                        {post.coverImage ? (
+                          <img src={post.coverImage} alt={post.title} className="h-full w-full object-cover" />
+                        ) : post.media[0]?.type === 'video' ? (
                           <video src={post.media[0].url} className="h-full w-full object-cover" muted playsInline preload="metadata" />
                         ) : (
-                          <img src={post.coverImage || post.media[0]?.url} alt={post.title} className="h-full w-full object-cover" />
+                          <img src={post.media[0]?.url} alt={post.title} className="h-full w-full object-cover" />
                         )}
                       </div>
                     )}
@@ -216,7 +222,10 @@ function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
 }
 
 export default async function Home() {
-  const home = await getSiteContent('home');
+  const [home, portfolio] = await Promise.all([
+    getSiteContent('home'),
+    getSiteContent('portfolio'),
+  ]);
   const [recentPosts, featuredArtworks] = await Promise.all([
     getAllPosts().then((posts) => posts.slice(0, 3)),
     resolveFeaturedArtworks(home.featured),
@@ -232,7 +241,12 @@ export default async function Home() {
   const heroSubtitleClass = isBackgroundHero ? 'text-gray-100' : 'text-gray-700';
   const heroAccentClass = isBackgroundHero ? 'text-gray-200' : 'text-accent';
   const { beforeHero, afterHero } = resolveHomeSectionRenderPlan(home);
-  const sectionContext: HomeSectionContext = { home, featuredArtworks, recentPosts };
+  const sectionContext: HomeSectionContext = {
+    home,
+    featuredArtworks,
+    recentPosts,
+    artworkImageFit: portfolio.layout.imageFit,
+  };
 
   return (
     <div className="min-h-screen">
@@ -246,7 +260,7 @@ export default async function Home() {
         <CmsEditAnchor targetKey="home:hero" />
         {isBackgroundHero && portraitImage && (
           <>
-            <Image src={portraitImage} alt="" fill className="object-cover" sizes="100vw" priority />
+            <Image src={portraitImage} alt="" fill className="object-cover" sizes="100vw" priority unoptimized={shouldUnoptimizeImage(portraitImage)} />
             <div className="absolute inset-0 bg-black/50" />
           </>
         )}
@@ -260,6 +274,7 @@ export default async function Home() {
                 className="object-cover"
                 sizes="(max-width: 768px) 160px, 50vw"
                 priority
+                unoptimized={shouldUnoptimizeImage(portraitImage)}
               />
             </div>
           )}
@@ -286,7 +301,7 @@ export default async function Home() {
             </div>
             {isBadgeHero && portraitImage && (
               <div className="relative mt-8 mx-auto w-24 h-24 rounded-full overflow-hidden border-4 border-white shadow-xl">
-                <Image src={portraitImage} alt="Artist portrait" fill className="object-cover" sizes="96px" />
+                <Image src={portraitImage} alt="Artist portrait" fill className="object-cover" sizes="96px" unoptimized={shouldUnoptimizeImage(portraitImage)} />
               </div>
             )}
           </div>

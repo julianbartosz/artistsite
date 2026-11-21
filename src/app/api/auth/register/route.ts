@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import { getConfig } from '@/lib/config';
+import { getConfigBool } from '@/lib/config';
 import { brandedEmailHtml, getEmailBrand, sendTemplateEmail } from '@/lib/email';
 import { absoluteUrl } from '@/lib/utils';
 import { escapeHtml } from '@/lib/email-shell';
@@ -94,8 +94,7 @@ export async function POST(request: NextRequest) {
 }
 
 async function sendWelcomeEmail(user: { id: string; email: string; name: string | null; firstName: string | null }) {
-  const enabled = await getConfig('WELCOME_EMAIL_ENABLED');
-  if (enabled && !['1', 'true', 'yes', 'on'].includes(enabled.toLowerCase())) return;
+  if (!(await getConfigBool('WELCOME_EMAIL_ENABLED'))) return;
 
   const brand = await getEmailBrand();
   const shopUrl = absoluteUrl('/shop', brand.siteUrl);
