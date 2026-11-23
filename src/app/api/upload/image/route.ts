@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import sharp, { type Metadata } from 'sharp';
 import { ApiError } from '@/lib/api-error-handler';
 import { requireAdmin } from '@/lib/auth';
+import { heicBufferToJpeg, isMissingHevcDecoderError } from '@/lib/heic-decode';
 import { listStoredImages, listStoredMedia, StorageConfigurationError, storeMediaAsset } from '@/lib/storage';
 import { buildImageVariants } from '@/lib/image-variants';
 
@@ -130,21 +131,34 @@ async function normalizeUploadedImage(buffer: Buffer): Promise<{
 
   // Convert iPhone HEIC/HEIF, AVIF, and studio TIFFs into universally viewable web images.
   if (format === 'heif' || format === 'tiff') {
-    const pipeline = sharp(buffer)
-      .rotate()
-      .resize({ width: MAX_IMAGE_DIMENSION, height: MAX_IMAGE_DIMENSION, fit: 'inside', withoutEnlargement: true });
-    if (metadata.hasAlpha) {
+    const encodeNormalized = async (source: Buffer, hasAlpha: boolean | undefined) => {
+      const pipeline = sharp(source)
+        .rotate()
+        .resize({ width: MAX_IMAGE_DIMENSION, height: MAX_IMAGE_DIMENSION, fit: 'inside', withoutEnlargement: true });
+      if (hasAlpha) {
+        return {
+          buffer: await pipeline.png({ compressionLevel: 8 }).toBuffer(),
+          extension: 'png',
+          contentType: 'image/png',
+        };
+      }
       return {
-        buffer: await pipeline.png({ compressionLevel: 8 }).toBuffer(),
-        extension: 'png',
-        contentType: 'image/png',
+        buffer: await pipeline.jpeg({ quality: 92, mozjpeg: true }).toBuffer(),
+        extension: 'jpg',
+        contentType: 'image/jpeg',
       };
-    }
-    return {
-      buffer: await pipeline.jpeg({ quality: 92, mozjpeg: true }).toBuffer(),
-      extension: 'jpg',
-      contentType: 'image/jpeg',
     };
+
+    try {
+      return await encodeNormalized(buffer, metadata.hasAlpha);
+    } catch (error) {
+      // Prebuilt sharp cannot decode HEVC HEIC on Linux (and often macOS); fall back.
+      if (format === 'heif' && isMissingHevcDecoderError(error)) {
+        const jpegBuffer = await heicBufferToJpeg(buffer);
+        return encodeNormalized(jpegBuffer, false);
+      }
+      throw error;
+    }
   }
 
   return null;
