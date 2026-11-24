@@ -52,6 +52,9 @@ jest.mock('@/lib/db', () => {
       findUnique: jest.fn().mockResolvedValue(null),
       upsert: jest.fn().mockResolvedValue({ id: '1', email: 'subscriber@example.com' }),
     },
+    order: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
   };
   return { db: mockClient, prisma: mockClient };
 });
@@ -513,11 +516,12 @@ describe('Analytics filtering & finite math', () => {
     [[100, 300], 200, 200],
     [[50, 100, 600], 250, 100],
   ])('calculateLifetimeValue(%p) -> avg=%p median=%p', async (values, expectedAvg, expectedMedian) => {
-    (db.customerProfile.findMany as jest.Mock).mockResolvedValueOnce(
-      values.map((lifetimeValue) => ({
-        lifetimeValue,
-        segments: '[]',
-        createdAt: new Date('2026-11-01T00:00:00Z'),
+    (db.customerProfile.findMany as jest.Mock).mockResolvedValueOnce([]);
+    (db.order.findMany as jest.Mock).mockResolvedValueOnce(
+      values.map((total, index) => ({
+        userId: `buyer-${index}`,
+        userEmail: `buyer${index}@example.com`,
+        total,
       })),
     );
     const result = await CustomerInsights.calculateLifetimeValue();
