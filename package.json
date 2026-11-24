@@ -66,6 +66,7 @@
     "@tiptap/extension-image": "^3.0.7",
     "@tiptap/extension-link": "^3.0.7",
     "@tiptap/extension-placeholder": "^3.0.7",
+    "@tiptap/extension-text-align": "^3.35.0",
     "@tiptap/react": "^3.0.7",
     "@tiptap/starter-kit": "^3.0.7",
     "@types/bcryptjs": "^3.0.0",

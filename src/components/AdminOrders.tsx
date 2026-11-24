@@ -3,6 +3,7 @@
 import React, { FormEvent, useCallback, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import OrderStatusStepper from '@/components/admin/OrderStatusStepper';
+import { formatPrice } from '@/lib/commerce';
 import { orderStatusLabel, type OrderStatus } from '@/lib/order-status-shared';
 import { SHIPPING_CARRIERS, trackingUrl } from '@/lib/shipping';
 
@@ -51,6 +52,13 @@ export default function AdminOrders() {
       if (!response.ok) throw new Error(data.error || 'Failed to load orders');
       const loadedOrders = data.orders || [];
       setOrders(loadedOrders);
+      setExpandedOrders((current) => {
+        if (Object.keys(current).length > 0 || loadedOrders.length === 0) return current;
+        const firstActive = loadedOrders.find(
+          (entry: AdminOrder) => !['delivered', 'cancelled', 'refunded'].includes(entry.status),
+        ) ?? loadedOrders[0];
+        return { [firstActive.id]: true };
+      });
       setDrafts(Object.fromEntries(loadedOrders.map((order: AdminOrder) => [order.id, {
         status: order.status,
         shippingCarrier: order.shippingCarrier || '',
@@ -247,7 +255,10 @@ export default function AdminOrders() {
           {orders.map((order) => {
             const draft = drafts[order.id] || { status: order.status, shippingCarrier: '', trackingNumber: '', estimatedDelivery: '' };
             const expanded = expandedOrders[order.id] ?? false;
-            const detailsClass = expanded ? 'block' : 'hidden md:block';
+            const canMarkShipped = !['shipped', 'delivered', 'cancelled', 'refunded'].includes(order.status);
+            const canBuyLabel = !['cancelled', 'refunded'].includes(order.status) && !order.shippingLabelUrl;
+            const hasTracking = Boolean((draft.trackingNumber || order.trackingNumber || '').trim());
+            const itemCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
             return (
               <article key={order.id} className="rounded-lg border bg-white p-5">
                 <div className="flex items-start justify-between gap-3">
@@ -257,22 +268,26 @@ export default function AdminOrders() {
                       <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs capitalize text-gray-700">{order.paymentStatus}</span>
                       <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-800">{orderStatusLabel(order.status)}</span>
                     </div>
-                    <p className="text-sm text-gray-600">{order.customerEmail} • ${order.total.toLocaleString()} {order.currency}</p>
-                    <p className="mt-1 text-sm text-gray-500">{new Date(order.createdAt).toLocaleString()}</p>
+                    <p className="text-sm text-gray-600">
+                      {order.customerEmail} · {formatPrice(order.total, order.currency || 'USD')} · {itemCount} {itemCount === 1 ? 'item' : 'items'}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">{new Date(order.createdAt).toLocaleString()}</p>
                   </div>
                   <button
                     type="button"
-                    className="md:hidden tap-target-inline shrink-0 rounded border border-gray-300 px-3 text-sm text-gray-700"
+                    className="tap-target-inline shrink-0 rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
                     aria-expanded={expanded}
                     onClick={() => setExpandedOrders((current) => ({ ...current, [order.id]: !expanded }))}
                   >
                     {expanded ? 'Collapse' : 'Manage'}
                   </button>
                 </div>
-                <div className={`${detailsClass} mt-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between`}>
+                {expanded && (
+                <>
+                <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <ul className="space-y-1 text-sm text-gray-700">
                     {order.items.map((item) => (
-                      <li key={item.id}>{item.quantity} x {item.product?.title || item.productId}</li>
+                      <li key={item.id}>{item.quantity} × {item.product?.title || item.productId}</li>
                     ))}
                   </ul>
                   <div className="grid w-full max-w-2xl grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -307,18 +322,24 @@ export default function AdminOrders() {
                       <input type="date" value={draft.estimatedDelivery} onChange={(event) => setDrafts((current) => ({ ...current, [order.id]: { ...draft, estimatedDelivery: event.target.value } }))} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
                     </label>
                     <div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-4">
-                      <button type="button" onClick={() => updateOrder(order)} className="rounded bg-gray-900 px-4 py-2 text-white">Save</button>
-                      <button type="button" onClick={() => applyShippedPreset(order)} className="rounded border border-gray-300 px-4 py-2 text-gray-700">Mark as shipped</button>
-                      {canRefund(order) && (
-                        <button type="button" onClick={() => issueRefund(order)} className="rounded border border-red-300 px-4 py-2 text-red-700">Issue refund</button>
+                      <button type="button" onClick={() => updateOrder(order)} className="rounded bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800">Save</button>
+                      {canMarkShipped && (
+                        <button type="button" onClick={() => applyShippedPreset(order)} className="rounded border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Mark as shipped</button>
                       )}
-                      <button type="button" onClick={() => buyLabel(order)} className="rounded bg-blue-600 px-4 py-2 text-white">Buy label</button>
-                      <button type="button" onClick={() => void copyTrackingLink(order)} className="rounded border border-gray-300 px-4 py-2 text-gray-700">Copy tracking link</button>
-                      {order.shippingLabelUrl && <a href={order.shippingLabelUrl} target="_blank" rel="noreferrer" className="rounded border border-gray-300 px-4 py-2 text-gray-700">Open label</a>}
+                      {canRefund(order) && (
+                        <button type="button" onClick={() => issueRefund(order)} className="rounded border border-red-300 px-4 py-2 text-sm text-red-700 hover:bg-red-50">Issue refund</button>
+                      )}
+                      {canBuyLabel && (
+                        <button type="button" onClick={() => buyLabel(order)} className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Buy label</button>
+                      )}
+                      {hasTracking && (
+                        <button type="button" onClick={() => void copyTrackingLink(order)} className="rounded border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Copy tracking link</button>
+                      )}
+                      {order.shippingLabelUrl && <a href={order.shippingLabelUrl} target="_blank" rel="noreferrer" className="rounded border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Open label</a>}
                     </div>
                   </div>
                 </div>
-                <div className={`${detailsClass} mt-5 border-t pt-4`}>
+                <div className="mt-5 border-t pt-4">
                   <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">Fulfillment progress</p>
                   <OrderStatusStepper status={order.status} />
                   {draft.status !== order.status && (
@@ -328,7 +349,7 @@ export default function AdminOrders() {
                   )}
                 </div>
                 {order.timeline?.length > 0 && (
-                  <div className={`${detailsClass} mt-5 border-t pt-4`}>
+                  <div className="mt-5 border-t pt-4">
                     <p className="mb-3 text-xs font-medium uppercase tracking-wide text-gray-500">Timeline</p>
                     <ol className="space-y-3">
                       {order.timeline.map((entry) => (
@@ -341,7 +362,7 @@ export default function AdminOrders() {
                     </ol>
                   </div>
                 )}
-                <div className={`${detailsClass} mt-5 border-t pt-4`}>
+                <div className="mt-5 border-t pt-4">
                   {!messageOpen[order.id] ? (
                     <button
                       type="button"
@@ -371,6 +392,8 @@ export default function AdminOrders() {
                     </div>
                   )}
                 </div>
+                </>
+                )}
               </article>
             );
           })}

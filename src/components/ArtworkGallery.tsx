@@ -2,8 +2,10 @@
 
 import React, { useEffect, useState } from 'react';
 import Image from 'next/image';
-import { PRODUCT_IMAGE_FALLBACK } from '@/lib/commerce';
-import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
+import { Play } from 'lucide-react';
+import { collectImageGallery, PRODUCT_IMAGE_FALLBACK } from '@/lib/commerce';
+import ImageCarousel from '@/components/ImageCarousel';
+import { isVideoUrl, pickVariantUrl, shouldUnoptimizeImage } from '@/lib/image-variant-url';
 
 interface ArtworkGalleryProps {
   title: string;
@@ -24,9 +26,10 @@ export default function ArtworkGallery({
   resolveSrc,
   overlay,
 }: ArtworkGalleryProps) {
-  const images = [mainImage, ...galleryImages]
+  const rawImages = [mainImage, ...galleryImages]
     .map((src) => src.trim())
     .filter((src, index, list) => Boolean(src) && list.indexOf(src) === index);
+  const images = rawImages.length > 0 ? collectImageGallery(rawImages) : [];
 
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -64,7 +67,9 @@ export default function ArtworkGallery({
   function effectiveSrc(rawUrl: string, role: 'main' | 'thumb'): string {
     const key = `${role}:${rawUrl}`;
     const level = fallbackLevel[key] ?? 0;
-    const preferred = resolveSrc ? resolveSrc(rawUrl, role) : rawUrl;
+    const preferred = resolveSrc
+      ? resolveSrc(rawUrl, role)
+      : pickVariantUrl(rawUrl, role === 'main' ? 'lg' : 'thumb');
     if (level === 0) return preferred;
     if (level === 1 && preferred !== rawUrl) return rawUrl;
     return PRODUCT_IMAGE_FALLBACK;
@@ -79,65 +84,81 @@ export default function ArtworkGallery({
     });
   }
 
-  const activeMainSrc = effectiveSrc(rawActiveImage, 'main');
+  const activeIsVideo = isVideoUrl(rawActiveImage);
   const lightboxSrc = fallbackLevel[`main:${rawActiveImage}`] && fallbackLevel[`main:${rawActiveImage}`] >= 2
     ? PRODUCT_IMAGE_FALLBACK
     : rawActiveImage;
 
   return (
     <div className="space-y-4">
-      <div
+      <ImageCarousel
+        images={images}
+        alt={title}
+        variantSize="lg"
+        activeIndex={selectedIndex}
+        onIndexChange={setSelectedIndex}
+        onImageClick={activeIsVideo ? undefined : () => setLightboxOpen(true)}
+        imageClickAriaLabel={`Inspect ${title} full size`}
         className={`group relative overflow-hidden rounded-lg bg-surface-muted/70 ring-1 ring-gray-200/70 ${
           galleryFocus ? 'aspect-[4/3] sm:aspect-[16/10] max-h-[72vh]' : 'aspect-[4/5] sm:aspect-square'
         }`}
+        imageClassName="object-contain p-2 sm:p-3 transition-transform duration-300 group-hover:scale-[1.01] motion-reduce:transform-none"
+        sizes={galleryFocus ? '100vw' : '(max-width: 1024px) 100vw, 50vw'}
+        priority
       >
-        <button
-          type="button"
-          onClick={() => setLightboxOpen(true)}
-          aria-label={`Inspect ${title} full size`}
-          className="relative block h-full w-full cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        >
-          <Image
-            src={activeMainSrc}
-            alt={selectedIndex === 0 ? title : `${title} - View ${selectedIndex + 1}`}
-            fill
-            className="object-contain p-2 sm:p-3 transition-transform duration-300 group-hover:scale-[1.01] motion-reduce:transform-none"
-            sizes={galleryFocus ? '100vw' : '(max-width: 1024px) 100vw, 50vw'}
-            priority={selectedIndex === 0}
-            unoptimized={shouldUnoptimizeImage(activeMainSrc)}
-            onError={() => advanceFallback(rawActiveImage, 'main')}
-          />
-          <span className="pointer-events-none absolute bottom-3 right-3 rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+        {!activeIsVideo && (
+          <span className="pointer-events-none absolute bottom-3 right-3 z-20 rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
             Zoom
           </span>
-        </button>
+        )}
         {overlay}
-      </div>
+      </ImageCarousel>
 
       {images.length > 1 && (
         <div className={`grid gap-2 ${galleryFocus ? 'grid-cols-4 md:grid-cols-6' : 'grid-cols-4'}`}>
           {images.map((image, index) => {
-            const thumbSrc = effectiveSrc(image, 'thumb');
+            const itemIsVideo = isVideoUrl(image);
+            const thumbSrc = itemIsVideo ? image : effectiveSrc(image, 'thumb');
             return (
               <button
                 key={`${image}-${index}`}
                 type="button"
                 onClick={() => setSelectedIndex(index)}
-                aria-label={`View image ${index + 1} of ${title}`}
+                aria-label={itemIsVideo ? `View video ${index + 1} of ${title}` : `View image ${index + 1} of ${title}`}
                 aria-pressed={selectedIndex === index}
                 className={`relative aspect-square overflow-hidden rounded bg-gray-100 ring-2 transition-all ${
                   selectedIndex === index ? 'ring-primary' : 'ring-transparent hover:ring-gray-300'
                 }`}
               >
-                <Image
-                  src={thumbSrc}
-                  alt={`${title} - View ${index + 1}`}
-                  fill
-                  className="object-cover"
-                  sizes={galleryFocus ? '(max-width: 768px) 25vw, 16vw' : '(max-width: 1024px) 25vw, 12.5vw'}
-                  unoptimized={shouldUnoptimizeImage(thumbSrc)}
-                  onError={() => advanceFallback(image, 'thumb')}
-                />
+                {itemIsVideo ? (
+                  <>
+                    <video
+                      src={image}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      className="h-full w-full object-cover"
+                    />
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/25"
+                    >
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-black/65 text-white shadow-sm">
+                        <Play size={12} className="translate-x-[1px] fill-current" />
+                      </span>
+                    </span>
+                  </>
+                ) : (
+                  <Image
+                    src={thumbSrc}
+                    alt={`${title} - View ${index + 1}`}
+                    fill
+                    className="object-cover"
+                    sizes={galleryFocus ? '(max-width: 768px) 25vw, 16vw' : '(max-width: 1024px) 25vw, 12.5vw'}
+                    unoptimized={thumbSrc.startsWith('/uploads/') || shouldUnoptimizeImage(thumbSrc)}
+                    onError={() => advanceFallback(image, 'thumb')}
+                  />
+                )}
               </button>
             );
           })}
@@ -191,11 +212,22 @@ export default function ArtworkGallery({
             className="relative flex max-h-[88vh] max-w-[92vw] flex-col items-center"
             onClick={(event) => event.stopPropagation()}
           >
-            <img
-              src={lightboxSrc}
-              alt={selectedIndex === 0 ? title : `${title} - View ${selectedIndex + 1}`}
-              className="max-h-[82vh] max-w-[92vw] rounded object-contain shadow-2xl"
-            />
+            {activeIsVideo ? (
+              <video
+                key={rawActiveImage}
+                src={rawActiveImage}
+                controls
+                playsInline
+                autoPlay
+                className="max-h-[82vh] max-w-[92vw] rounded shadow-2xl"
+              />
+            ) : (
+              <img
+                src={lightboxSrc}
+                alt={selectedIndex === 0 ? title : `${title} - View ${selectedIndex + 1}`}
+                className="max-h-[82vh] max-w-[92vw] rounded object-contain shadow-2xl"
+              />
+            )}
             {images.length > 1 && (
               <p className="mt-3 text-xs text-white/80">
                 {selectedIndex + 1} / {images.length}

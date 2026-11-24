@@ -9,6 +9,7 @@ import {
 import { getAllProducts, getFeaturedProducts, getAvailableProducts } from './commerce-server';
 import { InventoryService } from '@/lib/inventory';
 import { prisma } from '@/lib/db';
+import { buildCatalogPriceRanges, type CatalogPriceRange } from './search-params';
 
 export { stableSearchParamsKey } from './search-params';
 
@@ -47,6 +48,11 @@ export class SearchService {
       const startIndex = (page - 1) * limit;
       const paginatedProducts = sortedProducts.slice(startIndex, startIndex + limit);
 
+      // Batch public inventory lookup for this page so storefront cards avoid N+1 /api/inventory fetches.
+      const inventoryByProductId = await InventoryService.getBulkPublicInventoryStatus(
+        paginatedProducts.map((product) => product.id),
+      );
+
       // Log search query for analytics
       if (query.trim()) {
         await this.logSearchQuery(query, filters, sortBy, filteredProducts.length, userId, sessionId);
@@ -63,6 +69,7 @@ export class SearchService {
         sortBy,
         suggestions: this.generateSuggestions(query, allProducts),
         filterOptions,
+        inventoryByProductId,
       };
     } catch (error) {
       console.error('Search error:', error);
@@ -72,7 +79,7 @@ export class SearchService {
         searchTime: Date.now() - startTime,
         filters,
         sortBy,
-        filterOptions: { categories: [], mediums: [] },
+        filterOptions: { categories: [], mediums: [], priceRanges: [], sizes: [] },
       };
     }
   }
@@ -143,10 +150,24 @@ export class SearchService {
     return Array.from(unique).sort((a, b) => a.localeCompare(b));
   }
 
-  private static collectFilterOptions(products: Product[]): { categories: string[]; mediums: string[] } {
+  private static collectFilterOptions(products: Product[]): {
+    categories: string[];
+    mediums: string[];
+    priceRanges: CatalogPriceRange[];
+    sizes: string[];
+  } {
+    const sizeOrder = ['small', 'medium', 'large'];
+    const presentSizes = new Set<string>();
+    for (const product of products) {
+      if (!product.dimensions) continue;
+      const bucket = this.categorizeSize(product.dimensions);
+      if (bucket !== 'unknown') presentSizes.add(bucket);
+    }
     return {
       categories: this.uniqueSorted(products.map((product) => product.category)),
       mediums: this.uniqueSorted(products.map((product) => product.medium)),
+      priceRanges: buildCatalogPriceRanges(products.map((product) => product.price)),
+      sizes: sizeOrder.filter((size) => presentSizes.has(size)),
     };
   }
 

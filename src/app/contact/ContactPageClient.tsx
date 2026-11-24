@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Image from 'next/image';
 import {
   validateContactForm,
   sanitizeFormData,
@@ -13,7 +12,7 @@ import {
 import type { ContactPageContent } from '@/lib/site-content-shared';
 import { defaultInquiryType, htmlHasVisibleText, instagramProfileHref, visibleInquiryTypes } from '@/lib/site-content-shared';
 import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
-import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
+import OptimizedImage from '@/components/OptimizedImage';
 
 const EMPTY_CONTACT_FORM = (inquiryType: string): ContactFormData => ({
   name: '',
@@ -169,13 +168,13 @@ export default function ContactPageClient({
             <div className="text-center lg:text-left">
               {pageContent.portraitImage && (
                 <div className="relative w-24 h-24 lg:w-48 lg:h-48 mx-auto lg:mx-0 mb-4 lg:mb-6 rounded-full overflow-hidden">
-                  <Image
+                  <OptimizedImage
                     src={pageContent.portraitImage}
                     alt="Artist portrait"
+                    variantSize="thumb"
                     fill
                     className="object-cover"
                     sizes="(max-width: 1024px) 96px, 192px"
-                    unoptimized={shouldUnoptimizeImage(pageContent.portraitImage)}
                   />
                 </div>
               )}

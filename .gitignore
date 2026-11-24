@@ -573,3 +573,6 @@ FodyWeavers.xsd
 .contextstream/config.json
 playwright-report/
 .playwright-mcp/
+
+# Local production/data snapshots (do not commit)
+/backups/

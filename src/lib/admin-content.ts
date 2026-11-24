@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { sanitizeRichHtml } from '@/lib/content-sanitize';
+import { htmlHasVisibleText, sanitizeRichHtml } from '@/lib/content-sanitize';
 import { normalizeProduct, PRODUCT_IMAGE_FALLBACK } from '@/lib/commerce';
+import { isVideoUrl } from '@/lib/image-variant-url';
 import { resolvePublicAssetUrl } from '@/lib/public-asset';
 import {
   NEWSLETTER_SEGMENT,
@@ -35,7 +36,7 @@ export const productPayloadSchema = z.object({
   price: z.coerce.number().min(0),
   currency: z.string().default('USD'),
   category: z.string().min(1),
-  medium: z.string().default('Mixed Media'),
+  medium: z.string().default(''),
   dimensions: z.string().default(''),
   year: z.coerce.number().int().default(new Date().getFullYear()),
   availability: z.enum(['available', 'sold', 'reserved', 'commissioned']).default('available'),
@@ -48,6 +49,8 @@ export const productPayloadSchema = z.object({
   shipping: z.object({
     domestic: z.coerce.number().min(0).default(0),
     international: z.coerce.number().min(0).default(0),
+    domesticEnabled: z.coerce.boolean().optional(),
+    internationalEnabled: z.coerce.boolean().optional(),
   }),
   specifications: z.object({
     framed: z.coerce.boolean().default(false),
@@ -58,11 +61,20 @@ export const productPayloadSchema = z.object({
   customizations: z.unknown().optional(),
   relatedProducts: stringArray.optional(),
   bundle: z.unknown().optional(),
-  commissionInfo: z.unknown().optional(),
+  commissionInfo: z.object({
+    available: z.coerce.boolean(),
+    estimatedDays: z.coerce.number().int().min(1, 'Estimated days must be at least 1'),
+    priceRange: z.object({
+      min: z.coerce.number().min(0, 'Commission minimum price cannot be negative'),
+      max: z.coerce.number().min(0, 'Commission maximum price cannot be negative'),
+    }),
+    requiresConsultation: z.coerce.boolean().default(true),
+  }).nullable().optional(),
   edition: z.object({
     total: z.coerce.number().int().min(1),
     remaining: z.coerce.number().int().min(0).optional(),
   }).nullable().optional(),
+  initialStock: z.coerce.number().int().min(0).optional(),
 });
 
 export function isPublishableContentTitle(title: string): boolean {
@@ -261,7 +273,7 @@ export const artworkPayloadSchema = z.object({
   slug: z.string().min(1).optional(),
   title: z.string().min(1),
   description: z.string().default(''),
-  medium: z.string().default('Mixed Media'),
+  medium: z.string().default(''),
   dimensions: z.string().default(''),
   year: z.coerce.string().default(String(new Date().getFullYear())),
   category: stringArray.default(['uncategorized']),
@@ -284,13 +296,21 @@ export const artworkPayloadSchema = z.object({
   }
 });
 
+function escapeHtmlText(text: string): string {
+  return text
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
 function shortPostTitle(payload: z.infer<typeof blogPostPayloadSchema>): string {
-  const title = payload.title.trim();
-  if (isPublishableContentTitle(title)) return title;
   const caption = payload.excerpt.trim();
   if (caption.length >= 3) {
-    return caption.length > 80 ? `${caption.slice(0, 77).trimEnd()}…` : caption;
+    const firstLine = caption.split('\n').map((line) => line.trim()).find(Boolean) || caption;
+    return firstLine.length > 80 ? `${firstLine.slice(0, 77).trimEnd()}…` : firstLine;
   }
+  const title = payload.title.trim();
+  if (isPublishableContentTitle(title)) return title;
   return `Studio update ${payload.publishedAt.toISOString().slice(0, 10)}`;
 }
 
@@ -309,7 +329,10 @@ export function sanitizeBlogPostPayload(payload: z.infer<typeof blogPostPayloadS
   const title = format === 'short' ? shortPostTitle(payload) : payload.title.trim();
   const media = parsePostMedia(payload.media);
   const excerpt = payload.excerpt.trim();
-  const contentSource = payload.content.trim() || (format === 'short' && excerpt ? `<p>${excerpt}</p>` : payload.content);
+  const hasRichContent = htmlHasVisibleText(payload.content);
+  const contentSource = format === 'short'
+    ? (excerpt ? `<p>${escapeHtmlText(excerpt)}</p>` : (hasRichContent ? payload.content : ''))
+    : payload.content;
   const coverImage = payload.coverImage || media.find((item) => item.type === 'image')?.url || null;
 
   return {
@@ -445,7 +468,12 @@ export function sanitizeArtworkPayload(payload: z.infer<typeof artworkPayloadSch
 export function normalizeProductPayload(payload: z.infer<typeof productPayloadSchema>) {
   const slug = slugify(payload.slug || payload.title);
   const gallery = payload.images.gallery.map(image => image.trim()).filter(Boolean);
-  const thumbnail = payload.images.thumbnail.trim() || gallery[0] || PRODUCT_IMAGE_FALLBACK;
+  const rawThumb = payload.images.thumbnail.trim();
+  const thumbnail = (rawThumb && !isVideoUrl(rawThumb) ? rawThumb : '')
+    || gallery.find((image) => !isVideoUrl(image))
+    || rawThumb
+    || gallery[0]
+    || PRODUCT_IMAGE_FALLBACK;
   const normalized = normalizeProduct({
     ...(payload as any),
     id: payload.id || slug,
@@ -455,9 +483,17 @@ export function normalizeProductPayload(payload: z.infer<typeof productPayloadSc
       gallery: gallery.length > 0 ? gallery : [thumbnail],
     },
   });
-  const commissionInfo = payload.commissionInfo && typeof payload.commissionInfo === 'object'
-    && (payload.commissionInfo as { available?: boolean }).available
-    ? payload.commissionInfo
+  const { initialStock: _ignoredInitialStock, ...rest } = payload;
+  const commissionInfo = payload.commissionInfo?.available
+    ? {
+        available: true,
+        estimatedDays: Math.max(1, Math.floor(payload.commissionInfo.estimatedDays)),
+        priceRange: {
+          min: Math.max(0, payload.commissionInfo.priceRange.min),
+          max: Math.max(payload.commissionInfo.priceRange.min, payload.commissionInfo.priceRange.max),
+        },
+        requiresConsultation: payload.commissionInfo.requiresConsultation ?? true,
+      }
     : null;
   const edition = normalized.edition
     ? {
@@ -467,10 +503,11 @@ export function normalizeProductPayload(payload: z.infer<typeof productPayloadSc
     : null;
 
   return {
-    ...payload,
+    ...rest,
     id: payload.id || slug,
     slug,
     images: normalized.images,
+    shipping: normalized.shipping,
     variants: normalized.variants ?? null,
     customizations: normalized.customizations ?? [],
     commissionInfo,

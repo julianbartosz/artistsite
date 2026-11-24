@@ -1,12 +1,11 @@
 'use client';
 
 import { useEffect } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCart, CartItem } from '@/components/CartContext';
-import { formatPrice, productImageSrc, cartItemLineTotal } from '@/lib/commerce';
-import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
+import ProductImage from '@/components/ProductImage';
+import { formatPrice, cartItemLineTotal } from '@/lib/commerce';
 
 export function CartDrawer() {
   const { state, removeItem, updateQuantity, closeCart, getItemKey } = useCart();
@@ -148,13 +147,11 @@ function CartItemCard({
   return (
     <div className="flex gap-4 p-4 border border-gray-200 rounded-lg">
       <div className="relative w-20 h-20 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
-        <Image
-          src={productImageSrc(product)}
-          alt={product.title}
+        <ProductImage
+          product={product}
           fill
           className="object-cover"
           sizes="80px"
-          unoptimized={shouldUnoptimizeImage(productImageSrc(product))}
         />
       </div>
 

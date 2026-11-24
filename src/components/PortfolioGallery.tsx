@@ -1,12 +1,10 @@
 'use client';
 
-import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
 import type { ArtworkPiece } from '@/lib/portfolio';
-import { PRODUCT_IMAGE_FALLBACK } from '@/lib/commerce';
-import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
+import { artworkGalleryImages } from '@/lib/commerce';
+import ImageCarousel from '@/components/ImageCarousel';
 import {
   normalizePortfolioCategoryKey,
   type PortfolioPageContent,
@@ -53,53 +51,48 @@ function imageFitClass(layout: PortfolioLayout): string {
 function PortfolioArtworkCard({
   artwork,
   layout,
+  priority = false,
 }: {
   artwork: ArtworkPiece;
   layout: PortfolioLayout;
+  priority?: boolean;
 }) {
-  const [imageSrc, setImageSrc] = useState(
-    () => artwork.images.thumbnail || artwork.images.main || PRODUCT_IMAGE_FALLBACK,
-  );
+  const artworkHref = `/portfolio/${artwork.slug}`;
+  const galleryImages = artworkGalleryImages(artwork.images);
   const meta = [artwork.medium, artwork.dimensions, artwork.year].filter(Boolean).join(' · ');
 
   return (
-    <article data-testid="portfolio-item">
-      <Link href={`/portfolio/${artwork.slug}`} className="group block">
-        <div className={`relative overflow-hidden bg-gray-100 ${thumbAspectClass(layout)}`}>
-          <Image
-            src={imageSrc}
-            alt={artwork.title}
-            fill
-            className={`${imageFitClass(layout)} transition-transform duration-300 group-hover:scale-105 motion-reduce:transform-none`}
-            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-            unoptimized={shouldUnoptimizeImage(imageSrc)}
-            onError={() => {
-              if (imageSrc !== PRODUCT_IMAGE_FALLBACK) {
-                setImageSrc(PRODUCT_IMAGE_FALLBACK);
-              }
-            }}
-          />
-          {layout.showFeaturedBadge && artwork.featured && (
-            <span className="absolute left-3 top-3 bg-black/70 px-2 py-1 text-xs font-medium text-white">
-              Featured
-            </span>
-          )}
-          {layout.showSoldBadge && !artwork.available && (
-            <span className="absolute right-3 top-3 bg-white/95 px-2 py-1 text-xs font-medium text-gray-900">
-              Sold
-            </span>
-          )}
-        </div>
+    <article data-testid="portfolio-item" className="group">
+      <ImageCarousel
+        images={galleryImages}
+        alt={artwork.title}
+        href={artworkHref}
+        variantSize="md"
+        priority={priority}
+        className={`relative overflow-hidden bg-gray-100 ${thumbAspectClass(layout)}`}
+        imageClassName={`${imageFitClass(layout)} transition-transform duration-300 group-hover:scale-105 motion-reduce:transform-none`}
+        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+      >
+        {layout.showFeaturedBadge && artwork.featured && (
+          <span className="pointer-events-none absolute left-3 top-3 z-20 bg-black/70 px-2 py-1 text-xs font-medium text-white">
+            Featured
+          </span>
+        )}
+        {layout.showSoldBadge && !artwork.available && (
+          <span className="pointer-events-none absolute right-3 top-3 z-20 bg-white/95 px-2 py-1 text-xs font-medium text-gray-900">
+            Not available
+          </span>
+        )}
+      </ImageCarousel>
 
-        <div className="space-y-1 pt-3">
-          <h3 className="text-lg font-semibold text-gray-900 transition-colors group-hover:text-gray-700">
-            {artwork.title}
-          </h3>
-          {layout.showMeta && meta && <p className="text-sm text-gray-600">{meta}</p>}
-          {layout.showPrice && artwork.price && artwork.available && (
-            <p className="text-sm font-medium text-gray-900">{artwork.price}</p>
-          )}
-        </div>
+      <Link href={artworkHref} className="block space-y-1 pt-3">
+        <h3 className="text-lg font-semibold text-gray-900 transition-colors group-hover:text-gray-700">
+          {artwork.title}
+        </h3>
+        {layout.showMeta && meta && <p className="text-sm text-gray-600">{meta}</p>}
+        {layout.showPrice && artwork.price && artwork.available && (
+          <p className="text-sm font-medium text-gray-900">{artwork.price}</p>
+        )}
       </Link>
     </article>
   );
@@ -121,7 +114,7 @@ const DEFAULT_LAYOUT: PortfolioLayout = {
   imageFit: 'cover',
   thumbAspect: 'square',
   showFeaturedBadge: true,
-  showSoldBadge: true,
+  showSoldBadge: false,
   showMeta: true,
   showPrice: false,
   includeUnlistedCategories: false,
@@ -234,9 +227,9 @@ export function PortfolioGallery({
         </div>
       ) : (
         <div className={containerClass}>
-          {filteredArtworks.map((artwork) => (
+          {filteredArtworks.map((artwork, index) => (
             <div key={artwork.slug} className={itemClass}>
-              <PortfolioArtworkCard artwork={artwork} layout={layout} />
+              <PortfolioArtworkCard artwork={artwork} layout={layout} priority={index < 3} />
             </div>
           ))}
         </div>

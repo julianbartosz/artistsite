@@ -2,14 +2,15 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { formatPrice, Product, productImageSrc } from '@/lib/commerce';
+import { describeProductShipping, formatEditionStatus, formatPrice, Product, productGalleryImages, productImageSrc } from '@/lib/commerce';
 import AddToCartButton from '@/components/AddToCartButton';
 import ArtworkGallery from '@/components/ArtworkGallery';
 import ProductRecommendations from '@/components/ProductRecommendations';
 import RecentlyViewed from '@/components/RecentlyViewed';
 import StockIndicator from '@/components/StockIndicator';
 import { WishlistButton } from '@/components/WishlistButton';
-import type { ProductDetailLayout } from '@/lib/site-content-shared';
+import { useEcommerceTracking } from '@/components/AnalyticsProvider';
+import { splitPlainParagraphs, type ProductDetailLayout } from '@/lib/site-content-shared';
 
 interface ProductPageClientProps {
   product: Product;
@@ -23,6 +24,7 @@ export default function ProductPageClient({
   detailLayout = 'standard',
 }: ProductPageClientProps) {
   const { data: session, status } = useSession();
+  const { trackProductView } = useEcommerceTracking();
   const [viewStartTime] = useState(Date.now());
   const [sessionId] = useState(() => {
     // Generate a simple session ID for guest users
@@ -31,6 +33,8 @@ export default function ProductPageClient({
 
   useEffect(() => {
     if (status === 'loading') return;
+
+    trackProductView(product.id, product.title, product.category, product.price);
 
     const trackView = async () => {
       try {
@@ -76,13 +80,19 @@ export default function ProductPageClient({
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [product.id, status, sessionId, viewStartTime]);
+  }, [product.id, product.title, product.category, product.price, status, sessionId, viewStartTime, trackProductView]);
 
   const isAvailable = product.availability === 'available';
-  const isLimitedEdition = product.edition && product.edition.remaining < product.edition.total;
-  const primaryImage = product.images.thumbnail || product.images.gallery[0] || '';
-  const galleryImages = product.images.gallery.length > 0 ? product.images.gallery : [primaryImage];
+  const editionStatus = formatEditionStatus(product.edition);
+  const galleryImages = productGalleryImages(product);
+  const primaryImage = galleryImages[0] || '';
   const galleryFocus = detailLayout === 'gallery-focus';
+  const categoryLabel = product.category.replaceAll('-', ' ');
+  const availabilityBadge = product.availability === 'sold'
+    ? { overlay: 'SOLD', label: 'Sold', overlayTone: 'bg-red-600', pillTone: 'bg-red-100 text-red-800' }
+    : product.availability === 'commissioned'
+      ? { overlay: 'COMMISSION', label: 'Commission only', overlayTone: 'bg-blue-700', pillTone: 'bg-blue-100 text-blue-800' }
+      : { overlay: 'RESERVED', label: 'Reserved', overlayTone: 'bg-amber-600', pillTone: 'bg-amber-100 text-amber-800' };
 
   // Always mount AddToCartButton so sold/reserved commission CTAs match Quick Look behavior.
   const purchaseActions = (
@@ -106,7 +116,14 @@ export default function ProductPageClient({
             <li>/</li>
             <li><Link href="/shop" className="hover:text-gray-700">Shop</Link></li>
             <li>/</li>
-            <li className="text-gray-900 capitalize">{product.category.replace('-', ' ')}</li>
+            <li>
+              <Link
+                href={`/shop?category=${encodeURIComponent(product.category)}`}
+                className="capitalize hover:text-gray-700"
+              >
+                {categoryLabel}
+              </Link>
+            </li>
             <li>/</li>
             <li className="text-gray-900">{product.title}</li>
           </ol>
@@ -121,8 +138,8 @@ export default function ProductPageClient({
             resolveSrc={(rawUrl, role) => productImageSrc(product, rawUrl, role === 'main' ? 'lg' : 'thumb')}
             overlay={!isAvailable ? (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/45">
-                <span className="rounded-lg bg-red-600 px-4 py-2 font-semibold text-white">
-                  {product.availability === 'sold' ? 'SOLD' : 'RESERVED'}
+                <span className={`rounded-lg px-4 py-2 font-semibold text-white ${availabilityBadge.overlayTone}`}>
+                  {availabilityBadge.overlay}
                 </span>
               </div>
             ) : undefined}
@@ -134,8 +151,12 @@ export default function ProductPageClient({
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h1 className="text-3xl font-bold text-gray-900 mb-2">{product.title}</h1>
-                  <p className="text-lg text-gray-600">{product.medium} • {product.year}</p>
-                  <p className="text-gray-600">{product.dimensions}</p>
+                  {[product.medium, product.year].filter(Boolean).length > 0 && (
+                    <p className="text-lg text-gray-600">{[product.medium, product.year].filter(Boolean).join(' • ')}</p>
+                  )}
+                  {product.dimensions.trim() && (
+                    <p className="text-gray-600">{product.dimensions}</p>
+                  )}
                 </div>
                 <WishlistButton productId={product.id} />
               </div>
@@ -150,27 +171,24 @@ export default function ProductPageClient({
               </div>
 
               <div className="mb-4 flex flex-wrap items-center gap-3">
-                <StockIndicator
-                  productId={product.id}
-                  showDetails
-                  missingInventoryLabel={isAvailable ? 'Available' : undefined}
-                />
-                {product.availability !== 'available' && (
-                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                    product.availability === 'sold'
-                      ? 'bg-red-100 text-red-800'
-                      : 'bg-amber-100 text-amber-800'
-                  }`}>
-                    {product.availability === 'sold' ? 'Sold' : 'Reserved'}
+                {isAvailable ? (
+                  <StockIndicator
+                    productId={product.id}
+                    showDetails
+                    missingInventoryLabel="Available"
+                  />
+                ) : (
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${availabilityBadge.pillTone}`}>
+                    {availabilityBadge.label}
                   </span>
                 )}
               </div>
               
-              {isLimitedEdition && (
+              {editionStatus && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
                   <p className="text-red-800 font-medium">Limited Edition</p>
                   <p className="text-red-600 text-sm">
-                    Only {product.edition!.remaining} of {product.edition!.total} remaining
+                    {editionStatus}
                   </p>
                 </div>
               )}
@@ -179,30 +197,40 @@ export default function ProductPageClient({
             </div>
 
             {/* Description */}
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900 mb-3">Description</h2>
-              <p className="text-gray-700 leading-relaxed">{product.description}</p>
-            </div>
+            {splitPlainParagraphs(product.description).length > 0 && (
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 mb-3">Description</h2>
+                <div className="space-y-3 text-gray-700 leading-relaxed">
+                  {splitPlainParagraphs(product.description).map((paragraph, index) => (
+                    <p key={index} className="whitespace-pre-line">{paragraph}</p>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Specifications */}
             <div>
               <h2 className="text-lg font-semibold text-gray-900 mb-3">Specifications</h2>
               <dl className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <dt className="text-gray-500">Medium</dt>
-                  <dd className="text-gray-900 font-medium">{product.medium}</dd>
-                </div>
-                <div>
-                  <dt className="text-gray-500">Dimensions</dt>
-                  <dd className="text-gray-900 font-medium">{product.dimensions}</dd>
-                </div>
+                {product.medium.trim() && (
+                  <div>
+                    <dt className="text-gray-500">Medium</dt>
+                    <dd className="text-gray-900 font-medium">{product.medium}</dd>
+                  </div>
+                )}
+                {product.dimensions.trim() && (
+                  <div>
+                    <dt className="text-gray-500">Dimensions</dt>
+                    <dd className="text-gray-900 font-medium">{product.dimensions}</dd>
+                  </div>
+                )}
                 <div>
                   <dt className="text-gray-500">Year</dt>
                   <dd className="text-gray-900 font-medium">{product.year}</dd>
                 </div>
                 <div>
                   <dt className="text-gray-500">Category</dt>
-                  <dd className="text-gray-900 font-medium capitalize">{product.category.replace('-', ' ')}</dd>
+                  <dd className="text-gray-900 font-medium capitalize">{categoryLabel}</dd>
                 </div>
                 <div>
                   <dt className="text-gray-500">Signed</dt>
@@ -220,22 +248,37 @@ export default function ProductPageClient({
             </div>
 
             {/* Shipping Information */}
-            <div className="bg-surface-muted rounded-lg p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-3">Shipping</h2>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Domestic shipping:</span>
-                  <span className="font-medium">{formatPrice(product.shipping.domestic)}</span>
+            {(() => {
+              const shippingInfo = describeProductShipping(product);
+              return (
+                <div className="bg-surface-muted rounded-lg p-6">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-3">Shipping</h2>
+                  <div className="space-y-2 text-sm">
+                    {shippingInfo.isPickupOnly ? (
+                      <p className="font-medium text-gray-800">{shippingInfo.summary}</p>
+                    ) : (
+                      <>
+                        {shippingInfo.domesticLabel && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">US shipping:</span>
+                            <span className="font-medium">{shippingInfo.domesticLabel}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">International shipping:</span>
+                          <span className="font-medium">{shippingInfo.internationalLabel ?? 'Not available'}</span>
+                        </div>
+                      </>
+                    )}
+                    <p className="text-gray-500 text-xs mt-3">
+                      {shippingInfo.isPickupOnly
+                        ? 'Pickup or local delivery details are arranged directly with the studio after purchase.'
+                        : 'Carefully packaged in the studio before shipping.'}
+                    </p>
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">International shipping:</span>
-                  <span className="font-medium">{formatPrice(product.shipping.international)}</span>
-                </div>
-                <p className="text-gray-500 text-xs mt-3">
-                  All artwork is carefully packaged and fully insured during shipping.
-                </p>
-              </div>
-            </div>
+              );
+            })()}
 
             {/* Tags */}
             {product.tags.length > 0 && (

@@ -51,4 +51,20 @@ describe('Bio Page', () => {
     expect(screen.getByRole('heading', { level: 2, name: SITE_CONTENT_DEFAULTS.bio.statementTitle })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: SITE_CONTENT_DEFAULTS.bio.cta.title })).toBeInTheDocument();
   });
+
+  it('preserves multi-paragraph breaks in the bio intro text', async () => {
+    mockGetSiteContent.mockResolvedValueOnce({
+      ...SITE_CONTENT_DEFAULTS.bio,
+      hero: {
+        ...SITE_CONTENT_DEFAULTS.bio.hero,
+        subtitle: 'First studio paragraph.\n\nSecond studio paragraph.',
+      },
+    } as never);
+
+    const page = await BioPage();
+    render(page);
+
+    expect(screen.getByText('First studio paragraph.')).toBeInTheDocument();
+    expect(screen.getByText('Second studio paragraph.')).toBeInTheDocument();
+  });
 });

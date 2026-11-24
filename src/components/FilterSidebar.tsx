@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { SearchFilters, SortOption } from '@/lib/types';
-import { stableSearchParamsKey, displayFilterLabel } from '@/lib/search-params';
+import { stableSearchParamsKey, displayFilterLabel, type CatalogPriceRange } from '@/lib/search-params';
 import { ChevronDownIcon, ChevronUpIcon, XMarkIcon, AdjustmentsHorizontalIcon } from '@heroicons/react/24/outline';
 
 interface FilterSidebarProps {
@@ -11,6 +11,8 @@ interface FilterSidebarProps {
   onFiltersChange?: (filters: SearchFilters) => void;
   categories?: string[];
   mediums?: string[];
+  priceRanges?: CatalogPriceRange[];
+  sizes?: string[];
   mobileOpen?: boolean;
   onMobileOpenChange?: (open: boolean) => void;
   hideMobileTrigger?: boolean;
@@ -47,6 +49,8 @@ export function FilterSidebar({
   onFiltersChange,
   categories = [],
   mediums = [],
+  priceRanges,
+  sizes,
   mobileOpen: controlledMobileOpen,
   onMobileOpenChange,
   hideMobileTrigger = false,
@@ -242,6 +246,11 @@ export function FilterSidebar({
 
   const activeFilterCount = getActiveFilterCount();
 
+  const effectivePriceRanges = priceRanges !== undefined ? priceRanges : PRICE_RANGES;
+  const effectiveDimensions = sizes !== undefined
+    ? DIMENSIONS.filter((dimension) => sizes.includes(dimension.value))
+    : DIMENSIONS;
+
   const renderFilterPanel = (includeMobileSort: boolean) => (
     <>
       <div className="flex items-center justify-between mb-6">
@@ -298,14 +307,14 @@ export function FilterSidebar({
       </FilterSection>
       )}
 
-      {!quietMode && (
+      {!quietMode && effectivePriceRanges.length >= 2 && (
       <FilterSection
         title="Price Range"
         isOpen={sections.find(s => s.id === 'price')?.isOpen || false}
         onToggle={() => toggleSection('price')}
       >
         <div className="space-y-3">
-          {PRICE_RANGES.map(range => (
+          {effectivePriceRanges.map(range => (
             <label key={range.label} className="flex items-center gap-3 cursor-pointer">
               <input
                 type="radio"
@@ -362,14 +371,14 @@ export function FilterSidebar({
       </FilterSection>
       )}
 
-      {!quietMode && (
+      {!quietMode && effectiveDimensions.length >= 2 && (
       <FilterSection
         title="Size"
         isOpen={sections.find(s => s.id === 'dimensions')?.isOpen || false}
         onToggle={() => toggleSection('dimensions')}
       >
         <div className="space-y-3">
-          {DIMENSIONS.map(dimension => (
+          {effectiveDimensions.map(dimension => (
             <label key={dimension.value} className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"

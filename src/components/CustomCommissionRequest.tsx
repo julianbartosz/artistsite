@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Product, formatPrice } from '@/lib/commerce';
+import { MoneyField } from '@/components/admin/StudioFormFields';
 
 interface CommissionRequestFormData {
   type: 'similar' | 'custom' | 'consultation';
@@ -284,34 +285,18 @@ export default function CustomCommissionRequest({
             Budget Range
           </label>
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Minimum</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
-                <input
-                  type="number"
-                  min="100"
-                  step="50"
-                  value={formData.budget.min}
-                  onChange={(e) => handleBudgetChange('min', parseInt(e.target.value) || 0)}
-                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-input focus:ring-2 focus:ring-primary focus:border-primary"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Maximum</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
-                <input
-                  type="number"
-                  min="200"
-                  step="50"
-                  value={formData.budget.max}
-                  onChange={(e) => handleBudgetChange('max', parseInt(e.target.value) || 0)}
-                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-input focus:ring-2 focus:ring-primary focus:border-primary"
-                />
-              </div>
-            </div>
+            <MoneyField
+              label="Minimum"
+              compact
+              value={formData.budget.min}
+              onChange={(next) => handleBudgetChange('min', next === '' ? 0 : next)}
+            />
+            <MoneyField
+              label="Maximum"
+              compact
+              value={formData.budget.max}
+              onChange={(next) => handleBudgetChange('max', next === '' ? 0 : next)}
+            />
           </div>
           {errors.budget && <p className="text-red-500 text-sm mt-1">{errors.budget}</p>}
         </div>

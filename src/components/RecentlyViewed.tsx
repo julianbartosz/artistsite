@@ -1,10 +1,9 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { useSession } from 'next-auth/react';
-import { Product, formatPrice, productImageSrc } from '@/lib/commerce';
-import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
+import { Product, formatPrice, productGalleryImages } from '@/lib/commerce';
+import ImageCarousel from '@/components/ImageCarousel';
 
 interface RecentlyViewedProps {
   currentProductId?: string;
@@ -36,11 +35,15 @@ export function RecentlyViewed({
         setIsLoading(true);
         
         if (session?.user?.id) {
-          const response = await fetch(`/api/recently-viewed?limit=${maxItems}`);
+          const fetchLimit = currentProductId ? maxItems + 1 : maxItems;
+          const response = await fetch(`/api/recently-viewed?limit=${fetchLimit}`);
           const data = await response.json();
           
-          if (data.success) {
-            setRecentlyViewed(data.products);
+          if (data.success && Array.isArray(data.products)) {
+            const filtered = currentProductId
+              ? data.products.filter((product: Product) => product.id !== currentProductId)
+              : data.products;
+            setRecentlyViewed(filtered.slice(0, maxItems));
           }
         } else {
           // For guests, use localStorage
@@ -119,20 +122,23 @@ export function RecentlyViewed({
         <h2 className="text-xl font-semibold text-gray-900 mb-6">Recently Viewed</h2>
       )}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        {recentlyViewed.map((product) => (
-          <Link key={product.id} href={`/shop/${product.id}`} className="group">
-            <div className="bg-surface rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-shadow duration-200">
-              <div className="aspect-square relative overflow-hidden">
-                <Image
-                  src={productImageSrc(product)}
-                  alt={product.title}
-                  fill
-                  className="object-cover group-hover:scale-105 transition-transform duration-200"
-                  sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 16vw"
-                  unoptimized={shouldUnoptimizeImage(productImageSrc(product))}
-                />
-              </div>
-              <div className="p-3">
+        {recentlyViewed.map((product) => {
+          const productHref = `/shop/${product.id}`;
+          return (
+            <div
+              key={product.id}
+              className="group bg-surface rounded-lg border border-gray-200 overflow-hidden hover:shadow-md transition-shadow duration-200 flex flex-col"
+            >
+              <ImageCarousel
+                images={productGalleryImages(product)}
+                alt={product.title}
+                href={productHref}
+                variantSize="thumb"
+                className="aspect-square relative overflow-hidden bg-gray-100"
+                imageClassName="object-cover group-hover:scale-105 transition-transform duration-200 motion-reduce:transform-none"
+                sizes="(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 16vw"
+              />
+              <Link href={productHref} className="block p-3 flex-1">
                 <h3 className="text-sm font-medium text-gray-900 mb-1 line-clamp-1">
                   {product.title}
                 </h3>
@@ -140,10 +146,10 @@ export function RecentlyViewed({
                 <p className="text-sm font-semibold text-gray-900">
                   {formatPrice(product.price, product.currency)}
                 </p>
-              </div>
+              </Link>
             </div>
-          </Link>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

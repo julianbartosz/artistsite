@@ -8,23 +8,21 @@ export async function GET(request: NextRequest) {
   try {
     await requireAdmin()
 
-    // Get basic analytics metrics
+    // Get basic analytics metrics grounded with real paid order commerce metrics
     const [
       totalEvents,
-      totalCustomers,
+      profileCustomers,
       recentEvents,
       topEvents,
       segments,
       ltvAnalysis,
-      engagementTrends
+      engagementTrends,
+      orderMetrics,
+      conversionData,
+      realTimeMetrics,
     ] = await Promise.all([
-      // Total events count
       prisma.analyticsEvent.count(),
-      
-      // Total customer profiles
       prisma.customerProfile.count(),
-      
-      // Recent events (last 24 hours)
       prisma.analyticsEvent.count({
         where: {
           timestamp: {
@@ -32,39 +30,51 @@ export async function GET(request: NextRequest) {
           }
         }
       }),
-      
-      // Top 10 events by frequency
       prisma.analyticsEvent.groupBy({
         by: ['eventName'],
         _count: { eventName: true },
         orderBy: { _count: { eventName: 'desc' } },
         take: 10
       }),
-      
-      // Customer segments
       CustomerInsights.getCustomerSegmentsWithStats(),
-      
-      // LTV analysis
       CustomerInsights.calculateLifetimeValue(),
-      
-      // Engagement trends
-      CustomerInsights.analyzeEngagementTrends()
+      CustomerInsights.analyzeEngagementTrends(),
+      CustomerInsights.getOrderCommerceMetrics(),
+      calculateConversionMetrics(),
+      getRealTimeMetrics(),
     ])
 
-    // Calculate conversion metrics
-    const conversionData = await calculateConversionMetrics()
-    
-    // Get real-time metrics
-    const realTimeMetrics = await getRealTimeMetrics()
+    const totalCustomers = Math.max(profileCustomers, orderMetrics.uniqueCustomers)
+    const purchases = Math.max(conversionData.funnelSteps.purchases, orderMetrics.paidOrderCount)
+    const { views, cartAdds, checkouts } = conversionData.funnelSteps
+    const overallConversionRate = views > 0
+      ? Math.min(100, (purchases / views) * 100)
+      : cartAdds > 0
+        ? Math.min(100, (purchases / cartAdds) * 100)
+        : 0
+
+    const groundedConversionData = {
+      overallConversionRate,
+      cartConversionRate: cartAdds > 0 ? Math.min(100, (purchases / cartAdds) * 100) : 0,
+      checkoutConversionRate: checkouts > 0 ? Math.min(100, (purchases / checkouts) * 100) : 0,
+      funnelSteps: {
+        views,
+        cartAdds,
+        checkouts,
+        purchases,
+      },
+    }
 
     const dashboardData = {
       overview: {
         totalEvents,
         totalCustomers,
         recentEvents,
-        conversionRate: conversionData.overallConversionRate,
+        totalRevenue: orderMetrics.totalRevenue,
+        paidOrders: orderMetrics.paidOrderCount,
+        conversionRate: groundedConversionData.overallConversionRate,
         averageEngagement: engagementTrends.averageEngagement,
-        averageLTV: ltvAnalysis.averageLTV
+        averageLTV: ltvAnalysis.averageLTV,
       },
       topEvents: topEvents.map(event => ({
         name: event.eventName,
@@ -73,7 +83,7 @@ export async function GET(request: NextRequest) {
       segments: segments.slice(0, 6), // Top 6 segments for dashboard
       ltvAnalysis,
       engagementTrends,
-      conversionData,
+      conversionData: groundedConversionData,
       realTimeMetrics,
       timestamp: new Date().toISOString()
     }
@@ -149,7 +159,7 @@ async function getRealTimeMetrics() {
   const last5Minutes = new Date(Date.now() - 5 * 60 * 1000)
   const last1Hour = new Date(Date.now() - 60 * 60 * 1000)
 
-  const [recentEvents, activeUsers, recentPurchases] = await Promise.all([
+  const [recentEvents, activeUsers, recentPurchaseEvents, recentPaidOrders] = await Promise.all([
     prisma.analyticsEvent.count({
       where: { timestamp: { gte: last5Minutes } }
     }),
@@ -166,13 +176,19 @@ async function getRealTimeMetrics() {
         eventName: 'purchase',
         timestamp: { gte: last1Hour }
       }
-    })
+    }),
+    prisma.order.count({
+      where: {
+        paymentStatus: 'paid',
+        createdAt: { gte: last1Hour },
+      },
+    }),
   ])
 
   return {
     activeUsers,
     recentEvents,
-    recentPurchases,
+    recentPurchases: Math.max(recentPurchaseEvents, recentPaidOrders),
     lastUpdated: new Date().toISOString()
   }
 }

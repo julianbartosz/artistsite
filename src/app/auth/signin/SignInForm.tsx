@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { getSession, signIn } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { parseInternalPath } from '@/lib/utils';
 
@@ -80,11 +81,14 @@ export default function SignInForm({
   errorParam?: string | null;
   googleEnabled?: boolean;
 }) {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(() => authErrorMessage(errorParam));
   const [isLoading, setIsLoading] = useState(false);
   const requestedCallbackUrl = safeCallbackUrl(callbackUrlParam);
+  // Route default sign-ins through /account?from=signin so admins redirect straight to /admin server-side.
+  const signInCallbackUrl = requestedCallbackUrl === '/account' ? '/account?from=signin' : requestedCallbackUrl;
 
   useEffect(() => {
     setError(authErrorMessage(errorParam));
@@ -95,12 +99,41 @@ export default function SignInForm({
     setIsLoading(true);
     setError('');
 
+    const normalizedEmail = email.trim().toLowerCase();
+
     try {
+      // Automatically route new visitors with no existing account straight into account creation.
+      const lookup = await fetch('/api/auth/check-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: normalizedEmail }),
+      }).catch(() => null);
+
+      if (lookup?.ok) {
+        const lookupData = await lookup.json().catch(() => null);
+        if (lookupData && lookupData.exists === false) {
+          const params = new URLSearchParams({
+            email: normalizedEmail,
+            callbackUrl: requestedCallbackUrl,
+            from: 'signin',
+          });
+          setIsLoading(false);
+          router.push(`/auth/signup?${params.toString()}`);
+          return;
+        }
+      }
+
+      if (!password) {
+        setError('Please enter your password to sign in.');
+        setIsLoading(false);
+        return;
+      }
+
       // Full-page redirect avoids CSRF cookie races from client-side fetch sign-in.
       await signIn('credentials', {
-        email,
+        email: normalizedEmail,
         password,
-        callbackUrl: requestedCallbackUrl,
+        callbackUrl: signInCallbackUrl,
         redirect: true,
       });
     } catch {
@@ -110,7 +143,7 @@ export default function SignInForm({
   };
 
   const handleGoogleSignIn = () => {
-    signIn('google', { callbackUrl: requestedCallbackUrl });
+    signIn('google', { callbackUrl: signInCallbackUrl });
   };
 
   return (
@@ -120,10 +153,7 @@ export default function SignInForm({
           Sign in to your account
         </h2>
         <p className="mt-2 text-center text-sm text-gray-600">
-          Or{' '}
-          <Link href={`/auth/signup?callbackUrl=${encodeURIComponent(requestedCallbackUrl)}`} className="font-medium text-gray-900 hover:text-gray-700">
-            create a new account
-          </Link>
+          New here? Enter your email below and we’ll take you straight to account setup.
         </p>
       </div>
 
@@ -162,7 +192,6 @@ export default function SignInForm({
                   id="password"
                   type="password"
                   autoComplete="current-password"
-                  required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-input placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary"

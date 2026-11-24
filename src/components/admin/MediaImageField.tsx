@@ -34,7 +34,7 @@ export default function MediaImageField({ label, value, onChange, help }: MediaI
 
   async function upload(file: File) {
     if (!isSupportedImageFile(file)) {
-      setError('Unsupported image format. Use JPG, PNG, WebP, GIF, or HEIC.');
+      setError('Unsupported file format. Please choose an image file.');
       return;
     }
     setUploading(true);
@@ -105,7 +105,7 @@ export default function MediaImageField({ label, value, onChange, help }: MediaI
               </button>
             )}
           </div>
-          <p className="mt-2 text-xs font-normal text-gray-500">JPG, PNG, WebP, GIF, or HEIC · up to 25 MB</p>
+          <p className="mt-2 text-xs font-normal text-gray-500">Any image format · up to 25 MB</p>
         </div>
       </div>
       {error && <p className="mt-1 text-xs text-red-600" role="alert">{error}</p>}

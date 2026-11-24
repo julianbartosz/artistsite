@@ -94,7 +94,7 @@ export default function UpdateQuickLook({
           {post.pullQuote && (
             <blockquote className="border-l-4 border-primary/40 pl-4 text-lg italic text-gray-700">{post.pullQuote}</blockquote>
           )}
-          {post.media.length > 0 && <PostMedia items={post.media} title={post.title} layout="detail" />}
+          {post.media.length > 0 && <PostMedia items={post.media} title={post.title} layout="detail" enableKeyboard />}
           {!isShort && post.excerpt && <p className="text-gray-700">{post.excerpt}</p>}
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">

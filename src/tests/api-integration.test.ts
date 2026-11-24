@@ -12,6 +12,7 @@ import { linkContactSubmissionToInbox } from '@/lib/studio-inbox';
 import { getConfig } from '@/lib/config';
 import { sendTemplateEmail } from '@/lib/email';
 import { POST as engagementPost } from '@/app/api/updates/[slug]/engagement/route';
+import { POST as checkAccountPost } from '@/app/api/auth/check-account/route';
 import { GET as monitoringSecurityGet } from '@/app/api/monitoring/security/route';
 import { POST as monitoringPerformancePost } from '@/app/api/monitoring/performance/route';
 import { GET as performanceGet } from '@/app/api/performance/route';
@@ -22,6 +23,9 @@ import { db } from '@/lib/db';
 
 jest.mock('@/lib/db', () => {
   const mockClient = {
+    user: {
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
     blogPost: {
       findUnique: jest.fn(async ({ where }: { where: { slug: string } }) => (
         where.slug === 'test-post'
@@ -94,6 +98,7 @@ jest.mock('@/lib/auth', () => {
   const { getServerSession } = jest.requireMock('next-auth');
   return {
     authOptions: {},
+    isAdminEmail: jest.fn(() => false),
     requireAdmin: jest.fn(async () => {
       const session = await getServerSession();
       if (!session?.user?.isAdmin) throw new ApiError(401, 'Admin required', 'UNAUTHORIZED');
@@ -555,5 +560,53 @@ describe('Monitoring & performance route hardening', () => {
     expect(data.overallScore).toBeNull();
     expect(data.criticalIssues).toBeNull();
     expect(data.lastAudit).toBeNull();
+  });
+});
+
+describe('POST /api/auth/check-account', () => {
+  it('returns 400 for invalid emails and distinguishes existing vs missing accounts', async () => {
+    const invalidReq = new NextRequest('http://localhost:3000/api/auth/check-account', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'not-an-email' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect((await checkAccountPost(invalidReq)).status).toBe(400);
+
+    (db.user.findUnique as jest.Mock).mockResolvedValueOnce(null);
+    const missingReq = new NextRequest('http://localhost:3000/api/auth/check-account', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'new-collector@example.com' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const missingRes = await checkAccountPost(missingReq);
+    expect(missingRes.status).toBe(200);
+    expect(await missingRes.json()).toEqual({ exists: false });
+
+    (db.user.findUnique as jest.Mock).mockResolvedValueOnce({ id: 'u1' });
+    const foundReq = new NextRequest('http://localhost:3000/api/auth/check-account', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'collector@example.com' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const foundRes = await checkAccountPost(foundReq);
+    expect(foundRes.status).toBe(200);
+    expect(await foundRes.json()).toEqual({ exists: true });
+  });
+});
+
+describe('sanitizeBlogPostPayload (server-side)', () => {
+  it('derives short studio post title from updated caption and escapes HTML characters', async () => {
+    const { blogPostPayloadSchema, sanitizeBlogPostPayload } = await import('@/lib/admin-content');
+    const parsed = blogPostPayloadSchema.parse({
+      format: 'short',
+      title: 'Old stale caption',
+      excerpt: 'Thank you for visiting <3 & enjoying the new work!',
+      content: '<p></p>',
+      isDraft: false,
+      media: [{ url: '/uploads/studio.jpg', type: 'image' }],
+    });
+    const sanitized = sanitizeBlogPostPayload(parsed);
+    expect(sanitized.title).toBe('Thank you for visiting <3 & enjoying the new work!');
+    expect(sanitized.content).toBe('<p>Thank you for visiting &lt;3 &amp; enjoying the new work!</p>');
   });
 });

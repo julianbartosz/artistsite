@@ -130,42 +130,31 @@ export function Header({ siteIdentity = DEFAULT_SITE_IDENTITY }: HeaderProps) {
                 </Link>
               )}
 
-              {/* Account menu (desktop): single calm icon whether signed in or out */}
+              {/* Account action (desktop): direct link to Sign in when signed out; menu when signed in */}
               <div className="hidden lg:block relative" ref={userMenuRef}>
-                <button
-                  type="button"
-                  disabled={isAuthLoading}
-                  onClick={() => setIsUserMenuOpen((open) => !open)}
-                  aria-label={session ? 'Open user menu' : 'Account'}
-                  aria-expanded={isUserMenuOpen}
-                  aria-haspopup="menu"
-                  data-testid="account-menu-button"
-                  className="tap-target rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-primary disabled:opacity-40"
-                >
-                  {session ? (
-                    <span className="h-7 w-7 rounded-full bg-primary flex items-center justify-center text-xs font-semibold text-white">
-                      {userInitial}
-                    </span>
-                  ) : (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={1.8}
-                        d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.5 20.118a7.5 7.5 0 0115 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.5-1.632z"
-                      />
-                    </svg>
-                  )}
-                </button>
+                {session ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={isAuthLoading}
+                      onClick={() => setIsUserMenuOpen((open) => !open)}
+                      aria-label="Open user menu"
+                      aria-expanded={isUserMenuOpen}
+                      aria-haspopup="menu"
+                      data-testid="account-menu-button"
+                      className="tap-target rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-primary disabled:opacity-40"
+                    >
+                      <span className="h-7 w-7 rounded-full bg-primary flex items-center justify-center text-xs font-semibold text-white">
+                        {userInitial}
+                      </span>
+                    </button>
 
-                {isUserMenuOpen && !isAuthLoading && (
-                  <div
-                    role="menu"
-                    aria-label="Account menu"
-                    className="origin-top-right absolute right-0 mt-2 w-52 rounded-lg shadow-lg bg-surface border border-gray-200 py-1.5 z-50"
-                  >
-                    {session ? (
-                      <>
+                    {isUserMenuOpen && !isAuthLoading && (
+                      <div
+                        role="menu"
+                        aria-label="Account menu"
+                        className="origin-top-right absolute right-0 mt-2 w-52 rounded-lg shadow-lg bg-surface border border-gray-200 py-1.5 z-50"
+                      >
                         <div className="px-4 py-2 border-b border-gray-100">
                           <p className="text-sm font-medium text-gray-900 truncate">
                             {session.user?.name || session.user?.email}
@@ -203,28 +192,43 @@ export function Header({ siteIdentity = DEFAULT_SITE_IDENTITY }: HeaderProps) {
                         >
                           Sign out
                         </button>
-                      </>
-                    ) : (
-                      <>
-                        <Link
-                          href="/auth/signin"
-                          role="menuitem"
-                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-gray-900"
-                          onClick={() => setIsUserMenuOpen(false)}
-                        >
-                          Sign in
-                        </Link>
-                        <Link
-                          href="/auth/signup"
-                          role="menuitem"
-                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-gray-900"
-                          onClick={() => setIsUserMenuOpen(false)}
-                        >
-                          Create account
-                        </Link>
-                      </>
+                      </div>
                     )}
-                  </div>
+                  </>
+                ) : isAuthLoading ? (
+                  <button
+                    type="button"
+                    disabled
+                    aria-label="Account"
+                    data-testid="account-menu-button"
+                    className="tap-target rounded-lg text-gray-600 transition-colors disabled:opacity-40"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={1.8}
+                        d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.5 20.118a7.5 7.5 0 0115 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.5-1.632z"
+                      />
+                    </svg>
+                  </button>
+                ) : (
+                  <Link
+                    href="/auth/signin"
+                    aria-label="Sign in"
+                    title="Sign in"
+                    data-testid="account-menu-button"
+                    className="tap-target rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-primary"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={1.8}
+                        d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.5 20.118a7.5 7.5 0 0115 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.5-1.632z"
+                      />
+                    </svg>
+                  </Link>
                 )}
               </div>
 
@@ -351,22 +355,13 @@ export function Header({ siteIdentity = DEFAULT_SITE_IDENTITY }: HeaderProps) {
                         </button>
                       </>
                     ) : (
-                      <>
-                        <Link
-                          href="/auth/signin"
-                          className="block rounded-md px-3 py-2 text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50"
-                          onClick={() => setIsMenuOpen(false)}
-                        >
-                          Sign in
-                        </Link>
-                        <Link
-                          href="/auth/signup"
-                          className="block rounded-md px-3 py-2 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-                          onClick={() => setIsMenuOpen(false)}
-                        >
-                          Create account
-                        </Link>
-                      </>
+                      <Link
+                        href="/auth/signin"
+                        className="block rounded-md px-3 py-2 text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50"
+                        onClick={() => setIsMenuOpen(false)}
+                      >
+                        Sign in
+                      </Link>
                     )}
                   </div>
                 )}

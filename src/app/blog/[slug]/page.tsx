@@ -95,7 +95,7 @@ export default async function BlogPost({ params }: BlogPostProps) {
                   {blog.privateSectionTitle}
                 </p>
               )}
-              <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+              <h1 className={`${isShort ? 'whitespace-pre-line text-2xl md:text-3xl' : 'text-3xl md:text-4xl'} font-bold text-gray-900 mb-4`}>
                 {isShort ? (post.excerpt || post.title) : post.title}
               </h1>
 
@@ -115,7 +115,7 @@ export default async function BlogPost({ params }: BlogPostProps) {
                 <blockquote className="mb-4 border-l-4 border-primary/30 pl-4 text-xl italic text-gray-700">{post.pullQuote}</blockquote>
               )}
               {!isShort && post.excerpt && (
-                <p className="text-lg text-gray-600 leading-relaxed mb-4">{post.excerpt}</p>
+                <p className="whitespace-pre-line text-base text-gray-600 leading-relaxed mb-4">{post.excerpt}</p>
               )}
               {(post.location || post.processStage) && (
                 <p className="mb-4 text-sm text-gray-500">

@@ -90,7 +90,7 @@ test.describe('Critical User Journeys', () => {
     await expect(firstImage).toBeVisible();
     const src = await firstImage.getAttribute('src');
     expect(src || '').not.toContain('fallback-artwork.svg');
-    // Cards badge sold works only — never an "Available" chip on the grid.
+    // Cards badge unavailable works only — never an "Available" chip on the grid.
     await expect(portfolioItems.first().getByText('Available')).toHaveCount(0);
 
     // Curated filters come from seeded PAGE_PORTFOLIO_JSON (or Studio). Drive the
@@ -161,6 +161,7 @@ test.describe('Critical User Journeys', () => {
     await expect(areas).toBeVisible();
     await expect(areas.getByRole('button', { name: 'Shop' })).toHaveAttribute('aria-current', 'true');
     await expect(areas.getByRole('button', { name: 'Shop' })).toHaveAttribute('aria-expanded', 'true');
+    await expect(shopTabs.getByRole('tab', { name: 'Products' })).toBeVisible();
     await expect(shopTabs.getByRole('tab', { name: 'Orders' })).toBeVisible();
     await expect(shopTabs.getByRole('tab', { name: 'Inventory' })).toBeVisible();
     await expect(shopTabs.getByRole('tab', { name: 'Settings' })).toHaveCount(0);
@@ -171,11 +172,12 @@ test.describe('Critical User Journeys', () => {
     await page.getByRole('button', { name: 'New newsletter' }).click();
     await expect(page).toHaveURL(/tab=newsletter&newsletter=new/);
     await expect(page.getByRole('textbox', { name: 'Subject', exact: true })).toBeVisible();
+    await areas.getByRole('button', { name: 'Site' }).click();
     await page.getByRole('tab', { name: 'Settings' }).click();
     await expect(page).toHaveURL(/tab=settings/);
     await expect(page).not.toHaveURL(/newsletter=/);
     await expect(page.getByRole('tab', { name: 'Settings', selected: true })).toBeVisible();
-    await expect(areas.getByRole('button', { name: 'Grow' })).toHaveAttribute('aria-current', 'true');
+    await expect(areas.getByRole('button', { name: 'Site' })).toHaveAttribute('aria-current', 'true');
 
     await page.getByRole('link', { name: 'View site' }).first().click();
     await expect(page).toHaveURL('/', { timeout: 15000 });

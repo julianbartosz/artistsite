@@ -122,6 +122,10 @@ export function buildLaunchReadinessItems(input: LaunchReadinessInput): LaunchRe
       tab: 'posts',
       action: 'Open updates',
       helpText: 'Share a studio note or journal entry so your Updates feed is alive on launch.',
+      optional: Boolean(
+        input.content?.identity?.navigation?.some((item) => item.key === 'blog' && !item.visible)
+        || input.content?.home?.blog?.showSection === false,
+      ),
     },
     {
       key: 'payments',
@@ -138,7 +142,7 @@ export function buildLaunchReadinessItems(input: LaunchReadinessInput): LaunchRe
       complete: isEmailDeliveryReady(settings),
       tab: 'settings',
       action: 'Open email settings',
-      helpText: 'Set a contact email plus SMTP for order emails, or use log mode while testing locally.',
+      helpText: 'Add your studio contact email and delivery settings under Settings → Email so inquiries and order confirmations reach you.',
       settingKey: 'CONTACT_EMAIL',
     },
     {

@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import type { Order } from '@/lib/orders';
@@ -11,8 +10,8 @@ import {
   type OrderStatus,
 } from '@/lib/order-status-shared';
 import { shippingAddressIsPopulated } from '@/lib/shipping-address';
-import { formatCartItemVariant, formatPrice, productImageSrc } from '@/lib/commerce';
-import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
+import { formatCartItemVariant, formatPrice } from '@/lib/commerce';
+import ProductImage from '@/components/ProductImage';
 import { shippingCarrierLabel, trackingUrl } from '@/lib/shipping';
 import { OrderProgressSteps } from '@/components/admin/OrderStatusStepper';
 import OrderMessageComposer from '@/components/OrderMessageComposer';
@@ -202,13 +201,11 @@ export default function OrderTracking({ orderId, order: initialOrder, accessToke
         <div className="space-y-4">
           {order.items.map((item) => (
             <div key={item.id} className="flex items-center space-x-4 p-4 border border-gray-200 rounded-lg">
-              <Image
-                src={productImageSrc(item.product)}
-                alt={item.product.title}
+              <ProductImage
+                product={item.product}
                 width={64}
                 height={64}
                 className="w-16 h-16 object-cover rounded-lg"
-                unoptimized={shouldUnoptimizeImage(productImageSrc(item.product))}
               />
               <div className="flex-1">
                 <h3 className="font-medium text-gray-900">{item.product.title}</h3>

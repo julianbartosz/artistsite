@@ -1,21 +1,39 @@
 import {
   formatPrice,
+  formatEditionStatus,
   calculateTotal,
   calculateVariantPrice,
   productImageSrc,
+  productRawImageSrc,
+  collectImageGallery,
+  productGalleryImages,
+  artworkGalleryImages,
   normalizeProduct,
   normalizeVariant,
   defaultCartItemVariant,
   productHasPurchaseOptions,
   applyEditionInventory,
   normalizeEdition,
+  normalizeShipping,
+  productAllowsCountry,
+  calculateItemShipping,
+  allowedCheckoutCountriesForItems,
+  describeProductShipping,
   PRODUCT_IMAGE_FALLBACK,
   type Product,
 } from '@/lib/commerce';
 import { resolvePublicAssetUrl } from '@/lib/public-asset';
-import { normalizeProductPayload } from '@/lib/admin-content';
-import { parseVariantFilename, pickVariantUrl, shouldUnoptimizeImage } from '@/lib/image-variant-url';
+import { normalizeProductPayload, productPayloadSchema } from '@/lib/admin-content';
+import { splitPlainParagraphs } from '@/lib/site-content-shared';
+import {
+  isGifUrl,
+  isVideoUrl,
+  parseVariantFilename,
+  pickVariantUrl,
+  shouldUnoptimizeImage,
+} from '@/lib/image-variant-url';
 import { createCartRecoveryToken, verifyCartRecoveryToken } from '@/lib/cart-recovery';
+import { CustomerInsights } from '@/lib/analytics/customer-insights';
 import {
   stableSearchParamsKey,
   activeFilterChips,
@@ -65,6 +83,7 @@ import { brandAssetVersion, brandIconPath, brandMonogram } from '@/lib/brand';
 import { socialHandle } from '@/lib/seo';
 import { isSiteCustomizationComplete } from '@/lib/setup-readiness';
 import { InventoryService } from '@/lib/inventory';
+import { prisma } from '@/lib/db';
 import { isLiveStripePaymentIntent, OrderManager } from '@/lib/orders';
 import { orderStatusDescription, orderStatusLabel } from '@/lib/order-status-shared';
 
@@ -120,11 +139,123 @@ describe('Commerce Library', () => {
       expect(productImageSrc({ ...sampleProduct, images: { thumbnail: '/uploads/a.jpg', gallery: [] } })).toBe('/uploads/a.jpg');
     });
 
-    it('uses thumb variant for uploaded images', () => {
-      expect(productImageSrc({
+    it('uses thumb variant for uploaded images while productRawImageSrc keeps original', () => {
+      const uploaded = {
         ...sampleProduct,
         images: { thumbnail: '/uploads/images/abc123.jpg', gallery: [] },
-      })).toBe('/uploads/images/abc123-thumb.webp');
+      };
+      expect(productImageSrc(uploaded)).toBe('/uploads/images/abc123-thumb.webp');
+      expect(productRawImageSrc(uploaded)).toBe('/uploads/images/abc123.jpg');
+    });
+
+    it('maps GIFs to static WebP posters, leaves videos raw, and prefers still images for product previews', () => {
+      expect(pickVariantUrl('/uploads/images/spin.gif', 'thumb')).toBe('/uploads/images/spin-thumb.webp');
+      expect(pickVariantUrl('/uploads/videos/reel.mp4', 'thumb')).toBe('/uploads/videos/reel.mp4');
+      expect(shouldUnoptimizeImage('/uploads/images/spin.gif')).toBe(true);
+      expect(shouldUnoptimizeImage('https://artist.blob.core.windows.net/assets/images/spin.gif')).toBe(true);
+
+      const videoFirst: Product = {
+        ...sampleProduct,
+        images: {
+          thumbnail: '/uploads/videos/reel.mp4',
+          gallery: ['/uploads/videos/reel.mp4', '/uploads/images/still.jpg'],
+        },
+      };
+      expect(productRawImageSrc(videoFirst)).toBe('/uploads/images/still.jpg');
+      expect(productImageSrc(videoFirst)).toBe('/uploads/images/still-thumb.webp');
+    });
+
+    it.each([
+      ['/uploads/videos/clip.mp4', true, false],
+      ['/uploads/videos/clip.MOV?v=1', true, false],
+      ['https://artist.blob.core.windows.net/assets/videos/demo.webm#t=1', true, false],
+      ['/uploads/images/loop.gif', false, true],
+      ['/uploads/images/photo.jpg', false, false],
+    ])('classifies media URL %s (video=%s, gif=%s)', (url, video, gif) => {
+      expect(isVideoUrl(url)).toBe(video);
+      expect(isGifUrl(url)).toBe(gif);
+    });
+  });
+
+  describe('gallery image helpers', () => {
+    it('collectImageGallery deduplicates, trims, and falls back when empty', () => {
+      expect(collectImageGallery(null, '', '  ')).toEqual([PRODUCT_IMAGE_FALLBACK]);
+      expect(
+        collectImageGallery('/uploads/a.jpg', [' /uploads/a.jpg ', '/uploads/b.jpg', '', '/uploads/b.jpg']),
+      ).toEqual(['/uploads/a.jpg', '/uploads/b.jpg']);
+    });
+
+    it('productGalleryImages preserves gallery order (including video-first) while supporting legacy thumbnails', () => {
+      const product: Product = {
+        ...sampleProduct,
+        images: {
+          thumbnail: '/uploads/front.jpg',
+          gallery: ['/uploads/front.jpg', '/uploads/back.jpg', '/uploads/detail.jpg'],
+        },
+      };
+      expect(productGalleryImages(product)).toEqual([
+        '/uploads/front.jpg',
+        '/uploads/back.jpg',
+        '/uploads/detail.jpg',
+      ]);
+
+      const videoFirst: Product = {
+        ...sampleProduct,
+        images: {
+          thumbnail: '/uploads/images/still.jpg',
+          gallery: ['/uploads/videos/reel.mp4', '/uploads/images/still.jpg', '/uploads/images/spin.gif'],
+        },
+      };
+      expect(productGalleryImages(videoFirst)).toEqual([
+        '/uploads/videos/reel.mp4',
+        '/uploads/images/still.jpg',
+        '/uploads/images/spin.gif',
+      ]);
+
+      const legacyThumb: Product = {
+        ...sampleProduct,
+        images: {
+          thumbnail: '/uploads/images/cover.jpg',
+          gallery: ['/uploads/images/detail.jpg'],
+        },
+      };
+      expect(productGalleryImages(legacyThumb)).toEqual([
+        '/uploads/images/cover.jpg',
+        '/uploads/images/detail.jpg',
+      ]);
+
+      expect(productGalleryImages(sampleProduct)).toEqual([PRODUCT_IMAGE_FALLBACK]);
+    });
+
+    it('artworkGalleryImages avoids creating a 2-slide carousel for legacy thumbnail + main pairs', () => {
+      expect(
+        artworkGalleryImages({
+          main: '/images/artworks/piece.jpg',
+          thumbnail: '/images/artworks/piece-thumb.jpg',
+          gallery: [],
+        }),
+      ).toEqual(['/images/artworks/piece.jpg']);
+
+      expect(
+        artworkGalleryImages({
+          main: '/images/artworks/piece.jpg',
+          thumbnail: '/images/artworks/piece-thumb.jpg',
+          gallery: ['/images/artworks/piece.jpg', '/images/artworks/piece-detail.jpg'],
+        }),
+      ).toEqual(['/images/artworks/piece.jpg', '/images/artworks/piece-detail.jpg']);
+    });
+  });
+
+  describe('formatEditionStatus', () => {
+    it.each([
+      [undefined, null],
+      [{ total: 0, remaining: 0 }, null],
+      [{ total: 25, remaining: 25 }, 'Edition of 25'],
+      [{ total: 25, remaining: 8 }, '8 of 25 remaining'],
+      [{ total: 25, remaining: 0 }, 'Sold out · Edition of 25'],
+      [{ total: 10, remaining: 14 }, 'Edition of 10'],
+    ])('formats %p -> %p', (edition, expected) => {
+      expect(formatEditionStatus(edition)).toBe(expected);
     });
   });
 
@@ -300,8 +431,36 @@ describe('normalizeProductPayload purchase options', () => {
 });
 
 describe('image variant urls', () => {
-  it('maps upload urls to webp variants', () => {
-    expect(pickVariantUrl('/uploads/images/photo.jpg', 'md')).toBe('/uploads/images/photo-md.webp');
+  it.each([
+    ['/uploads/images/photo.jpg', 'md', '/uploads/images/photo-md.webp'],
+    ['/uploads/images/photo-thumb.webp', 'lg', '/uploads/images/photo-lg.webp'],
+    [
+      'https://myaccount.blob.core.windows.net/artist-site-assets/images/abc123.png',
+      'md',
+      'https://myaccount.blob.core.windows.net/artist-site-assets/images/abc123-md.webp',
+    ],
+    [
+      'https://myaccount.blob.core.windows.net/artist-site-assets/images/abc123-thumb.webp?v=2',
+      'lg',
+      'https://myaccount.blob.core.windows.net/artist-site-assets/images/abc123-lg.webp?v=2',
+    ],
+    [
+      'https://myaccount.blob.core.windows.net/artist-site-assets/images/spin.gif',
+      'thumb',
+      'https://myaccount.blob.core.windows.net/artist-site-assets/images/spin-thumb.webp',
+    ],
+    [
+      'https://myaccount.blob.core.windows.net/artist-site-assets/videos/reel.mp4',
+      'thumb',
+      'https://myaccount.blob.core.windows.net/artist-site-assets/videos/reel.mp4',
+    ],
+    [
+      'https://cdn.example.com/images/external.jpg',
+      'md',
+      'https://cdn.example.com/images/external.jpg',
+    ],
+  ] as const)('maps %s (%s) -> %s', (input, size, expected) => {
+    expect(pickVariantUrl(input, size)).toBe(expected);
   });
 
   it.each([
@@ -317,7 +476,10 @@ describe('image variant urls', () => {
   it.each([
     ['/images/portfolio/piece.jpg', false],
     ['/uploads/images/abc123.jpg', false],
+    ['/uploads/images/abc123-md.webp', true],
     ['https://myaccount.blob.core.windows.net/assets/images/abc.jpg', false],
+    ['https://myaccount.blob.core.windows.net/assets/images/abc-thumb.webp', true],
+    ['https://myaccount.blob.core.windows.net/assets/images/abc-lg.webp', true],
     ['/images/fallback-artwork.svg', true],
     ['https://cdn.example.com/painting.jpg', true],
     ['data:image/png;base64,abc', true],
@@ -742,6 +904,16 @@ describe('site theme utilities', () => {
       ['paintings', 'night-series', 'Works on Paper'],
     );
     expect(merged.map((item) => item.key)).toEqual(['paintings', 'night-series', 'works-on-paper']);
+
+    const dayOneAuto = resolvePortfolioFilterCategories(
+      ['illustration', 'commissions', 'uncategorized'],
+      [],
+      { includeUnlisted: false },
+    );
+    expect(dayOneAuto).toEqual([
+      { key: 'commissions', label: 'Commissions' },
+      { key: 'illustration', label: 'Illustration' },
+    ]);
   });
 
   it('applyPortfolioPresentationPreset sets grid and image framing', () => {
@@ -757,3 +929,239 @@ describe('site theme utilities', () => {
     expect(detectPortfolioPresentationPreset(dense)).toBe('dense-catalog');
   });
 });
+
+describe('Shipping toggles, formatting, and product payload hardening', () => {
+  it.each([
+    [
+      'legacy shipping without booleans enables both lanes',
+      { domestic: 6, international: 25 },
+      { domesticEnabled: true, internationalEnabled: true, usAllowed: true, caAllowed: true, usFee: 6, caFee: 25 },
+    ],
+    [
+      'US-only shipping disables international countries',
+      { domestic: 6, international: 0, domesticEnabled: true, internationalEnabled: false },
+      { domesticEnabled: true, internationalEnabled: false, usAllowed: true, caAllowed: false, usFee: 6, caFee: 0 },
+    ],
+    [
+      'pickup-only when both lanes are off',
+      { domestic: 0, international: 0, domesticEnabled: false, internationalEnabled: false },
+      { domesticEnabled: false, internationalEnabled: false, usAllowed: true, caAllowed: true, usFee: 0, caFee: 0 },
+    ],
+  ])('%s', (_label, shipping, expected) => {
+    const normalized = normalizeShipping(shipping);
+    const product = { shipping };
+    expect(normalized.domesticEnabled).toBe(expected.domesticEnabled);
+    expect(normalized.internationalEnabled).toBe(expected.internationalEnabled);
+    expect(productAllowsCountry(product, 'US')).toBe(expected.usAllowed);
+    expect(productAllowsCountry(product, 'CA')).toBe(expected.caAllowed);
+    expect(calculateItemShipping(product, 'US')).toBe(expected.usFee);
+    expect(calculateItemShipping(product, 'CA')).toBe(expected.caFee);
+  });
+
+  it('intersects allowed checkout countries across mixed carts and describes shipping clearly', () => {
+    const usOnly = { domestic: 6, international: 0, domesticEnabled: true, internationalEnabled: false };
+    const both = { domestic: 0, international: 25, domesticEnabled: true, internationalEnabled: true };
+    const pickupOnly = { domestic: 0, international: 0, domesticEnabled: false, internationalEnabled: false };
+
+    expect(allowedCheckoutCountriesForItems([{ product: { shipping: usOnly } }, { product: { shipping: both } }])).toEqual({
+      countries: ['US'],
+      isPickupOnly: false,
+      hasConflict: false,
+    });
+    expect(allowedCheckoutCountriesForItems([{ product: { shipping: pickupOnly } }])).toEqual({
+      countries: ['US', 'CA', 'GB', 'AU'],
+      isPickupOnly: true,
+      hasConflict: false,
+    });
+    const usOnlyInfo = describeProductShipping({ shipping: usOnly, currency: 'USD' });
+    expect(usOnlyInfo.isPickupOnly).toBe(false);
+    expect(usOnlyInfo.domesticLabel).toBe('$6.00');
+    expect(usOnlyInfo.internationalLabel).toBeNull();
+    expect(describeProductShipping({ shipping: pickupOnly, currency: 'USD' }).isPickupOnly).toBe(true);
+  });
+
+  it.each([
+    ['', []],
+    ['Single line', ['Single line']],
+    ['First para\n\nSecond para', ['First para', 'Second para']],
+    ['First\r\n\r\nSecond\r\nLine 2', ['First', 'Second\nLine 2']],
+  ])('splitPlainParagraphs(%j) -> %j', (input, expected) => {
+    expect(splitPlainParagraphs(input)).toEqual(expected);
+  });
+
+  it('rejects non-positive commission estimatedDays and preserves shipping toggles + initialStock', () => {
+    const basePayload = {
+      title: 'Summer Meadow',
+      price: 30,
+      category: 'Prints',
+      images: { thumbnail: '/images/test.jpg', gallery: [] },
+      specifications: { framed: false, signed: true, certificate: true },
+    };
+
+    const bad = productPayloadSchema.safeParse({
+      ...basePayload,
+      commissionInfo: {
+        available: true,
+        estimatedDays: -30,
+        priceRange: { min: 100, max: 200 },
+        requiresConsultation: true,
+      },
+    });
+    expect(bad.success).toBe(false);
+
+    const good = productPayloadSchema.parse({
+      ...basePayload,
+      shipping: { domestic: 6, international: 0, domesticEnabled: true, internationalEnabled: false },
+      initialStock: 10,
+    });
+    expect(good.initialStock).toBe(10);
+    const persisted = normalizeProductPayload(good);
+    expect(persisted.shipping).toEqual({
+      domestic: 6,
+      international: 0,
+      domesticEnabled: true,
+      internationalEnabled: false,
+    });
+  });
+});
+
+describe('InventoryService.syncProductAlerts', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it.each([
+    {
+      name: 'resolves all active alerts when restocked to in_stock',
+      stock: 10,
+      threshold: 5,
+      status: 'in_stock' as const,
+      existing: [
+        { id: 'a1', type: 'low_stock', currentStock: 3, thresholdValue: 5, message: 'old', severity: 'medium', createdAt: new Date() },
+      ],
+      expectResolveAll: true,
+      expectCreateType: null,
+      expectUpdateMessage: null,
+    },
+    {
+      name: 'updates existing low_stock alert message in place when quantity changes while staying low',
+      stock: 2,
+      threshold: 5,
+      status: 'low_stock' as const,
+      existing: [
+        { id: 'a1', type: 'low_stock', currentStock: 4, thresholdValue: 5, message: 'Product stock is low (4 remaining)', severity: 'medium', createdAt: new Date() },
+      ],
+      expectResolveAll: false,
+      expectCreateType: null,
+      expectUpdateMessage: 'Product stock is low (2 remaining)',
+    },
+    {
+      name: 'resolves low_stock and creates out_of_stock when quantity drops to 0',
+      stock: 0,
+      threshold: 5,
+      status: 'out_of_stock' as const,
+      existing: [],
+      expectResolveAll: false,
+      expectCreateType: 'out_of_stock',
+      expectUpdateMessage: null,
+    },
+  ])('$name', async ({ stock, threshold, status, existing, expectResolveAll, expectCreateType, expectUpdateMessage }) => {
+    const findMany = jest.spyOn(prisma.stockAlert, 'findMany').mockResolvedValue(existing as never);
+    const updateMany = jest.spyOn(prisma.stockAlert, 'updateMany').mockResolvedValue({ count: existing.length } as never);
+    const update = jest.spyOn(prisma.stockAlert, 'update').mockResolvedValue({} as never);
+    const create = jest.spyOn(prisma.stockAlert, 'create').mockResolvedValue({ id: 'created' } as never);
+
+    await InventoryService.syncProductAlerts('prod-1', stock, threshold, status, { sendEmail: false });
+
+    if (expectResolveAll) {
+      expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { productId: 'prod-1', isActive: true },
+        data: expect.objectContaining({ isActive: false }),
+      }));
+      expect(create).not.toHaveBeenCalled();
+    } else if (expectUpdateMessage) {
+      expect(findMany).toHaveBeenCalled();
+      expect(update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: 'a1' },
+        data: expect.objectContaining({ currentStock: stock, message: expectUpdateMessage }),
+      }));
+      expect(create).not.toHaveBeenCalled();
+    } else if (expectCreateType) {
+      expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { productId: 'prod-1', isActive: true, type: { not: expectCreateType } },
+        data: expect.objectContaining({ isActive: false }),
+      }));
+      expect(create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          productId: 'prod-1',
+          type: expectCreateType,
+          currentStock: stock,
+          severity: 'critical',
+        }),
+      }));
+    }
+  });
+});
+
+describe('CustomerInsights.getOrderCommerceMetrics', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it.each([
+    {
+      name: 'returns zeroes when there are no paid orders',
+      orders: [],
+      expected: {
+        paidOrderCount: 0,
+        totalRevenue: 0,
+        uniqueCustomers: 0,
+        averageLTV: 0,
+        medianLTV: 0,
+        repeatCustomers: 0,
+      },
+    },
+    {
+      name: 'computes revenue, average LTV, median LTV, and repeat buyers from paid orders',
+      orders: [
+        { userId: 'u1', userEmail: 'Alice@Example.com', total: 100 },
+        { userId: 'u1', userEmail: 'alice@example.com', total: 200 },
+        { userId: null, userEmail: 'bob@example.com', total: 60 },
+        { userId: null, userEmail: 'carol@example.com', total: 140 },
+      ],
+      expected: {
+        paidOrderCount: 4,
+        totalRevenue: 500,
+        uniqueCustomers: 3,
+        averageLTV: 500 / 3,
+        medianLTV: 140,
+        repeatCustomers: 1,
+      },
+    },
+    {
+      name: 'computes even-count median LTV across two distinct buyers',
+      orders: [
+        { userId: 'u1', userEmail: 'a@test.com', total: 40 },
+        { userId: 'u2', userEmail: 'b@test.com', total: 100 },
+      ],
+      expected: {
+        paidOrderCount: 2,
+        totalRevenue: 140,
+        uniqueCustomers: 2,
+        averageLTV: 70,
+        medianLTV: 70,
+        repeatCustomers: 0,
+      },
+    },
+  ])('$name', async ({ orders, expected }) => {
+    jest.spyOn(prisma.order, 'findMany').mockResolvedValue(orders as never);
+    const result = await CustomerInsights.getOrderCommerceMetrics();
+    expect(result.paidOrderCount).toBe(expected.paidOrderCount);
+    expect(result.totalRevenue).toBeCloseTo(expected.totalRevenue, 5);
+    expect(result.uniqueCustomers).toBe(expected.uniqueCustomers);
+    expect(result.averageLTV).toBeCloseTo(expected.averageLTV, 5);
+    expect(result.medianLTV).toBeCloseTo(expected.medianLTV, 5);
+    expect(result.repeatCustomers).toBe(expected.repeatCustomers);
+  });
+});
+

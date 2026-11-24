@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { readGuestWishlist, toggleGuestWishlist, writeGuestWishlist } from '@/lib/wishlist-storage';
 
@@ -12,32 +12,102 @@ type WishlistButtonProps = {
   stopNavigation?: boolean;
 };
 
+type WishlistCacheState = {
+  userId: string | null;
+  items: Set<string>;
+  loadedAt: number;
+  inFlight: Promise<Set<string>> | null;
+};
+
+const WISHLIST_CACHE_TTL_MS = 15_000;
+const wishlistState: WishlistCacheState = {
+  userId: null,
+  items: new Set(),
+  loadedAt: 0,
+  inFlight: null,
+};
+const wishlistListeners = new Set<() => void>();
+
+function notifyWishlistListeners() {
+  wishlistListeners.forEach((listener) => listener());
+}
+
+function resetWishlistCache(nextUserId: string | null) {
+  wishlistState.userId = nextUserId;
+  wishlistState.items = new Set();
+  wishlistState.loadedAt = 0;
+  wishlistState.inFlight = null;
+}
+
+/** Deduplicate GET /api/wishlist across all mounted cards, quick-looks, and recommendations. */
+function loadAccountWishlist(userId: string): Promise<Set<string>> {
+  if (wishlistState.userId !== userId) {
+    resetWishlistCache(userId);
+  }
+
+  const fresh =
+    wishlistState.loadedAt > 0 && Date.now() - wishlistState.loadedAt < WISHLIST_CACHE_TTL_MS;
+  if (fresh) {
+    return Promise.resolve(wishlistState.items);
+  }
+  if (wishlistState.inFlight) {
+    return wishlistState.inFlight;
+  }
+
+  const request = fetch('/api/wishlist', { cache: 'no-store' })
+    .then((response) => response.json())
+    .then((data) => {
+      if (wishlistState.userId !== userId) return wishlistState.items;
+      const next = new Set<string>();
+      if (data.success && Array.isArray(data.items)) {
+        for (const item of data.items as Array<{ productId?: string }>) {
+          if (item.productId) next.add(item.productId);
+        }
+      }
+      wishlistState.items = next;
+      wishlistState.loadedAt = Date.now();
+      notifyWishlistListeners();
+      return next;
+    })
+    .catch(() => wishlistState.items)
+    .finally(() => {
+      if (wishlistState.inFlight === request) {
+        wishlistState.inFlight = null;
+      }
+    });
+
+  wishlistState.inFlight = request;
+  return request;
+}
+
 export function WishlistButton({ productId, className = '', size = 'md', stopNavigation = false }: WishlistButtonProps) {
   const { data: session, status } = useSession();
+  const userId = session?.user?.id ?? null;
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const refreshSavedState = useCallback(async () => {
-    if (session?.user?.id) {
-      try {
-        const response = await fetch('/api/wishlist', { cache: 'no-store' });
-        const data = await response.json();
-        if (data.success) {
-          setSaved((data.items || []).some((item: { productId: string }) => item.productId === productId));
-        }
-      } catch {
-        setSaved(false);
+  useEffect(() => {
+    if (status === 'loading') return undefined;
+
+    const sync = () => {
+      if (userId) {
+        setSaved(wishlistState.userId === userId && wishlistState.items.has(productId));
+      } else {
+        setSaved(readGuestWishlist().includes(productId));
       }
-      return;
+    };
+
+    wishlistListeners.add(sync);
+    sync();
+
+    if (userId) {
+      void loadAccountWishlist(userId).then(sync);
     }
 
-    setSaved(readGuestWishlist().includes(productId));
-  }, [productId, session?.user?.id]);
-
-  useEffect(() => {
-    if (status === 'loading') return;
-    void refreshSavedState();
-  }, [status, refreshSavedState]);
+    return () => {
+      wishlistListeners.delete(sync);
+    };
+  }, [productId, status, userId]);
 
   async function handleToggle(event: React.MouseEvent<HTMLButtonElement>) {
     if (stopNavigation) {
@@ -48,11 +118,14 @@ export function WishlistButton({ productId, className = '', size = 'md', stopNav
     setBusy(true);
 
     try {
-      if (session?.user?.id) {
+      if (userId) {
         if (saved) {
           const response = await fetch(`/api/wishlist/${encodeURIComponent(productId)}`, { method: 'DELETE' });
           if (response.ok) {
-            setSaved(false);
+            if (wishlistState.userId !== userId) resetWishlistCache(userId);
+            wishlistState.items.delete(productId);
+            wishlistState.loadedAt = Date.now();
+            notifyWishlistListeners();
           }
         } else {
           const response = await fetch('/api/wishlist', {
@@ -61,7 +134,10 @@ export function WishlistButton({ productId, className = '', size = 'md', stopNav
             body: JSON.stringify({ productId }),
           });
           if (response.ok) {
-            setSaved(true);
+            if (wishlistState.userId !== userId) resetWishlistCache(userId);
+            wishlistState.items.add(productId);
+            wishlistState.loadedAt = Date.now();
+            notifyWishlistListeners();
           }
         }
         return;
@@ -69,6 +145,7 @@ export function WishlistButton({ productId, className = '', size = 'md', stopNav
 
       const nextSaved = toggleGuestWishlist(productId);
       setSaved(nextSaved);
+      notifyWishlistListeners();
     } finally {
       setBusy(false);
     }
@@ -116,5 +193,7 @@ export async function mergeGuestWishlistIntoAccount(): Promise<void> {
 
   if (response.ok) {
     writeGuestWishlist([]);
+    wishlistState.loadedAt = 0;
+    notifyWishlistListeners();
   }
 }

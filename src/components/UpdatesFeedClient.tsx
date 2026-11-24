@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
+import OptimizedImage from '@/components/OptimizedImage';
 import PostMedia from '@/components/PostMedia';
 import UpdateQuickLook, { type UpdateQuickLookPost } from '@/components/UpdateQuickLook';
 import PostEngagement from '@/components/PostEngagement';
@@ -77,33 +78,51 @@ export default function UpdatesFeedClient({
     return (
       <>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
-          {posts.map((post) => {
+          {posts.map((post, postIndex) => {
             const headline = post.format === 'short' ? (post.excerpt || post.title) : post.title;
+            const quickLookAria = `${copy.quickLookLabel}: ${headline}`;
             return (
               <div key={post.slug} className="group relative overflow-hidden rounded-xl bg-gray-100 card-surface">
-                <button
-                  type="button"
-                  className="block w-full text-left"
-                  onClick={() => setActivePost(post)}
-                  aria-label={`${copy.quickLookLabel}: ${headline}`}
-                >
-                  {post.media.length > 0 ? (
-                    <PostMedia items={post.media} title={post.title} layout="grid" />
-                  ) : post.coverImage ? (
-                    <div className="relative aspect-square overflow-hidden">
-                      <img src={post.coverImage} alt={post.title} className="h-full w-full object-cover" />
-                    </div>
-                  ) : (
-                    <div className="flex aspect-square items-end bg-gray-200 p-4">
-                      <h2 className="text-lg font-semibold text-gray-900">{headline}</h2>
-                    </div>
-                  )}
-                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-4 text-white opacity-100 md:opacity-0 md:transition-opacity md:group-hover:opacity-100">
-                    <p className="text-sm font-medium leading-snug">{headline}</p>
-                  </div>
-                </button>
+                {post.media.length > 0 ? (
+                  <PostMedia
+                    items={post.media}
+                    title={post.title}
+                    layout="grid"
+                    priority={postIndex < 3}
+                    onOpen={() => setActivePost(post)}
+                    openAriaLabel={quickLookAria}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="block w-full text-left"
+                    onClick={() => setActivePost(post)}
+                    aria-label={quickLookAria}
+                  >
+                    {post.coverImage ? (
+                      <div className="relative aspect-square overflow-hidden">
+                        <OptimizedImage
+                          src={post.coverImage}
+                          alt={post.title}
+                          variantSize="md"
+                          fill
+                          sizes="(max-width: 768px) 50vw, 33vw"
+                          priority={postIndex < 3}
+                          className="object-cover"
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex aspect-square items-end bg-gray-200 p-4">
+                        <h2 className="text-lg font-semibold text-gray-900">{headline}</h2>
+                      </div>
+                    )}
+                  </button>
+                )}
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/70 to-transparent p-4 text-white opacity-100 md:opacity-0 md:transition-opacity md:group-hover:opacity-100">
+                  <p className="text-sm font-medium leading-snug">{headline}</p>
+                </div>
                 {post.featured && (
-                  <div className="absolute right-2 top-2">
+                  <div className="pointer-events-none absolute left-2 top-2 z-20">
                     <span className="rounded bg-primary px-2 py-0.5 text-[10px] font-semibold uppercase text-white">{copy.featuredLabel}</span>
                   </div>
                 )}
@@ -119,7 +138,7 @@ export default function UpdatesFeedClient({
   return (
     <>
       <div className="space-y-10">
-        {posts.map((post) => {
+        {posts.map((post, postIndex) => {
           const href = updatesPostPath(post.slug);
           const isShort = post.format === 'short';
           return (
@@ -140,14 +159,14 @@ export default function UpdatesFeedClient({
               </div>
               {post.media.length > 0 && (
                 <div className="mb-4">
-                  <button
-                    type="button"
-                    onClick={() => setActivePost(post)}
-                    className="block w-full text-left"
-                    aria-label={`${copy.quickLookLabel}: ${isShort ? (post.excerpt || post.title) : post.title}`}
-                  >
-                    <PostMedia items={post.media} title={post.title} layout="feed" />
-                  </button>
+                  <PostMedia
+                    items={post.media}
+                    title={post.title}
+                    layout="feed"
+                    priority={postIndex < 2}
+                    onOpen={() => setActivePost(post)}
+                    openAriaLabel={`${copy.quickLookLabel}: ${isShort ? (post.excerpt || post.title) : post.title}`}
+                  />
                 </div>
               )}
               {post.pullQuote && (
@@ -159,7 +178,7 @@ export default function UpdatesFeedClient({
                 </h2>
               )}
               {post.excerpt && (
-                <p className={`text-gray-700 ${isShort ? 'text-lg' : 'mt-2'}`}>{post.excerpt}</p>
+                <p className={`whitespace-pre-line text-gray-700 ${isShort ? 'text-base leading-relaxed' : 'mt-2'}`}>{post.excerpt}</p>
               )}
               {post.location && <p className="mt-2 text-sm text-gray-500">{post.location}</p>}
               {copy.showFeedTags && post.tags && post.tags.length > 0 && (

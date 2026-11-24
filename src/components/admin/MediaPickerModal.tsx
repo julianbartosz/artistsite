@@ -6,9 +6,13 @@ import {
   fetchMediaLibrary,
   IMAGE_FILE_ACCEPT,
   isSupportedImageFile,
+  isSupportedMediaFile,
+  MEDIA_FILE_ACCEPT,
   uploadImageFile,
+  uploadMediaFile,
   type MediaLibraryItem,
 } from '@/lib/image-upload-client';
+import { isGifUrl } from '@/lib/image-variant-url';
 import MediaThumb from '@/components/admin/MediaThumb';
 import { useFileUploadInput } from '@/components/admin/useFileUploadInput';
 
@@ -58,6 +62,7 @@ export default function MediaPickerModal(props: MediaPickerModalProps) {
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [libraryLoading, setLibraryLoading] = useState(false);
+  const [libraryLoaded, setLibraryLoaded] = useState(false);
   const [libraryItems, setLibraryItems] = useState<MediaLibraryItem[]>([]);
   const [altText, setAltText] = useState('');
   const { inputRef, openFilePicker } = useFileUploadInput();
@@ -69,7 +74,10 @@ export default function MediaPickerModal(props: MediaPickerModalProps) {
   });
 
   useEffect(() => {
-    if (!open) return undefined;
+    if (!open) {
+      setLibraryLoaded(false);
+      return undefined;
+    }
     let cancelled = false;
     setLibraryLoading(true);
     setError(null);
@@ -84,7 +92,10 @@ export default function MediaPickerModal(props: MediaPickerModalProps) {
         }
       })
       .finally(() => {
-        if (!cancelled) setLibraryLoading(false);
+        if (!cancelled) {
+          setLibraryLoading(false);
+          setLibraryLoaded(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -115,16 +126,21 @@ export default function MediaPickerModal(props: MediaPickerModalProps) {
   }
 
   async function upload(file: File) {
-    if (!isSupportedImageFile(file)) {
-      setError('Unsupported image format. Use JPG, PNG, WebP, GIF, or HEIC.');
+    const supported = includeVideo ? isSupportedMediaFile(file) : isSupportedImageFile(file);
+    if (!supported) {
+      setError(
+        includeVideo
+          ? 'Unsupported file format. Upload an image or an MP4, WebM, or MOV video.'
+          : 'Unsupported file format. Please choose an image file.',
+      );
       return;
     }
     setUploading(true);
     setError(null);
     try {
-      choose(await uploadImageFile(file));
+      choose(includeVideo ? await uploadMediaFile(file) : await uploadImageFile(file));
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : 'Image upload failed');
+      setError(uploadError instanceof Error ? uploadError.message : 'Upload failed');
     } finally {
       setUploading(false);
     }
@@ -208,7 +224,7 @@ export default function MediaPickerModal(props: MediaPickerModalProps) {
               <input
                 ref={inputRef}
                 type="file"
-                accept={IMAGE_FILE_ACCEPT}
+                accept={includeVideo ? MEDIA_FILE_ACCEPT : IMAGE_FILE_ACCEPT}
                 disabled={uploading}
                 onChange={(event) => {
                   const file = event.target.files?.[0];
@@ -225,15 +241,17 @@ export default function MediaPickerModal(props: MediaPickerModalProps) {
                 onClick={openFilePicker}
                 className="inline-flex min-h-10 items-center rounded-md border border-gray-300 px-3.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
               >
-                {uploading ? 'Uploading…' : 'Upload new photo'}
+                {uploading ? 'Uploading…' : includeVideo ? 'Upload photo or video' : 'Upload new photo'}
               </button>
-              <span className="text-xs text-gray-500">JPG, PNG, WebP, GIF, or HEIC · up to 25 MB</span>
+              <span className="text-xs text-gray-500">
+                {includeVideo ? 'Any image up to 25 MB · videos up to 80 MB' : 'Any image format · up to 25 MB'}
+              </span>
             </div>
           )}
 
           {error && <p className="mb-3 text-sm text-red-600" role="alert">{error}</p>}
 
-          {libraryLoading ? (
+          {libraryLoading || !libraryLoaded ? (
             <div className={TILE_GRID} role="status" aria-label="Loading your library">
               {Array.from({ length: 8 }, (_, index) => (
                 <span key={index} className="aspect-square animate-pulse rounded bg-gray-100" />
@@ -251,11 +269,14 @@ export default function MediaPickerModal(props: MediaPickerModalProps) {
             <div className={TILE_GRID}>
               {libraryItems.map((item) => {
                 const isSelected = selected.has(item.url);
+                const label = item.filename || item.url.split('/').pop() || 'Media item';
                 return (
                   <button
                     key={item.url}
                     type="button"
+                    aria-label={label}
                     aria-pressed={isSelected}
+                    title={label}
                     onClick={() => choose(item)}
                     className={`relative overflow-hidden rounded border ${isSelected ? 'border-primary ring-2 ring-primary' : 'border-gray-200 hover:border-gray-400'}`}
                   >
@@ -265,11 +286,15 @@ export default function MediaPickerModal(props: MediaPickerModalProps) {
                       sizes={TILE_SIZES}
                       className="aspect-square w-full"
                     />
-                    {item.kind === 'video' && (
+                    {item.kind === 'video' ? (
                       <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
                         Video
                       </span>
-                    )}
+                    ) : isGifUrl(item.url) ? (
+                      <span className="absolute left-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                        GIF
+                      </span>
+                    ) : null}
                     {isSelected && (
                       <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-white" aria-hidden="true">
                         ✓
@@ -285,7 +310,9 @@ export default function MediaPickerModal(props: MediaPickerModalProps) {
         {multiple && (
           <div className="flex items-center justify-between gap-3 border-t border-gray-200 px-4 pt-3 safe-area-bottom">
             <p className="text-sm text-gray-600" role="status">
-              {selectedCount === 0 ? 'Choose photos to add' : `${selectedCount} selected`}
+              {selectedCount === 0
+                ? (includeVideo ? 'Choose photos or videos to add' : 'Choose photos to add')
+                : `${selectedCount} selected`}
             </p>
             <button type="button" onClick={onClose} className="btn-primary min-h-10 px-5 text-sm">
               Done

@@ -1,5 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { CartItemVariant, Product, productImageSrc, E2E_CHECKOUT_SESSION_PREFIX } from '@/lib/commerce';
+import {
+  allowedCheckoutCountriesForItems,
+  calculateItemShipping,
+  CartItemVariant,
+  E2E_CHECKOUT_SESSION_PREFIX,
+  Product,
+  productAllowsCountry,
+  productImageSrc,
+} from '@/lib/commerce';
+import { isVideoUrl } from '@/lib/image-variant-url';
 import { getProductById } from '@/lib/commerce-server';
 import {
   cancelCheckout,
@@ -56,6 +65,23 @@ export async function POST(req: NextRequest) {
     }
 
     const orderItems = await resolveOrderItems(items);
+    const shippingPolicy = allowedCheckoutCountriesForItems(orderItems);
+    if (shippingPolicy.hasConflict) {
+      return NextResponse.json(
+        { error: 'The items in your cart do not share an available shipping region. Please check out separately.' },
+        { status: 400 },
+      );
+    }
+    const disallowedItem = orderItems.find((item) => !productAllowsCountry(item.product, shippingAddress.country));
+    if (disallowedItem) {
+      const regionNote = shippingAddress.country === 'US'
+        ? 'does not ship to the United States'
+        : 'is available for US shipping only';
+      return NextResponse.json(
+        { error: `"${disallowedItem.product.title}" ${regionNote}.` },
+        { status: 400 },
+      );
+    }
     const rawSubtotal = roundMoney(orderItems.reduce((sum, item) => sum + item.totalPrice, 0));
     const promoDiscount = await resolvePromoDiscount(promoCode, rawSubtotal);
     const submittedPromo = typeof promoCode === 'string' ? promoCode.trim() : '';
@@ -147,22 +173,25 @@ export async function POST(req: NextRequest) {
     try {
       session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
-      line_items: orderItems.map((item) => ({
-        price_data: {
-          currency: 'usd',
-          product_data: {
-            name: item.product.title,
-            description: `${item.product.medium} • ${item.product.dimensions}`,
-            images: absoluteStripeImageUrls(req.nextUrl.origin, productImageSrc(item.product)),
-            metadata: {
-              productId: item.product.id,
-              category: item.product.category,
+      line_items: orderItems.map((item) => {
+        const itemDescription = [item.product.medium, item.product.dimensions].filter(Boolean).join(' • ');
+        return {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: item.product.title,
+              ...(itemDescription ? { description: itemDescription } : {}),
+              images: absoluteStripeImageUrls(req.nextUrl.origin, productImageSrc(item.product)),
+              metadata: {
+                productId: item.product.id,
+                category: item.product.category,
+              },
             },
+            unit_amount: toCents(item.unitPrice),
           },
-          unit_amount: toCents(item.unitPrice),
-        },
-        quantity: item.quantity,
-      })),
+          quantity: item.quantity,
+        };
+      }),
       ...(shipping > 0 && {
         shipping_options: [
           {
@@ -201,9 +230,13 @@ export async function POST(req: NextRequest) {
       customer_email: customerInfo.email,
       client_reference_id: persistedOrder.id,
       billing_address_collection: 'required',
-      shipping_address_collection: {
-        allowed_countries: ['US', 'CA', 'GB', 'AU'],
-      },
+      ...(!shippingPolicy.isPickupOnly
+        ? {
+            shipping_address_collection: {
+              allowed_countries: shippingPolicy.countries,
+            },
+          }
+        : {}),
       metadata: {
         orderId: persistedOrder.id,
         orderNumber: persistedOrder.orderNumber,
@@ -273,7 +306,7 @@ function toCents(value: number): number {
 }
 
 function absoluteStripeImageUrls(origin: string, imageUrl?: string): string[] {
-  if (!imageUrl) return [];
+  if (!imageUrl || isVideoUrl(imageUrl)) return [];
   try {
     return [new URL(imageUrl, origin).toString()];
   } catch {
@@ -417,10 +450,8 @@ async function resolveOrderItems(items: any[]): Promise<OrderItem[]> {
 }
 
 function calculateProductShipping(items: OrderItem[], country: string): number {
-  const isDomestic = country === 'US';
   return items.reduce((sum, item) => {
-    const shippingCost = isDomestic ? item.product.shipping.domestic : item.product.shipping.international;
-    return sum + shippingCost * item.quantity;
+    return sum + calculateItemShipping(item.product, country) * item.quantity;
   }, 0);
 }
 

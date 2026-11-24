@@ -422,28 +422,93 @@ export class CustomerInsights {
   }
 
   /**
-   * Calculate lifetime value analysis
+   * Authoritative commerce metrics derived directly from paid Order records.
+   * Shared by Analytics and Marketing dashboards so revenue, buyers, and LTV never drift.
    */
-  static async calculateLifetimeValue(): Promise<LTVAnalysis> {
-    const profiles = await prisma.customerProfile.findMany({
+  static async getOrderCommerceMetrics(startDate?: Date): Promise<{
+    paidOrderCount: number
+    totalRevenue: number
+    uniqueCustomers: number
+    averageLTV: number
+    medianLTV: number
+    repeatCustomers: number
+  }> {
+    const paidOrders = await prisma.order.findMany({
+      where: {
+        paymentStatus: 'paid',
+        ...(startDate ? { createdAt: { gte: startDate } } : {}),
+      },
       select: {
-        lifetimeValue: true,
-        segments: true,
-        createdAt: true,
+        userId: true,
+        userEmail: true,
+        total: true,
       },
     })
 
-    const ltvValues = profiles.map(p => p.lifetimeValue).sort((a, b) => a - b)
-    const count = ltvValues.length
-    const averageLTV = count > 0
-      ? ltvValues.reduce((sum, val) => sum + val, 0) / count
+    const spendByCustomer = new Map<string, { total: number; orders: number }>()
+    let totalRevenue = 0
+    for (const order of paidOrders) {
+      const amount = Number(order.total || 0)
+      totalRevenue += amount
+      const key = (order.userId || order.userEmail || 'guest').toLowerCase()
+      const current = spendByCustomer.get(key) || { total: 0, orders: 0 }
+      current.total += amount
+      current.orders += 1
+      spendByCustomer.set(key, current)
+    }
+
+    const totals = Array.from(spendByCustomer.values())
+      .map((entry) => entry.total)
+      .sort((a, b) => a - b)
+    const uniqueCustomers = totals.length
+    const averageLTV = uniqueCustomers > 0 ? totalRevenue / uniqueCustomers : 0
+    const mid = Math.floor(uniqueCustomers / 2)
+    const medianLTV = uniqueCustomers === 0
+      ? 0
+      : uniqueCustomers % 2 === 1
+        ? totals[mid]
+        : (totals[mid - 1] + totals[mid]) / 2
+    const repeatCustomers = Array.from(spendByCustomer.values()).filter((entry) => entry.orders > 1).length
+
+    return {
+      paidOrderCount: paidOrders.length,
+      totalRevenue,
+      uniqueCustomers,
+      averageLTV,
+      medianLTV,
+      repeatCustomers,
+    }
+  }
+
+  /**
+   * Calculate lifetime value analysis (grounded in real paid orders when present)
+   */
+  static async calculateLifetimeValue(): Promise<LTVAnalysis> {
+    const [profiles, orderMetrics] = await Promise.all([
+      prisma.customerProfile.findMany({
+        select: {
+          lifetimeValue: true,
+          segments: true,
+          createdAt: true,
+        },
+      }),
+      this.getOrderCommerceMetrics(),
+    ])
+
+    const profileLtvValues = profiles.map(p => p.lifetimeValue).filter((v) => v > 0).sort((a, b) => a - b)
+    const count = profileLtvValues.length
+    const profileAverageLTV = count > 0
+      ? profileLtvValues.reduce((sum, val) => sum + val, 0) / count
       : 0
     const mid = Math.floor(count / 2)
-    const medianLTV = count === 0
+    const profileMedianLTV = count === 0
       ? 0
       : count % 2 === 1
-        ? ltvValues[mid]
-        : (ltvValues[mid - 1] + ltvValues[mid]) / 2
+        ? profileLtvValues[mid]
+        : (profileLtvValues[mid - 1] + profileLtvValues[mid]) / 2
+
+    const averageLTV = orderMetrics.uniqueCustomers > 0 ? orderMetrics.averageLTV : profileAverageLTV
+    const medianLTV = orderMetrics.uniqueCustomers > 0 ? orderMetrics.medianLTV : profileMedianLTV
 
     // LTV by segment
     const ltvBySegment: Record<string, number> = {}

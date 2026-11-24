@@ -4,6 +4,7 @@ import { useState } from 'react';
 import {
   Product,
   CartItemVariant,
+  describeProductShipping,
   formatPrice,
   calculateVariantPrice,
   defaultCartItemVariant,
@@ -321,9 +322,7 @@ export default function AddToCartButton({
             <>
               <div className="flex items-center justify-between text-xs">
                 <span>Shipping:</span>
-                <span>
-                  Domestic ${product.shipping.domestic} • International ${product.shipping.international}
-                </span>
+                <span>{describeProductShipping(product).summary}</span>
               </div>
 
               <div className="flex flex-wrap gap-2 text-xs">

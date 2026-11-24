@@ -34,7 +34,7 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
     };
   }
   
-  const mainImage = productImageSrc(product, product.images.gallery[0]);
+  const mainImage = productImageSrc(product, undefined, 'lg');
   
   return {
     title: `${product.title} - Art Shop`,

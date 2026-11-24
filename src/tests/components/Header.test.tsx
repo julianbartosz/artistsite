@@ -177,24 +177,15 @@ describe('Header Component', () => {
     expect(screen.getByRole('link', { name: 'Studio' })).toHaveAttribute('href', '/admin');
   });
 
-  it('tucks sign in and create account into the account menu when signed out and closes on Escape', () => {
+  it('links the desktop account icon directly to sign in without a redundant create account item when signed out', () => {
     render(<Header />);
 
-    expect(screen.queryByRole('link', { name: /sign in/i })).not.toBeInTheDocument();
-    const accountButton = screen.getByTestId('account-menu-button');
-    expect(accountButton).toHaveAttribute('aria-expanded', 'false');
-
-    fireEvent.click(accountButton);
-    expect(accountButton).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('menuitem', { name: 'Sign in' })).toHaveAttribute('href', '/auth/signin');
-    expect(screen.getByRole('menuitem', { name: 'Create account' })).toHaveAttribute('href', '/auth/signup');
-
-    fireEvent.keyDown(document, { key: 'Escape' });
-    expect(accountButton).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByRole('menuitem', { name: 'Sign in' })).not.toBeInTheDocument();
+    const accountLink = screen.getByTestId('account-menu-button');
+    expect(accountLink).toHaveAttribute('href', '/auth/signin');
+    expect(screen.queryByRole('link', { name: /create account/i })).not.toBeInTheDocument();
   });
 
-  it('shows user menu items when signed in and stays quiet while session loads', () => {
+  it('shows user menu items when signed in, closes on Escape, and stays quiet while session loads', () => {
     mockUseSession.mockReturnValue({ data: null, status: 'loading', update: jest.fn() });
     const { rerender } = render(<Header />);
     expect(screen.getByTestId('account-menu-button')).toBeDisabled();
@@ -212,5 +203,9 @@ describe('Header Component', () => {
     expect(screen.getByText('Jane Collector')).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'My Account' })).toHaveAttribute('href', '/account');
     expect(screen.getByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(accountButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('menuitem', { name: 'My Account' })).not.toBeInTheDocument();
   });
 });

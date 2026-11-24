@@ -2,9 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
-import { Product, productImageSrc } from '@/lib/commerce';
-import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
+import { formatPrice, Product, productGalleryImages } from '@/lib/commerce';
+import ImageCarousel from '@/components/ImageCarousel';
 import { RecommendationResult } from '@/lib/types';
 import { useSession } from 'next-auth/react';
 
@@ -118,37 +117,36 @@ interface ProductCardProps {
 }
 
 function ProductCard({ product }: ProductCardProps) {
+  const productHref = `/shop/${product.id}`;
   return (
-    <Link href={`/shop/${product.id}`} className="group">
-      <div className="bg-surface rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow duration-200">
-        <div className="aspect-square relative overflow-hidden">
-          <Image
-            src={productImageSrc(product)}
-            alt={product.title}
-            fill
-            className="object-cover group-hover:scale-105 transition-transform duration-200"
-            unoptimized={shouldUnoptimizeImage(productImageSrc(product))}
-          />
+    <div className="group bg-surface rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow duration-200 flex flex-col">
+      <ImageCarousel
+        images={productGalleryImages(product)}
+        alt={product.title}
+        href={productHref}
+        variantSize="thumb"
+        className="aspect-square relative overflow-hidden bg-gray-100"
+        imageClassName="object-cover group-hover:scale-105 transition-transform duration-200 motion-reduce:transform-none"
+        sizes="(max-width: 768px) 50vw, 25vw"
+      />
+
+      <Link href={productHref} className="block p-4 flex-1">
+        <h4 className="text-sm font-medium text-gray-900 mb-1 line-clamp-2">
+          {product.title}
+        </h4>
+        <p className="text-xs text-gray-500 mb-2">{product.medium}</p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-lg font-semibold text-gray-900">
+            {formatPrice(product.price, product.currency)}
+          </p>
+          {product.category && (
+            <span className="text-xs text-gray-500 capitalize">
+              {product.category.replaceAll('-', ' ')}
+            </span>
+          )}
         </div>
-        
-        <div className="p-4">
-          <h4 className="text-sm font-medium text-gray-900 mb-1 line-clamp-2">
-            {product.title}
-          </h4>
-          <p className="text-xs text-gray-500 mb-2">{product.medium}</p>
-          <div className="flex items-center justify-between">
-            <p className="text-lg font-semibold text-gray-900">
-              ${product.price.toLocaleString()}
-            </p>
-            {product.category && (
-              <span className="text-xs text-gray-500 capitalize">
-                {product.category}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-    </Link>
+      </Link>
+    </div>
   );
 }
 

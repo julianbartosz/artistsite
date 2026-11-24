@@ -40,8 +40,18 @@ export function sanitizeRichHtml(html: string): string {
       ...sanitizeHtml.defaults.allowedAttributes,
       a: ['href', 'name', 'target', 'rel'],
       img: ['src', 'alt', 'title', 'width', 'height', 'loading'],
+      h1: ['class', 'style'],
+      h2: ['class', 'style'],
+      h3: ['class', 'style'],
+      h4: ['class', 'style'],
+      p: ['class', 'style'],
       span: ['class'],
       '*': ['class'],
+    },
+    allowedStyles: {
+      '*': {
+        'text-align': [/^(?:left|center|right)$/],
+      },
     },
     allowedSchemes: ['http', 'https', 'mailto'],
     transformTags: {

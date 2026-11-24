@@ -1,7 +1,13 @@
 'use client';
-import React, { useState, useEffect } from 'react';
-import { StockAlert } from '@/lib/inventory';
-import { Product, productImageSrc } from '@/lib/commerce';
+
+import React, { useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import useSWR, { useSWRConfig } from 'swr';
+import { AlertTriangle, Check, ExternalLink, Search } from 'lucide-react';
+import { StockAlert, type InventoryStatus } from '@/lib/inventory';
+import { Product, formatPrice } from '@/lib/commerce';
+import ProductImage from '@/components/ProductImage';
+import { IntegerField } from '@/components/admin/StudioFormFields';
 import StockIndicator from './StockIndicator';
 
 interface DashboardData {
@@ -11,89 +17,146 @@ interface DashboardData {
   outOfStock: number;
   totalValue: number;
   activeAlerts: number;
-  recentMovements: any[];
+  recentMovements: unknown[];
 }
 
-export function InventoryDashboard() {
-  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
-  const [alerts, setAlerts] = useState<StockAlert[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [inventories, setInventories] = useState<Record<string, any>>({});
-  const [stockDrafts, setStockDrafts] = useState<Record<string, string>>({});
-  const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'alerts' | 'products'>('overview');
-  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+type StatusFilter = 'all' | 'in_stock' | 'low_stock' | 'out_of_stock';
+
+const swrFetcher = async (url: string) => {
+  const response = await fetch(url);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || `Request failed with status ${response.status}`);
+  }
+  return data;
+};
+
+const swrOptions = {
+  revalidateOnFocus: false,
+  dedupingInterval: 5_000,
+} as const;
+
+function resolveRowStatus(
+  product: Product,
+  inventory?: InventoryStatus | null,
+): 'in_stock' | 'low_stock' | 'out_of_stock' {
+  if (inventory) {
+    if (inventory.stockStatus === 'out_of_stock' || inventory.availableStock <= 0) return 'out_of_stock';
+    if (inventory.stockStatus === 'low_stock') return 'low_stock';
+    return 'in_stock';
+  }
+  return product.availability === 'sold' ? 'out_of_stock' : 'in_stock';
+}
+
+type InventoryDashboardProps = {
+  /** Navigate directly to the Products tab (optional productId to edit, or omit to create). */
+  onOpenProduct?: (productId?: string) => void;
+};
+
+export function InventoryDashboard({ onOpenProduct }: InventoryDashboardProps = {}) {
+  const { mutate: globalMutate } = useSWRConfig();
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  /** Only stores unsaved user edits; untouched rows always mirror live server stock. */
+  const [stockDrafts, setStockDrafts] = useState<Record<string, number | ''>>({});
   const [savingProductId, setSavingProductId] = useState<string | null>(null);
+  const [savedProductId, setSavedProductId] = useState<string | null>(null);
+  const [dismissingAlertId, setDismissingAlertId] = useState<string | null>(null);
+  const [highlightedProductId, setHighlightedProductId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
 
-  useEffect(() => {
-    fetchDashboardData();
-    fetchAlerts();
-    fetchProducts();
-  }, []);
+  const {
+    data: productsPayload,
+    error: productsError,
+    isLoading: productsLoading,
+    mutate: mutateProducts,
+  } = useSWR<{ products: Product[] }>('/api/admin/products', swrFetcher, swrOptions);
 
-  const fetchDashboardData = async () => {
-    try {
-      const response = await fetch('/api/inventory');
-      const data = await response.json();
-      
-      if (data.success) {
-        setDashboardData(data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch dashboard data:', error);
+  const products = useMemo(() => productsPayload?.products ?? [], [productsPayload]);
+  const productIdsKey = useMemo(
+    () => (products.length > 0 ? `/api/inventory?productIds=${encodeURIComponent(products.map((p) => p.id).join(','))}` : null),
+    [products],
+  );
+
+  const {
+    data: dashboardData,
+    mutate: mutateDashboard,
+  } = useSWR<DashboardData & { success?: boolean }>('/api/inventory', swrFetcher, swrOptions);
+
+  const {
+    data: alertsPayload,
+    mutate: mutateAlerts,
+  } = useSWR<{ success?: boolean; alerts?: StockAlert[] }>('/api/inventory/alerts', swrFetcher, swrOptions);
+
+  const {
+    data: inventoriesPayload,
+    mutate: mutateInventories,
+  } = useSWR<{ success?: boolean; inventories?: Record<string, InventoryStatus> }>(
+    productIdsKey,
+    swrFetcher,
+    swrOptions,
+  );
+
+  const inventories = useMemo(() => inventoriesPayload?.inventories ?? {}, [inventoriesPayload]);
+  const alerts = useMemo(() => alertsPayload?.alerts ?? [], [alertsPayload]);
+
+  const counts = useMemo(() => {
+    if (dashboardData && typeof dashboardData.totalProducts === 'number') {
+      return {
+        all: dashboardData.totalProducts,
+        in_stock: dashboardData.inStock,
+        low_stock: dashboardData.lowStock,
+        out_of_stock: dashboardData.outOfStock,
+      };
     }
-  };
-
-  const fetchAlerts = async () => {
-    try {
-      const response = await fetch('/api/inventory/alerts');
-      const data = await response.json();
-      
-      if (data.success) {
-        setAlerts(data.alerts);
-      }
-    } catch (error) {
-      console.error('Failed to fetch alerts:', error);
-    } finally {
-      setIsLoading(false);
+    let inStock = 0;
+    let lowStock = 0;
+    let outOfStock = 0;
+    for (const product of products) {
+      const status = resolveRowStatus(product, inventories[product.id]);
+      if (status === 'out_of_stock') outOfStock++;
+      else if (status === 'low_stock') lowStock++;
+      else inStock++;
     }
-  };
+    return { all: products.length, in_stock: inStock, low_stock: lowStock, out_of_stock: outOfStock };
+  }, [dashboardData, products, inventories]);
 
-  const fetchProducts = async () => {
-    try {
-      const response = await fetch('/api/search?limit=1000');
-      const data = await response.json();
-
-      if (data.success) {
-        const loadedProducts = data.products || [];
-        setProducts(loadedProducts);
-        await fetchProductInventories(loadedProducts);
-      }
-    } catch (error) {
-      console.error('Failed to fetch products:', error);
+  const alertsByProduct = useMemo(() => {
+    const map = new Map<string, StockAlert>();
+    for (const alert of alerts) {
+      if (!map.has(alert.productId)) map.set(alert.productId, alert);
     }
-  };
+    return map;
+  }, [alerts]);
 
-  const fetchProductInventories = async (loadedProducts: Product[]) => {
-    if (loadedProducts.length === 0) {
-      setInventories({});
-      setStockDrafts({});
-      return;
-    }
+  const filteredProducts = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return products.filter((product) => {
+      const status = resolveRowStatus(product, inventories[product.id]);
+      if (statusFilter !== 'all' && status !== statusFilter) return false;
+      if (!query) return true;
+      return (
+        product.title.toLowerCase().includes(query) ||
+        product.category.toLowerCase().includes(query) ||
+        product.medium.toLowerCase().includes(query)
+      );
+    });
+  }, [products, inventories, statusFilter, searchQuery]);
 
-    const ids = loadedProducts.map((product) => product.id).join(',');
-    const response = await fetch(`/api/inventory?productIds=${encodeURIComponent(ids)}`);
-    const data = await response.json();
-    const loadedInventories = data.success ? data.inventories || {} : {};
-    setInventories(loadedInventories);
-    setStockDrafts(Object.fromEntries(loadedProducts.map((product) => [
-      product.id,
-      String(loadedInventories[product.id]?.currentStock ?? 0)
-    ])));
-  };
+  async function refreshAll() {
+    await Promise.all([
+      mutateDashboard(),
+      mutateAlerts(),
+      mutateInventories(),
+      mutateProducts(),
+      globalMutate('/api/admin/stats'),
+    ]);
+  }
 
-  const handleSetStock = async (productId: string) => {
-    const currentStock = Number(stockDrafts[productId] || 0);
+  async function handleSetStock(productId: string) {
+    const draft = stockDrafts[productId];
+    const currentStock = draft === '' || draft === undefined ? Number.NaN : Number(draft);
     if (!Number.isFinite(currentStock) || currentStock < 0) {
       setFeedback({ type: 'error', message: 'Enter a valid quantity (0 or more).' });
       return;
@@ -107,18 +170,25 @@ export function InventoryDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'bulk_update',
-          updates: [{ productId, currentStock }]
-        })
+          updates: [{ productId, currentStock }],
+        }),
       });
       const data = await response.json();
       if (!response.ok || data.success === false) {
         throw new Error(data.error || 'Failed to update stock');
       }
 
-      setFeedback({ type: 'success', message: 'Stock updated.' });
-      await fetchDashboardData();
-      await fetchAlerts();
-      await fetchProducts();
+      await refreshAll();
+      setStockDrafts((current) => {
+        if (!(productId in current)) return current;
+        const next = { ...current };
+        delete next[productId];
+        return next;
+      });
+      setSavedProductId(productId);
+      window.setTimeout(() => {
+        setSavedProductId((current) => (current === productId ? null : current));
+      }, 2500);
     } catch (error) {
       setFeedback({
         type: 'error',
@@ -127,376 +197,415 @@ export function InventoryDashboard() {
     } finally {
       setSavingProductId(null);
     }
-  };
+  }
 
-  const handleAcknowledgeAlert = async (alertId: string) => {
+  async function handleDismissAlert(alertId: string) {
+    setDismissingAlertId(alertId);
     setFeedback(null);
     try {
       const response = await fetch('/api/inventory/alerts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'acknowledge', alertId })
+        body: JSON.stringify({ action: 'resolve', alertId }),
       });
       const data = await response.json();
       if (!response.ok || data.success === false) {
-        throw new Error(data.error || 'Failed to acknowledge alert');
+        throw new Error(data.error || 'Failed to dismiss alert');
       }
-      setFeedback({ type: 'success', message: 'Alert acknowledged.' });
-      fetchAlerts();
+      await Promise.all([mutateAlerts(), mutateDashboard(), globalMutate('/api/admin/stats')]);
     } catch (error) {
       setFeedback({
         type: 'error',
-        message: error instanceof Error ? error.message : 'Failed to acknowledge alert',
+        message: error instanceof Error ? error.message : 'Failed to dismiss alert',
       });
+    } finally {
+      setDismissingAlertId(null);
     }
-  };
+  }
 
-  const handleResolveAlert = async (alertId: string) => {
-    setFeedback(null);
-    try {
-      const response = await fetch('/api/inventory/alerts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'resolve', alertId })
-      });
-      const data = await response.json();
-      if (!response.ok || data.success === false) {
-        throw new Error(data.error || 'Failed to resolve alert');
-      }
-      setFeedback({ type: 'success', message: 'Alert resolved.' });
-      fetchAlerts();
-      fetchDashboardData();
-    } catch (error) {
-      setFeedback({
-        type: 'error',
-        message: error instanceof Error ? error.message : 'Failed to resolve alert',
-      });
-    }
-  };
+  function focusProductRow(productId: string) {
+    setStatusFilter('all');
+    setSearchQuery('');
+    setHighlightedProductId(productId);
+    window.requestAnimationFrame(() => {
+      const row = rowRefs.current[productId];
+      if (!row) return;
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const input = row.querySelector<HTMLInputElement>('input');
+      input?.focus();
+      input?.select();
+    });
+    window.setTimeout(() => {
+      setHighlightedProductId((current) => (current === productId ? null : current));
+    }, 2500);
+  }
 
-  if (isLoading) {
+  if (productsLoading && !productsPayload) {
     return (
-      <div className="p-6">
-        <div className="animate-pulse space-y-6">
-          <div className="h-8 bg-gray-200 rounded w-1/3"></div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} className="h-24 bg-gray-200 rounded"></div>
-            ))}
-          </div>
+      <div className="space-y-4" aria-busy="true">
+        <div className="h-8 w-48 animate-pulse rounded bg-gray-200" />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-20 animate-pulse rounded-lg bg-gray-200" />
+          ))}
         </div>
+        <div className="h-64 animate-pulse rounded-lg bg-gray-100" />
       </div>
     );
   }
 
+  const statCards: Array<{
+    id: StatusFilter;
+    label: string;
+    count: number;
+    tone: string;
+    activeRing: string;
+  }> = [
+    { id: 'all', label: 'All products', count: counts.all, tone: 'text-gray-900', activeRing: 'border-gray-900 ring-1 ring-gray-900' },
+    { id: 'in_stock', label: 'In stock', count: counts.in_stock, tone: 'text-emerald-700', activeRing: 'border-emerald-600 ring-1 ring-emerald-600' },
+    { id: 'low_stock', label: 'Low stock', count: counts.low_stock, tone: 'text-amber-700', activeRing: 'border-amber-600 ring-1 ring-amber-600' },
+    { id: 'out_of_stock', label: 'Out of stock', count: counts.out_of_stock, tone: 'text-red-700', activeRing: 'border-red-600 ring-1 ring-red-600' },
+  ];
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Inventory</h1>
-        <p className="text-sm text-gray-600">Monitor stock levels, alerts, and inventory movements.</p>
-        {feedback && (
-          <div className={`mt-4 rounded-md border p-3 text-sm ${feedback.type === 'success' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
-            {feedback.message}
-          </div>
+    <div className="space-y-5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">Inventory</h2>
+          <p className="mt-0.5 text-sm text-gray-600">
+            Update quantities inline — stock alerts update and clear automatically.
+          </p>
+        </div>
+        {onOpenProduct ? (
+          <button
+            type="button"
+            onClick={() => onOpenProduct()}
+            className="inline-flex shrink-0 items-center justify-center rounded-md border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 self-start sm:self-auto"
+          >
+            Add product
+          </button>
+        ) : (
+          <Link
+            href="/admin?tab=products&create=1"
+            className="inline-flex shrink-0 items-center justify-center rounded-md border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 self-start sm:self-auto"
+          >
+            Add product
+          </Link>
         )}
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-gray-200">
-        <nav className="-mb-px flex gap-6 overflow-x-auto whitespace-nowrap">
-          {[
-            { id: 'overview', label: 'Overview' },
-            { id: 'alerts', label: `Alerts ${alerts.length > 0 ? `(${alerts.length})` : ''}` },
-            { id: 'products', label: 'Products' }
-          ].map(tab => (
+      {feedback && (
+        <div
+          role="status"
+          className={`rounded-lg border px-4 py-3 text-sm ${
+            feedback.type === 'success'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+              : 'border-red-200 bg-red-50 text-red-900'
+          }`}
+        >
+          {feedback.message}
+        </div>
+      )}
+
+      {productsError && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+          Could not load product inventory. Check your database connection, then refresh.
+        </div>
+      )}
+
+      {/* Clickable status filter cards */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" role="group" aria-label="Filter inventory by stock status">
+        {statCards.map((card) => {
+          const active = statusFilter === card.id;
+          return (
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`shrink-0 py-2 px-1 border-b-2 font-medium text-sm ${
-                activeTab === tab.id
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              key={card.id}
+              type="button"
+              aria-pressed={active}
+              onClick={() => setStatusFilter(card.id)}
+              className={`rounded-lg border bg-white px-4 py-3 text-left transition-all hover:border-gray-400 ${
+                active ? card.activeRing : 'border-gray-200'
               }`}
             >
-              {tab.label}
+              <p className="text-xs font-medium text-gray-500">{card.label}</p>
+              <p className={`mt-1 text-2xl font-semibold ${card.tone}`}>{card.count}</p>
             </button>
-          ))}
-        </nav>
+          );
+        })}
       </div>
 
-      {/* Overview Tab */}
-      {activeTab === 'overview' && !isLoading && !dashboardData && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-950">
-          Could not load inventory overview. Check your database connection, then refresh.
-        </div>
+      {/* Inline active stock alerts strip (only when alerts exist) */}
+      {alerts.length > 0 && (
+        <section
+          aria-label="Stock alerts"
+          className="rounded-lg border border-amber-200 bg-amber-50/70"
+        >
+          <div className="flex items-center justify-between gap-3 border-b border-amber-200/80 px-4 py-2.5">
+            <div className="flex items-center gap-2 text-sm font-semibold text-amber-950">
+              <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />
+              <span>
+                {alerts.length} stock {alerts.length === 1 ? 'alert' : 'alerts'}
+              </span>
+            </div>
+            <span className="text-xs text-amber-800">Restock below to clear automatically</span>
+          </div>
+          <ul className="divide-y divide-amber-200/60">
+            {alerts.map((alert) => {
+              const product = products.find((p) => p.id === alert.productId);
+              const title = product?.title || alert.productId;
+              const isOut = alert.type === 'out_of_stock' || alert.severity === 'critical';
+              return (
+                <li
+                  key={alert.id}
+                  className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm"
+                >
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span
+                      className={`inline-block h-2 w-2 shrink-0 rounded-full ${
+                        isOut ? 'bg-red-500' : 'bg-amber-500'
+                      }`}
+                      aria-hidden="true"
+                    />
+                    <span className="truncate font-medium text-gray-900">{title}</span>
+                    <span className="text-xs text-gray-600">{alert.message}</span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => focusProductRow(alert.productId)}
+                      className="rounded border border-amber-300 bg-white px-2.5 py-1 text-xs font-medium text-amber-950 hover:bg-amber-100"
+                    >
+                      Restock
+                    </button>
+                    <button
+                      type="button"
+                      disabled={dismissingAlertId === alert.id}
+                      onClick={() => void handleDismissAlert(alert.id)}
+                      className="rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-amber-100/80 hover:text-gray-900 disabled:opacity-50"
+                    >
+                      {dismissingAlertId === alert.id ? 'Dismissing…' : 'Dismiss'}
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       )}
 
-      {activeTab === 'overview' && dashboardData && (
-        <div className="space-y-8">
-          {/* Stats Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-            <div className="bg-white p-6 rounded-lg border border-gray-200">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <div className="w-8 h-8 bg-blue-500 rounded-md flex items-center justify-center">
-                    <span className="text-white text-sm font-bold">P</span>
-                  </div>
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Total Products</p>
-                  <p className="text-2xl font-semibold text-gray-900">{dashboardData.totalProducts}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-lg border border-gray-200">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <div className="w-8 h-8 bg-green-500 rounded-md flex items-center justify-center">
-                    <span className="text-white text-sm font-bold">✓</span>
-                  </div>
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">In Stock</p>
-                  <p className="text-2xl font-semibold text-gray-900">{dashboardData.inStock}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-lg border border-gray-200">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <div className="w-8 h-8 bg-yellow-500 rounded-md flex items-center justify-center">
-                    <span className="text-white text-sm font-bold">⚠</span>
-                  </div>
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Low Stock</p>
-                  <p className="text-2xl font-semibold text-gray-900">{dashboardData.lowStock}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-lg border border-gray-200">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <div className="w-8 h-8 bg-red-500 rounded-md flex items-center justify-center">
-                    <span className="text-white text-sm font-bold">✕</span>
-                  </div>
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">Out of Stock</p>
-                  <p className="text-2xl font-semibold text-gray-900">{dashboardData.outOfStock}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Recent Alerts */}
-          {alerts.length > 0 && (
-            <div className="bg-white rounded-lg border border-gray-200">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <h3 className="text-lg font-medium text-gray-900">Recent Alerts</h3>
-              </div>
-              <div className="p-6">
-                <div className="space-y-4">
-                  {alerts.slice(0, 5).map(alert => (
-                    <div key={alert.id} className={`p-4 rounded-lg border-l-4 ${
-                      alert.severity === 'critical' ? 'border-red-500 bg-red-50' :
-                      alert.severity === 'high' ? 'border-orange-500 bg-orange-50' :
-                      alert.severity === 'medium' ? 'border-yellow-500 bg-yellow-50' :
-                      'border-blue-500 bg-blue-50'
-                    }`}>
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="font-medium text-gray-900">{alert.message}</p>
-                          <p className="text-sm text-gray-600 mt-1">
-                            {products.find((product) => product.id === alert.productId)?.title || alert.productId}
-                          </p>
-                        </div>
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => handleAcknowledgeAlert(alert.id)}
-                            className="text-sm text-blue-600 hover:text-blue-800"
-                          >
-                            Acknowledge
-                          </button>
-                          <button
-                            onClick={() => handleResolveAlert(alert.id)}
-                            className="text-sm text-green-600 hover:text-green-800"
-                          >
-                            Resolve
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Alerts Tab */}
-      {activeTab === 'alerts' && (
-        <div className="bg-white rounded-lg border border-gray-200">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Stock Alerts</h3>
-          </div>
-          <div className="p-6">
-            {alerts.length === 0 ? (
-              <p className="text-gray-500 text-center py-8">No active alerts</p>
-            ) : (
-              <div className="space-y-4">
-                {alerts.map(alert => (
-                  <div key={alert.id} className={`p-4 rounded-lg border ${
-                    alert.severity === 'critical' ? 'border-red-300 bg-red-50' :
-                    alert.severity === 'high' ? 'border-orange-300 bg-orange-50' :
-                    alert.severity === 'medium' ? 'border-yellow-300 bg-yellow-50' :
-                    'border-blue-300 bg-blue-50'
-                  }`}>
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-2 mb-2">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            alert.severity === 'critical' ? 'bg-red-100 text-red-800' :
-                            alert.severity === 'high' ? 'bg-orange-100 text-orange-800' :
-                            alert.severity === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                            'bg-blue-100 text-blue-800'
-                          }`}>
-                            {alert.severity.toUpperCase()}
-                          </span>
-                          <span className="text-sm text-gray-500">
-                            {new Date(alert.createdAt).toLocaleString()}
-                          </span>
-                        </div>
-                        <p className="font-medium text-gray-900">{alert.message}</p>
-                        <p className="text-sm text-gray-600 mt-1">
-                          Product: {products.find(p => p.id === alert.productId)?.title || alert.productId}
-                        </p>
-                        <p className="text-sm text-gray-600">
-                          Current Stock: {alert.currentStock}
-                          {alert.thresholdValue && ` (Threshold: ${alert.thresholdValue})`}
-                        </p>
-                      </div>
-                      <div className="flex space-x-2 ml-4">
-                        <button
-                          onClick={() => handleAcknowledgeAlert(alert.id)}
-                          className="px-3 py-1 bg-blue-100 text-blue-700 rounded text-sm hover:bg-blue-200"
-                        >
-                          Acknowledge
-                        </button>
-                        <button
-                          onClick={() => handleResolveAlert(alert.id)}
-                          className="px-3 py-1 bg-green-100 text-green-700 rounded text-sm hover:bg-green-200"
-                        >
-                          Resolve
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+      {/* Main unified Products stock table */}
+      <section className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <div className="flex flex-col gap-3 border-b border-gray-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <h3 className="text-base font-semibold text-gray-900">Products</h3>
+            {statusFilter !== 'all' && (
+              <button
+                type="button"
+                onClick={() => setStatusFilter('all')}
+                className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700 hover:bg-gray-200"
+              >
+                {statCards.find((c) => c.id === statusFilter)?.label} ×
+              </button>
             )}
           </div>
-        </div>
-      )}
-
-      {/* Products Tab */}
-      {activeTab === 'products' && (
-        <div className="bg-white rounded-lg border border-gray-200">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Product Inventory</h3>
+          <div className="relative w-full sm:w-64">
+            <Search
+              className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
+              aria-hidden="true"
+            />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search products…"
+              aria-label="Search inventory products"
+              className="w-full rounded-md border border-gray-300 py-1.5 pl-8 pr-3 text-sm focus:border-gray-500 focus:outline-none"
+            />
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Product
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Status
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Quantity
+                </th>
+                <th className="hidden px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 sm:table-cell">
+                  Price
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 bg-white">
+              {products.length === 0 ? (
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Product
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Category
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Stock Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Stock
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Price
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
+                  <td colSpan={5} className="px-6 py-10 text-center">
+                    <p className="text-sm font-medium text-gray-900">No products to track yet</p>
+                    <p className="mt-1 text-sm text-gray-500">
+                      Add a product in the Products tab, then manage stock quantities here.
+                    </p>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {products.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-10 text-center">
-                      <p className="text-sm font-medium text-gray-900">No products to track yet</p>
-                      <p className="mt-1 text-sm text-gray-500">
-                        Add a product under the Products tab, then return here to adjust stock.
-                      </p>
-                    </td>
-                  </tr>
-                ) : products.map(product => (
-                  <tr key={product.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <img 
-                          src={productImageSrc(product)} 
-                          alt={product.title}
-                          className="h-10 w-10 rounded object-cover mr-3"
-                        />
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">
-                            {product.title}
-                          </div>
-                          <div className="text-sm text-gray-500">
-                            {product.medium}
+              ) : filteredProducts.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-8 text-center text-sm text-gray-500">
+                    No products match this filter.{' '}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStatusFilter('all');
+                        setSearchQuery('');
+                      }}
+                      className="font-medium text-gray-900 underline"
+                    >
+                      Show all
+                    </button>
+                  </td>
+                </tr>
+              ) : (
+                filteredProducts.map((product) => {
+                  const inventory = inventories[product.id] ?? null;
+                  const savedStock = Math.max(0, Math.floor(Number(inventory?.currentStock ?? 0)) || 0);
+                  const draftValue = stockDrafts[product.id] ?? savedStock;
+                  const isDirty = draftValue !== '' && Number(draftValue) !== savedStock;
+                  const isSaving = savingProductId === product.id;
+                  const justSaved = savedProductId === product.id;
+                  const isHighlighted = highlightedProductId === product.id;
+                  const rowAlert = alertsByProduct.get(product.id);
+
+                  return (
+                    <tr
+                      key={product.id}
+                      ref={(node) => {
+                        rowRefs.current[product.id] = node;
+                      }}
+                      className={`transition-colors ${
+                        isHighlighted ? 'bg-amber-50' : 'hover:bg-gray-50'
+                      }`}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <ProductImage
+                            product={product}
+                            width={40}
+                            height={40}
+                            className="h-10 w-10 shrink-0 rounded object-cover"
+                          />
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-gray-900">
+                              {product.title}
+                            </div>
+                            <div className="truncate text-xs text-gray-500">
+                              {[product.category.replaceAll('-', ' '), product.medium].filter(Boolean).join(' · ')}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 capitalize">
-                      {product.category.replace('-', ' ')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <StockIndicator productId={product.id} showDetails />
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <input
-                        type="number"
-                        min="0"
-                        value={stockDrafts[product.id] ?? String(inventories[product.id]?.currentStock ?? 0)}
-                        onChange={(event) => setStockDrafts((current) => ({ ...current, [product.id]: event.target.value }))}
-                        className="w-24 rounded border border-gray-300 px-2 py-1 text-sm"
-                      />
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      ${product.price.toLocaleString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      <button
-                        type="button"
-                        onClick={() => handleSetStock(product.id)}
-                        disabled={savingProductId === product.id}
-                        className="rounded bg-gray-900 px-3 py-1 text-white disabled:opacity-50"
-                      >
-                        {savingProductId === product.id ? 'Saving…' : 'Save quantity'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <div className="flex flex-col items-start gap-1">
+                          <StockIndicator
+                            productId={product.id}
+                            showDetails
+                            inventory={inventory}
+                          />
+                          {rowAlert && (
+                            <span className="text-[11px] text-amber-700">Alert active</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <div
+                          className="w-24"
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' && !isSaving) {
+                              event.preventDefault();
+                              void handleSetStock(product.id);
+                            }
+                          }}
+                        >
+                          <IntegerField
+                            label={`Quantity for ${product.title}`}
+                            labelHidden
+                            compact
+                            min={0}
+                            value={draftValue}
+                            onChange={(next) =>
+                              setStockDrafts((current) => {
+                                if (next !== '' && Number(next) === savedStock) {
+                                  if (!(product.id in current)) return current;
+                                  const copy = { ...current };
+                                  delete copy[product.id];
+                                  return copy;
+                                }
+                                return { ...current, [product.id]: next };
+                              })
+                            }
+                          />
+                        </div>
+                      </td>
+                      <td className="hidden whitespace-nowrap px-4 py-3 text-sm text-gray-900 sm:table-cell">
+                        {formatPrice(product.price, product.currency || 'USD')}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right text-sm">
+                        <div className="inline-flex items-center justify-end gap-2">
+                          {justSaved && !isDirty ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
+                              <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                              Saved
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => void handleSetStock(product.id)}
+                              disabled={isSaving || !isDirty}
+                              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                                isDirty
+                                  ? 'bg-gray-900 text-white hover:bg-gray-800'
+                                  : 'border border-gray-200 bg-gray-50 text-gray-400'
+                              } disabled:cursor-not-allowed`}
+                            >
+                              {isSaving ? 'Saving…' : 'Save'}
+                            </button>
+                          )}
+                          {onOpenProduct ? (
+                            <button
+                              type="button"
+                              onClick={() => onOpenProduct(product.id)}
+                              className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
+                              title={`Edit ${product.title} listing`}
+                            >
+                              Edit
+                              <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                            </button>
+                          ) : (
+                            <Link
+                              href={`/admin?tab=products&product=${encodeURIComponent(product.id)}`}
+                              className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
+                              title={`Edit ${product.title} listing`}
+                            >
+                              Edit
+                              <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                            </Link>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
-      )}
+      </section>
     </div>
   );
 }

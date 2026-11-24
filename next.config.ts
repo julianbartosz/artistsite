@@ -65,6 +65,8 @@ const nextConfig: NextConfig = {
   
   // Performance optimization
   experimental: {
+    // Allow studio image (<=25 MB) and video (<=80 MB) uploads to pass through middleware without 10 MB truncation.
+    middlewareClientMaxBodySize: '85mb',
     optimizeCss: true,
     optimizePackageImports: [
       '@mdx-js/react', 
@@ -87,7 +89,7 @@ const nextConfig: NextConfig = {
 
   // Config headers override route-handler headers, so API caching stays per-route and
   // /_next/static keeps Next's own policy (hashed + immutable in prod, no-store in dev).
-  // /images files are replaced in place, so they must revalidate.
+  // /images files are replaced in place, so they must revalidate; /uploads files are content-hashed.
   async headers() {
     return [
       {
@@ -99,12 +101,21 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      {
+        source: '/uploads/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
     ];
   },
 
-  // Image optimization
+  // Image optimization (WebP avoids slow CPU-bound AVIF encoding on single-vCPU hosting)
   images: {
-    formats: ['image/webp', 'image/avif'],
+    formats: ['image/webp'],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
     minimumCacheTTL: 31536000, // 1 year

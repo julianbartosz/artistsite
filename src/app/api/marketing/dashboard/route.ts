@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { requireAdmin, resolvedAdminEmails } from '@/lib/auth';
 import { ApiError } from '@/lib/api-error-handler';
 import { getConfig } from '@/lib/config';
+import { CustomerInsights } from '@/lib/analytics/customer-insights';
 
 // Type assertion to access marketing models until TypeScript recognizes them
 const dbWithMarketing = db as any;
@@ -418,20 +419,15 @@ async function getAutomationSummary(startDate: Date) {
 }
 
 async function getJourneyAnalytics(startDate: Date) {
-  const [discovery, interest, checkout, paidOrders, repeatCustomers, profiles] = await Promise.all([
+  const [discovery, interest, checkout, orderMetrics, profiles] = await Promise.all([
     countEvents(['page_view', 'portfolio_view', 'blog_post_view'], startDate),
     countEvents(['view_item', 'artwork_view', 'search', 'add_to_cart'], startDate),
     countEvents(['begin_checkout'], startDate),
-    db.order.findMany({ where: { paymentStatus: 'paid', createdAt: { gte: startDate } }, select: { id: true } }),
-    getRepeatCustomerCount(startDate),
-    getActiveProfiles(startDate)
+    CustomerInsights.getOrderCommerceMetrics(startDate),
+    getActiveProfiles(startDate),
   ]);
-  const purchases = paidOrders.length;
-
-  const lifetimeValues = profiles.map(profile => profile.lifetimeValue || 0);
+  const purchases = orderMetrics.paidOrderCount;
   const engagementScores = profiles.map(profile => profile.engagementScore || 0);
-  const totalLifetimeValue = lifetimeValues.reduce((sum, value) => sum + value, 0);
-  const averageLifetimeValue = lifetimeValues.length > 0 ? totalLifetimeValue / lifetimeValues.length : 0;
   const averageEngagementScore = engagementScores.length > 0
     ? engagementScores.reduce((sum, value) => sum + value, 0) / engagementScores.length
     : 0;
@@ -442,13 +438,13 @@ async function getJourneyAnalytics(startDate: Date) {
       { step: 'Interest', visitors: interest },
       { step: 'Checkout', visitors: checkout },
       { step: 'Purchase', visitors: purchases },
-      { step: 'Repeat Customers', visitors: repeatCustomers }
+      { step: 'Repeat Customers', visitors: orderMetrics.repeatCustomers }
     ],
     metrics: {
-      averageLifetimeValue,
+      averageLifetimeValue: orderMetrics.averageLTV,
       averageEngagementScore,
       purchaseCount: purchases,
-      activeProfiles: profiles.length
+      activeProfiles: Math.max(profiles.length, orderMetrics.uniqueCustomers),
     }
   };
 }
@@ -459,17 +455,4 @@ async function getActiveProfiles(startDate: Date): Promise<Array<{ lifetimeValue
   } catch {
     return [];
   }
-}
-
-async function getRepeatCustomerCount(startDate: Date): Promise<number> {
-  const paidOrders = await db.order.findMany({
-    where: { paymentStatus: 'paid', createdAt: { gte: startDate } },
-    select: { userId: true, userEmail: true }
-  });
-  const counts = new Map<string, number>();
-  for (const order of paidOrders) {
-    const key = order.userId || order.userEmail;
-    counts.set(key, (counts.get(key) || 0) + 1);
-  }
-  return Array.from(counts.values()).filter(count => count > 1).length;
 }

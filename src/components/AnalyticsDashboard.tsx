@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import useSWR from 'swr'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 interface DashboardData {
@@ -8,6 +9,8 @@ interface DashboardData {
     totalEvents: number
     totalCustomers: number
     recentEvents: number
+    totalRevenue?: number
+    paidOrders?: number
     conversionRate: number
     averageEngagement: number
     averageLTV: number
@@ -80,57 +83,55 @@ function safeFinite(value: unknown): number {
   return Number.isFinite(num) ? num : 0
 }
 
+const analyticsFetcher = async (url: string): Promise<DashboardData> => {
+  const response = await fetch(url)
+  if (!response.ok) {
+    throw new Error('Failed to fetch analytics data')
+  }
+  return response.json()
+}
+
 export default function AnalyticsDashboard() {
-  const [data, setData] = useState<DashboardData | null>(null)
-  const [loading, setLoading] = useState(true)
   const [clearing, setClearing] = useState(false)
   const [confirmClear, setConfirmClear] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+  const [clearError, setClearError] = useState<string | null>(null)
+  const {
+    data,
+    error: swrError,
+    isLoading,
+    isValidating,
+    mutate,
+  } = useSWR<DashboardData>('/api/analytics/dashboard', analyticsFetcher, {
+    revalidateOnFocus: false,
+    dedupingInterval: 15_000,
+    refreshInterval: 5 * 60 * 1000,
+  })
+
+  const loading = isLoading || isValidating
+  const error = clearError || (swrError instanceof Error ? swrError.message : null)
+  const lastRefresh = data?.realTimeMetrics?.lastUpdated ? new Date(data.realTimeMetrics.lastUpdated) : null
 
   const fetchDashboardData = async () => {
-    try {
-      setLoading(true)
-      const response = await fetch('/api/analytics/dashboard')
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch analytics data')
-      }
-
-      const dashboardData = await response.json()
-      setData(dashboardData)
-      setLastRefresh(new Date())
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error occurred')
-    } finally {
-      setLoading(false)
-    }
+    setClearError(null)
+    await mutate()
   }
 
   const handleClearData = async () => {
     try {
       setClearing(true)
+      setClearError(null)
       const response = await fetch('/api/analytics/dashboard', { method: 'DELETE' })
       if (!response.ok) {
         throw new Error('Failed to clear analytics data')
       }
       setConfirmClear(false)
-      await fetchDashboardData()
+      await mutate()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to clear analytics data')
+      setClearError(err instanceof Error ? err.message : 'Failed to clear analytics data')
     } finally {
       setClearing(false)
     }
   }
-
-  useEffect(() => {
-    fetchDashboardData()
-
-    // Auto-refresh every 5 minutes
-    const interval = setInterval(fetchDashboardData, 5 * 60 * 1000)
-    return () => clearInterval(interval)
-  }, [])
 
   if (loading && !data) {
     return (
@@ -188,67 +189,38 @@ export default function AnalyticsDashboard() {
   const cartAdds = safeFinite(data.conversionData?.funnelSteps?.cartAdds)
   const checkouts = safeFinite(data.conversionData?.funnelSteps?.checkouts)
   const purchases = safeFinite(data.conversionData?.funnelSteps?.purchases)
+  const maxFunnelStep = Math.max(views, cartAdds, checkouts, purchases, 1)
 
   const funnelSteps = [
-    { name: 'Product Views', count: views, rate: views > 0 ? 100 : 0 },
-    { name: 'Add to Cart', count: cartAdds, rate: views > 0 ? Math.min(100, (cartAdds / views) * 100) : 0 },
-    { name: 'Begin Checkout', count: checkouts, rate: views > 0 ? Math.min(100, (checkouts / views) * 100) : 0 },
-    { name: 'Purchase', count: purchases, rate: views > 0 ? Math.min(100, (purchases / views) * 100) : 0 },
+    { name: 'Product Views', count: views, width: views > 0 ? Math.max(4, Math.round((views / maxFunnelStep) * 100)) : 0, rate: views > 0 ? '100%' : null },
+    { name: 'Add to Cart', count: cartAdds, width: cartAdds > 0 ? Math.max(4, Math.round((cartAdds / maxFunnelStep) * 100)) : 0, rate: views > 0 ? `${Math.min(100, (cartAdds / views) * 100).toFixed(1)}%` : null },
+    { name: 'Begin Checkout', count: checkouts, width: checkouts > 0 ? Math.max(4, Math.round((checkouts / maxFunnelStep) * 100)) : 0, rate: views > 0 ? `${Math.min(100, (checkouts / views) * 100).toFixed(1)}%` : null },
+    { name: 'Paid Purchases', count: purchases, width: purchases > 0 ? Math.max(4, Math.round((purchases / maxFunnelStep) * 100)) : 0, rate: views > 0 ? `${Math.min(100, (purchases / views) * 100).toFixed(1)}%` : null },
   ]
 
   const totalEvents = safeFinite(data.overview?.totalEvents)
+  const totalRevenue = safeFinite(data.overview?.totalRevenue)
+  const paidOrders = safeFinite(data.overview?.paidOrders)
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Analytics</h1>
-          <p className="text-sm text-gray-600">
-            Visitor activity and conversion insights. Your own admin visits and Studio previews are excluded.
+          <h2 className="text-xl font-semibold text-gray-900">Analytics</h2>
+          <p className="mt-0.5 text-sm text-gray-600">
+            Storefront activity, funnel, and collector lifetime value. Your own admin visits and Studio previews are excluded.
           </p>
         </div>
         <div className="shrink-0 flex flex-col items-start sm:items-end gap-1.5">
-          <div className="flex items-center gap-2 whitespace-nowrap">
-            {totalEvents > 0 && !confirmClear && (
-              <button
-                type="button"
-                onClick={() => setConfirmClear(true)}
-                className="px-3 py-2 text-sm text-gray-600 border border-gray-300 bg-white rounded hover:bg-gray-50"
-              >
-                Clear data
-              </button>
-            )}
-            {confirmClear && (
-              <div className="flex items-center gap-2 rounded border border-red-200 bg-red-50 px-3 py-1.5 text-sm">
-                <span className="text-red-800">Reset all recorded events?</span>
-                <button
-                  type="button"
-                  onClick={handleClearData}
-                  disabled={clearing}
-                  className="rounded bg-red-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
-                >
-                  {clearing ? 'Clearing...' : 'Confirm'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmClear(false)}
-                  disabled={clearing}
-                  className="rounded px-2 py-1 text-xs text-gray-700 hover:bg-red-100"
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={fetchDashboardData}
-              disabled={loading}
-              className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50"
-            >
-              {loading ? 'Refreshing...' : 'Refresh'}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => void fetchDashboardData()}
+            disabled={loading}
+            className="px-4 py-2 text-sm font-medium bg-gray-900 text-white rounded-md hover:bg-gray-800 disabled:opacity-50"
+          >
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </button>
           {lastRefresh && (
             <p className="text-xs text-gray-500">
               Last updated: {lastRefresh.toLocaleTimeString()}
@@ -293,43 +265,23 @@ export default function AnalyticsDashboard() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Total Events</CardTitle>
+            <CardTitle className="text-sm font-medium text-gray-600">Paid Revenue</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatNumber(totalEvents)}</div>
+            <div className="text-2xl font-bold">{formatCurrency(totalRevenue)}</div>
             <p className="text-xs text-gray-500 mt-1">
-              {formatNumber(data.overview?.recentEvents)} in last 24h
+              {formatNumber(paidOrders)} paid {paidOrders === 1 ? 'order' : 'orders'}
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Customers</CardTitle>
+            <CardTitle className="text-sm font-medium text-gray-600">Collectors</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{formatNumber(data.overview?.totalCustomers)}</div>
-            <p className="text-xs text-gray-500 mt-1">Total profiles</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Conversion Rate</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{safeFinite(data.overview?.conversionRate).toFixed(1)}%</div>
-            <p className="text-xs text-gray-500 mt-1">View to purchase</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Avg Engagement</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{Math.round(safeFinite(data.overview?.averageEngagement))}</div>
-            <p className="text-xs text-gray-500 mt-1">Engagement score</p>
+            <p className="text-xs text-gray-500 mt-1">Buyers &amp; profiles</p>
           </CardContent>
         </Card>
 
@@ -339,7 +291,7 @@ export default function AnalyticsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{formatCurrency(data.overview?.averageLTV)}</div>
-            <p className="text-xs text-gray-500 mt-1">Customer lifetime value</p>
+            <p className="text-xs text-gray-500 mt-1">Spend per buyer</p>
           </CardContent>
         </Card>
 
@@ -349,7 +301,29 @@ export default function AnalyticsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{formatCurrency(data.ltvAnalysis?.medianLTV)}</div>
-            <p className="text-xs text-gray-500 mt-1">Median value</p>
+            <p className="text-xs text-gray-500 mt-1">Typical buyer spend</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">Conversion</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{safeFinite(data.overview?.conversionRate).toFixed(1)}%</div>
+            <p className="text-xs text-gray-500 mt-1">{views > 0 ? 'View to purchase' : 'Cart to purchase'}</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">Visitor Events</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatNumber(totalEvents)}</div>
+            <p className="text-xs text-gray-500 mt-1">
+              {formatNumber(data.overview?.recentEvents)} in last 24h
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -359,7 +333,7 @@ export default function AnalyticsDashboard() {
         <Card>
           <CardHeader>
             <CardTitle>Shop Conversion Funnel</CardTitle>
-            <CardDescription>Collector journey from product view to purchase</CardDescription>
+            <CardDescription>Collector journey from product view to paid order</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -368,13 +342,13 @@ export default function AnalyticsDashboard() {
                   <div className="flex items-center justify-between text-sm">
                     <span className="font-medium text-gray-900">{step.name}</span>
                     <span className="text-gray-600">
-                      {formatNumber(step.count)} ({step.rate.toFixed(1)}%)
+                      {formatNumber(step.count)}{step.rate ? ` (${step.rate})` : ''}
                     </span>
                   </div>
                   <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
                     <div
                       className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-                      style={{ width: `${step.rate}%` }}
+                      style={{ width: `${step.width}%` }}
                     ></div>
                   </div>
                 </div>
@@ -448,6 +422,43 @@ export default function AnalyticsDashboard() {
           )}
         </CardContent>
       </Card>
+
+      {totalEvents > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm">
+          <span className="text-gray-600">
+            Need a fresh baseline after testing? Resetting clears visitor events only — orders and customers stay intact.
+          </span>
+          {!confirmClear ? (
+            <button
+              type="button"
+              onClick={() => setConfirmClear(true)}
+              className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50"
+            >
+              Reset visitor events
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-red-800">Reset all recorded events?</span>
+              <button
+                type="button"
+                onClick={() => void handleClearData()}
+                disabled={clearing}
+                className="rounded bg-red-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {clearing ? 'Clearing...' : 'Confirm'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmClear(false)}
+                disabled={clearing}
+                className="rounded px-2 py-1 text-xs text-gray-700 hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

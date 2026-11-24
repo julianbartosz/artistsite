@@ -1,22 +1,20 @@
 'use client';
 
 import React, { useEffect, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { signOut, useSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import useSWR from 'swr';
-import AdminContentManager from '@/components/AdminContentManager';
-import AdminSiteContent from '@/components/AdminSiteContent';
-import AnalyticsDashboard from '@/components/AnalyticsDashboard';
-import AdminOrders from '@/components/AdminOrders';
-import AdminNewsletter from '@/components/AdminNewsletter';
-import AdminSettings, { adminSettingFieldId } from '@/components/AdminSettings';
-import { InventoryDashboard } from '@/components/InventoryDashboard';
-import { UnifiedMarketingDashboard } from '@/components/UnifiedMarketingDashboard';
 import OrderCelebrationCard, { useOrderCelebration } from '@/components/admin/OrderCelebrationCard';
-import StudioInboxPanel from '@/components/StudioInboxPanel';
 import { confirmLeaveWithUnsavedChanges } from '@/components/admin/useUnsavedChangesGuard';
 import { buildLaunchReadinessItems } from '@/lib/setup-readiness';
+import type { SiteContentByPage } from '@/lib/site-content-shared';
+
+/** Keep in sync with `adminSettingFieldId` in AdminSettings (avoid static-importing the Settings panel). */
+function adminSettingFieldId(key: string): string {
+  return `setting-${key}`;
+}
 import { 
   FileText, 
   ShoppingBag, 
@@ -35,6 +33,56 @@ import {
   ExternalLink,
 } from 'lucide-react';
 
+function TabPanelFallback() {
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8" aria-busy="true">
+      <div className="animate-pulse space-y-4">
+        <div className="h-8 w-1/3 rounded bg-gray-200" />
+        <div className="h-40 rounded bg-gray-100" />
+        <div className="h-40 rounded bg-gray-100" />
+      </div>
+    </div>
+  );
+}
+
+/** Lazy-load each Studio panel so switching tabs does not parse TipTap/marketing/analytics up front. */
+const AdminContentManager = dynamic(() => import('@/components/AdminContentManager'), {
+  loading: () => <TabPanelFallback />,
+  ssr: false,
+});
+const AdminSiteContent = dynamic(() => import('@/components/AdminSiteContent'), {
+  loading: () => <TabPanelFallback />,
+  ssr: false,
+});
+const AnalyticsDashboard = dynamic(() => import('@/components/AnalyticsDashboard'), {
+  loading: () => <TabPanelFallback />,
+  ssr: false,
+});
+const AdminOrders = dynamic(() => import('@/components/AdminOrders'), {
+  loading: () => <TabPanelFallback />,
+  ssr: false,
+});
+const AdminNewsletter = dynamic(() => import('@/components/AdminNewsletter'), {
+  loading: () => <TabPanelFallback />,
+  ssr: false,
+});
+const AdminSettings = dynamic(
+  () => import('@/components/AdminSettings').then((mod) => ({ default: mod.default })),
+  { loading: () => <TabPanelFallback />, ssr: false },
+);
+const InventoryDashboard = dynamic(
+  () => import('@/components/InventoryDashboard').then((mod) => ({ default: mod.InventoryDashboard })),
+  { loading: () => <TabPanelFallback />, ssr: false },
+);
+const UnifiedMarketingDashboard = dynamic(
+  () => import('@/components/UnifiedMarketingDashboard').then((mod) => ({ default: mod.UnifiedMarketingDashboard })),
+  { loading: () => <TabPanelFallback />, ssr: false },
+);
+const StudioInboxPanel = dynamic(() => import('@/components/StudioInboxPanel'), {
+  loading: () => <TabPanelFallback />,
+  ssr: false,
+});
+
 const fetcher = async (url: string) => {
   const res = await fetch(url);
   if (!res.ok) {
@@ -42,6 +90,11 @@ const fetcher = async (url: string) => {
   }
   return res.json();
 };
+
+const swrStudioOptions = {
+  revalidateOnFocus: false,
+  dedupingInterval: 10_000,
+} as const;
 
 const ADMIN_TABS = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -60,12 +113,12 @@ const ADMIN_TABS = [
 
 type AdminTab = typeof ADMIN_TABS[number]['key'];
 
-/** Desktop chrome: one area expanded at a time so 12 destinations stay scannable. */
+/** Desktop chrome: four clean 3-tab areas matching how artists run their studio. */
 const ADMIN_TAB_GROUPS: Array<{ id: string; label: string; tabs: AdminTab[] }> = [
-  { id: 'site', label: 'Site', tabs: ['overview', 'pages'] },
-  { id: 'content', label: 'Content', tabs: ['portfolio', 'posts', 'products', 'inbox'] },
-  { id: 'shop', label: 'Shop', tabs: ['orders', 'inventory'] },
-  { id: 'grow', label: 'Grow', tabs: ['marketing', 'newsletter', 'analytics', 'settings'] },
+  { id: 'site', label: 'Site', tabs: ['overview', 'pages', 'settings'] },
+  { id: 'shop', label: 'Shop', tabs: ['products', 'orders', 'inventory'] },
+  { id: 'content', label: 'Content', tabs: ['portfolio', 'posts', 'inbox'] },
+  { id: 'grow', label: 'Grow', tabs: ['marketing', 'newsletter', 'analytics'] },
 ];
 
 // Month-1 ops path: fulfillment + inbox stay one tap away once real orders arrive.
@@ -106,6 +159,12 @@ interface DashboardStats {
   totalArtworks: number;
   totalViews: number;
   monthlyViews: number;
+  totalOrders?: number;
+  unfulfilledOrdersCount?: number;
+  totalThreadsCount?: number;
+  unreadMessagesCount?: number;
+  lowStockCount?: number;
+  activeAlertsCount?: number;
 }
 
 type SettingRecord = {
@@ -129,7 +188,11 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
   const moreTabs = ADMIN_TABS.filter((tab) => !ADMIN_BOTTOM_PRIMARY.has(tab.key));
   const moreTabActive = moreTabs.some((tab) => tab.key === activeTab);
 
-  const selectTab = useCallback((tab: AdminTab, hash?: string, options?: { create?: boolean }) => {
+  const selectTab = useCallback((
+    tab: AdminTab,
+    hash?: string,
+    options?: { create?: boolean; product?: string },
+  ) => {
     if (tab !== activeTab && !confirmLeaveWithUnsavedChanges()) return;
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', tab);
@@ -138,6 +201,11 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
       params.delete('section');
     }
     if (tab !== 'newsletter') params.delete('newsletter');
+    if (tab === 'products' && options?.product) {
+      params.set('product', options.product);
+    } else {
+      params.delete('product');
+    }
     if (options?.create) {
       params.set('create', '1');
     } else {
@@ -145,7 +213,19 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
     }
     const query = params.toString();
     const path = query ? `/admin?${query}` : '/admin';
-    router.replace(hash ? `${path}#${hash}` : path, { scroll: false });
+    const nextUrl = hash ? `${path}#${hash}` : path;
+    if (typeof window !== 'undefined') {
+      // Pass null state so Next.js's replaceState wrapper syncs useSearchParams() immediately without an RSC round-trip.
+      window.history.replaceState(null, '', nextUrl);
+      if (hash) {
+        window.requestAnimationFrame(() => {
+          const target = document.getElementById(hash);
+          target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+      }
+    } else {
+      router.replace(nextUrl, { scroll: false });
+    }
   }, [activeTab, router, searchParams]);
 
   const selectGroup = useCallback((groupId: string) => {
@@ -155,12 +235,30 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
     selectTab(group.tabs[0]);
   }, [activeTab, selectTab]);
 
-  // Fetch dashboard data
-  const { data: stats, error: statsError } = useSWR<DashboardStats>('/api/admin/stats', fetcher);
-  const { data: settingsData, error: settingsError } = useSWR<{ settings: SettingRecord[] }>('/api/admin/settings', fetcher);
-  const { data: promoData } = useSWR<{ promoCodes: Array<{ id: string }> }>('/api/admin/promo-codes', fetcher);
+  // Overview readiness only — other tabs must not fan out these five requests on every visit.
+  const overviewActive = activeTab === 'overview';
+  const { data: stats, error: statsError, isLoading: statsLoading } = useSWR<DashboardStats>(
+    overviewActive ? '/api/admin/stats' : null,
+    fetcher,
+    swrStudioOptions,
+  );
+  const { data: settingsData, error: settingsError, isLoading: settingsLoading } = useSWR<{ settings: SettingRecord[] }>(
+    overviewActive ? '/api/admin/settings' : null,
+    fetcher,
+    swrStudioOptions,
+  );
+  const { data: siteContentData } = useSWR<SiteContentByPage>(
+    overviewActive ? '/api/admin/site-content' : null,
+    fetcher,
+    swrStudioOptions,
+  );
+  const { data: promoData } = useSWR<{ promoCodes: Array<{ id: string }> }>(
+    overviewActive ? '/api/admin/promo-codes' : null,
+    fetcher,
+    swrStudioOptions,
+  );
   const { data: healthData } = useSWR<{ services?: { database?: string }; databaseHint?: string }>(
-    '/api/health',
+    overviewActive ? '/api/health' : null,
     async (url: string) => {
       const res = await fetch(url);
       const data = await res.json().catch(() => null);
@@ -169,9 +267,11 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
       }
       return data;
     },
+    swrStudioOptions,
   );
   const { celebration, dismissCelebration } = useOrderCelebration();
 
+  const overviewLoading = statsLoading || settingsLoading;
   const safeStats: DashboardStats = {
     totalPosts: Number(stats?.totalPosts || 0),
     publishedPosts: Number(stats?.publishedPosts || 0),
@@ -180,11 +280,18 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
     totalArtworks: Number(stats?.totalArtworks || 0),
     totalViews: Number(stats?.totalViews || 0),
     monthlyViews: Number(stats?.monthlyViews || 0),
+    totalOrders: Number(stats?.totalOrders || 0),
+    unfulfilledOrdersCount: Number(stats?.unfulfilledOrdersCount || 0),
+    totalThreadsCount: Number(stats?.totalThreadsCount || 0),
+    unreadMessagesCount: Number(stats?.unreadMessagesCount || 0),
+    lowStockCount: Number(stats?.lowStockCount || 0),
+    activeAlertsCount: Number(stats?.activeAlertsCount || 0),
   };
   const settingStatus = new Map((settingsData?.settings || []).map((setting) => [setting.key, setting.status]));
   const settingValues = new Map((settingsData?.settings || []).map((setting) => [setting.key, setting.value || '']));
   const databaseHealthy = healthData?.services?.database === 'healthy';
   const readinessItems = buildLaunchReadinessItems({
+    content: siteContentData ?? null,
     stats: safeStats,
     settings: settingStatus,
     settingValues,
@@ -263,7 +370,7 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
         </div>
       )}
 
-      {incompleteReadinessItems.length > 0 && !settingsError && (
+      {!overviewLoading && incompleteReadinessItems.length > 0 && !settingsError && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 md:p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -317,19 +424,45 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
       )}
 
       {/* Stats Grid — clickable jump cards into each studio area */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
         <button
           type="button"
-          onClick={() => selectTab('portfolio')}
-          className="bg-white rounded-lg shadow-sm border p-4 md:p-5 text-left hover:border-gray-300 hover:shadow transition-all"
+          onClick={() => selectTab('orders')}
+          className="bg-white rounded-lg shadow-sm border p-4 text-left hover:border-gray-300 hover:shadow transition-all"
         >
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <ImageIcon className="h-7 w-7 text-violet-600" aria-hidden="true" />
+          <div className="flex items-start gap-3">
+            <ClipboardList className="h-6 w-6 shrink-0 text-indigo-600 mt-0.5" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-gray-500">Orders</p>
+              <p className="text-xl font-semibold text-gray-900">
+                {statsLoading ? <span className="inline-block h-6 w-8 animate-pulse rounded bg-gray-200 align-middle" /> : safeStats.totalOrders}
+              </p>
+              {!statsLoading && (safeStats.unfulfilledOrdersCount || 0) > 0 && (
+                <p className="text-xs font-medium text-indigo-700">
+                  {safeStats.unfulfilledOrdersCount} to ship
+                </p>
+              )}
             </div>
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-500">Portfolio</p>
-              <p className="text-xl font-semibold text-gray-900">{safeStats.totalArtworks}</p>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => selectTab('inbox')}
+          className="bg-white rounded-lg shadow-sm border p-4 text-left hover:border-gray-300 hover:shadow transition-all"
+        >
+          <div className="flex items-start gap-3">
+            <Mail className="h-6 w-6 shrink-0 text-rose-600 mt-0.5" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-gray-500">Inbox</p>
+              <p className="text-xl font-semibold text-gray-900">
+                {statsLoading ? <span className="inline-block h-6 w-8 animate-pulse rounded bg-gray-200 align-middle" /> : safeStats.totalThreadsCount}
+              </p>
+              {!statsLoading && (safeStats.unreadMessagesCount || 0) > 0 && (
+                <p className="text-xs font-medium text-rose-700">
+                  {safeStats.unreadMessagesCount} unread
+                </p>
+              )}
             </div>
           </div>
         </button>
@@ -337,15 +470,36 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
         <button
           type="button"
           onClick={() => selectTab('products')}
-          className="bg-white rounded-lg shadow-sm border p-4 md:p-5 text-left hover:border-gray-300 hover:shadow transition-all"
+          className="bg-white rounded-lg shadow-sm border p-4 text-left hover:border-gray-300 hover:shadow transition-all"
         >
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <ShoppingBag className="h-7 w-7 text-green-600" aria-hidden="true" />
+          <div className="flex items-start gap-3">
+            <ShoppingBag className="h-6 w-6 shrink-0 text-green-600 mt-0.5" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-gray-500">Products</p>
+              <p className="text-xl font-semibold text-gray-900">
+                {statsLoading ? <span className="inline-block h-6 w-8 animate-pulse rounded bg-gray-200 align-middle" /> : safeStats.totalProducts}
+              </p>
+              {!statsLoading && (safeStats.lowStockCount || 0) > 0 && (
+                <p className="text-xs font-medium text-amber-700">
+                  {safeStats.lowStockCount} low stock
+                </p>
+              )}
             </div>
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-500">Products</p>
-              <p className="text-xl font-semibold text-gray-900">{safeStats.totalProducts}</p>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => selectTab('portfolio')}
+          className="bg-white rounded-lg shadow-sm border p-4 text-left hover:border-gray-300 hover:shadow transition-all"
+        >
+          <div className="flex items-start gap-3">
+            <ImageIcon className="h-6 w-6 shrink-0 text-violet-600 mt-0.5" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-gray-500">Portfolio</p>
+              <p className="text-xl font-semibold text-gray-900">
+                {statsLoading ? <span className="inline-block h-6 w-8 animate-pulse rounded bg-gray-200 align-middle" /> : safeStats.totalArtworks}
+              </p>
             </div>
           </div>
         </button>
@@ -353,15 +507,15 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
         <button
           type="button"
           onClick={() => selectTab('posts')}
-          className="bg-white rounded-lg shadow-sm border p-4 md:p-5 text-left hover:border-gray-300 hover:shadow transition-all"
+          className="bg-white rounded-lg shadow-sm border p-4 text-left hover:border-gray-300 hover:shadow transition-all"
         >
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <FileText className="h-7 w-7 text-blue-600" aria-hidden="true" />
-            </div>
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-500">Updates</p>
-              <p className="text-xl font-semibold text-gray-900">{safeStats.totalPosts}</p>
+          <div className="flex items-start gap-3">
+            <FileText className="h-6 w-6 shrink-0 text-blue-600 mt-0.5" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-gray-500">Updates</p>
+              <p className="text-xl font-semibold text-gray-900">
+                {statsLoading ? <span className="inline-block h-6 w-8 animate-pulse rounded bg-gray-200 align-middle" /> : safeStats.totalPosts}
+              </p>
             </div>
           </div>
         </button>
@@ -369,17 +523,17 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
         <button
           type="button"
           onClick={() => selectTab('analytics')}
-          className="bg-white rounded-lg shadow-sm border p-4 md:p-5 text-left hover:border-gray-300 hover:shadow transition-all"
+          className="bg-white rounded-lg shadow-sm border p-4 text-left hover:border-gray-300 hover:shadow transition-all"
         >
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <TrendingUp className="h-7 w-7 text-orange-600" aria-hidden="true" />
-            </div>
-            <div className="ml-3 min-w-0">
-              <p className="text-sm font-medium text-gray-500">Monthly Views</p>
-              <p className="text-xl font-semibold text-gray-900">{safeStats.monthlyViews.toLocaleString()}</p>
-              {safeStats.totalViews > safeStats.monthlyViews && (
-                <p className="truncate text-xs text-gray-500">{safeStats.totalViews.toLocaleString()} all-time</p>
+          <div className="flex items-start gap-3">
+            <TrendingUp className="h-6 w-6 shrink-0 text-orange-600 mt-0.5" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-gray-500">Monthly Views</p>
+              <p className="text-xl font-semibold text-gray-900">
+                {statsLoading ? <span className="inline-block h-6 w-12 animate-pulse rounded bg-gray-200 align-middle" /> : safeStats.monthlyViews.toLocaleString()}
+              </p>
+              {!statsLoading && safeStats.totalViews > safeStats.monthlyViews && (
+                <p className="text-xs text-gray-500">{safeStats.totalViews.toLocaleString()} all-time</p>
               )}
             </div>
           </div>
@@ -548,10 +702,18 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
           <AdminOrders />
         )}
         {activeTab === 'inventory' && (
-          <InventoryDashboard />
+          <InventoryDashboard
+            onOpenProduct={(productId) =>
+              selectTab('products', undefined, productId ? { product: productId } : { create: true })
+            }
+          />
         )}
         {activeTab === 'marketing' && (
-          <UnifiedMarketingDashboard />
+          <UnifiedMarketingDashboard
+            onSelectTab={(tab) => {
+              if (isAdminTab(tab)) selectTab(tab);
+            }}
+          />
         )}
         {activeTab === 'newsletter' && (
           <AdminNewsletter />

@@ -1,9 +1,8 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
-import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
+import OptimizedImage from '@/components/OptimizedImage';
 import type { OrderCelebration } from '@/lib/order-celebration-shared';
 import { formatPrice } from '@/lib/commerce';
 
@@ -58,13 +57,13 @@ export default function OrderCelebrationCard({ celebration, onDismiss }: OrderCe
       {primaryItem && (
         <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
           <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-lg border border-emerald-200 bg-white">
-            <Image
+            <OptimizedImage
               src={primaryItem.imageUrl}
               alt={primaryItem.title}
+              variantSize="thumb"
               fill
               className="object-cover"
               sizes="112px"
-              unoptimized={shouldUnoptimizeImage(primaryItem.imageUrl)}
             />
           </div>
           <div className="flex flex-wrap gap-3">

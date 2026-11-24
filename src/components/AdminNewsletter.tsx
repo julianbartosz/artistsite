@@ -92,9 +92,15 @@ export default function AdminNewsletter() {
 
   const open = useCallback((id: string | null) => {
     const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', 'newsletter');
     if (id) params.set('newsletter', id);
     else params.delete('newsletter');
-    router.replace(`/admin?${params.toString()}`, { scroll: false });
+    const nextUrl = `/admin?${params.toString()}`;
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', nextUrl);
+    } else {
+      router.replace(nextUrl, { scroll: false });
+    }
   }, [router, searchParams]);
 
   const handleSaved = useCallback((saved: NewsletterSummary) => {

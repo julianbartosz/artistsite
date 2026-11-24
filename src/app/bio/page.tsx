@@ -1,63 +1,69 @@
-import Image from 'next/image';
 import Link from 'next/link';
 import { getSiteContent } from '@/lib/site-content';
 import {
   htmlHasVisibleText,
   normalizeBioSectionOrder,
+  splitPlainParagraphs,
   type BioPageContent,
   type BioSectionKey,
 } from '@/lib/site-content-shared';
 import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
-import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
+import OptimizedImage from '@/components/OptimizedImage';
 
 export const dynamic = 'force-dynamic';
 
 function BioHero({ bio }: { bio: BioPageContent }) {
   const hasPortrait = Boolean(bio.hero.portraitImage);
+  const introParagraphs = splitPlainParagraphs(bio.hero.subtitle);
+  const hasCtas = Boolean(bio.hero.ctaPortfolio.trim() || bio.hero.ctaContact.trim());
   return (
-    <section className="relative group bg-surface-muted section-space">
+    <section className="relative group bg-surface-muted section-space-tight">
       <CmsEditAnchor targetKey="bio:hero" />
-      <div className={`${hasPortrait ? 'max-w-6xl' : 'max-w-3xl'} mx-auto px-6`}>
+      <div className={`${hasPortrait ? 'max-w-6xl' : 'max-w-2xl text-center'} mx-auto px-6`}>
         <div className={hasPortrait ? 'grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-12 items-center' : ''}>
           <div>
-            <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 mb-6">
+            <h1 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-6">
               {bio.hero.title}
             </h1>
-            {bio.hero.subtitle.trim() && (
-              <p className="text-xl text-gray-600 mb-8 leading-relaxed">
-                {bio.hero.subtitle}
-              </p>
+            {introParagraphs.length > 0 && (
+              <div className="space-y-4 text-base text-gray-600 mb-8 leading-relaxed">
+                {introParagraphs.map((paragraph, index) => (
+                  <p key={index} className="whitespace-pre-line">{paragraph}</p>
+                ))}
+              </div>
             )}
-            <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-4">
-              {bio.hero.ctaPortfolio.trim() && (
-                <Link
-                  href="/portfolio"
-                  className="btn-primary w-full sm:w-auto px-6 py-3 transition-colors font-medium whitespace-nowrap"
-                >
-                  {bio.hero.ctaPortfolio}
-                </Link>
-              )}
-              {bio.hero.ctaContact.trim() && (
-                <Link
-                  href="/contact"
-                  className="btn-primary-outline w-full sm:w-auto px-6 py-3 transition-colors font-medium whitespace-nowrap"
-                >
-                  {bio.hero.ctaContact}
-                </Link>
-              )}
-            </div>
+            {hasCtas && (
+              <div className={`flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-4 ${hasPortrait ? '' : 'justify-center'}`}>
+                {bio.hero.ctaPortfolio.trim() && (
+                  <Link
+                    href="/portfolio"
+                    className="btn-primary w-full sm:w-auto px-6 py-3 transition-colors font-medium whitespace-nowrap"
+                  >
+                    {bio.hero.ctaPortfolio}
+                  </Link>
+                )}
+                {bio.hero.ctaContact.trim() && (
+                  <Link
+                    href="/contact"
+                    className="btn-primary-outline w-full sm:w-auto px-6 py-3 transition-colors font-medium whitespace-nowrap"
+                  >
+                    {bio.hero.ctaContact}
+                  </Link>
+                )}
+              </div>
+            )}
           </div>
           {bio.hero.portraitImage && (
             <div className="relative">
               <div className="relative w-full max-w-xs mx-auto lg:max-w-none aspect-[3/4] lg:aspect-[4/5] rounded-lg overflow-hidden shadow-xl">
-                <Image
+                <OptimizedImage
                   src={bio.hero.portraitImage}
                   alt={bio.hero.portraitImageAlt.trim() || 'Artist portrait'}
+                  variantSize="lg"
                   fill
                   className="object-cover"
                   sizes="(max-width: 1024px) 100vw, 50vw"
                   priority
-                  unoptimized={shouldUnoptimizeImage(bio.hero.portraitImage)}
                 />
               </div>
             </div>
@@ -73,9 +79,11 @@ function BioStatement({ bio }: { bio: BioPageContent }) {
   return (
     <section className="relative group section-space-tight">
       <CmsEditAnchor targetKey="bio:statement" />
-      <div className="max-w-4xl mx-auto px-6">
-        <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">{bio.statementTitle}</h2>
-        <div className="prose prose-lg mx-auto text-gray-700" dangerouslySetInnerHTML={{ __html: bio.artistStatementHtml }} />
+      <div className="max-w-2xl mx-auto px-6">
+        {bio.statementTitle.trim() && (
+          <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-6 text-center">{bio.statementTitle}</h2>
+        )}
+        <div className="prose prose-base mx-auto text-gray-700 leading-relaxed" dangerouslySetInnerHTML={{ __html: bio.artistStatementHtml }} />
       </div>
     </section>
   );
@@ -89,18 +97,18 @@ function BioBackgroundAchievements({ bio }: { bio: BioPageContent }) {
   return (
     <section className="relative group bg-surface-muted section-space-tight">
       <CmsEditAnchor targetKey="bio:background" />
-      <div className="max-w-6xl mx-auto px-6">
+      <div className={`${showBackground && showAchievements ? 'max-w-5xl' : 'max-w-2xl'} mx-auto px-6`}>
         <div className={`grid grid-cols-1 ${showBackground && showAchievements ? 'lg:grid-cols-2' : ''} gap-10 lg:gap-12`}>
           {showBackground && (
             <div>
-              <h2 className="text-3xl font-bold text-gray-900 mb-6 lg:mb-8">{bio.backgroundTitle}</h2>
-              <div className="prose prose-lg text-gray-700" dangerouslySetInnerHTML={{ __html: bio.backgroundHtml }} />
+              <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-5">{bio.backgroundTitle}</h2>
+              <div className="prose prose-base text-gray-700" dangerouslySetInnerHTML={{ __html: bio.backgroundHtml }} />
             </div>
           )}
           {showAchievements && (
             <div>
-              <h2 className="text-3xl font-bold text-gray-900 mb-6 lg:mb-8">{bio.achievementsTitle}</h2>
-              <div className="prose prose-lg text-gray-700" dangerouslySetInnerHTML={{ __html: bio.achievementsHtml }} />
+              <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-5">{bio.achievementsTitle}</h2>
+              <div className="prose prose-base text-gray-700" dangerouslySetInnerHTML={{ __html: bio.achievementsHtml }} />
             </div>
           )}
         </div>
@@ -114,9 +122,9 @@ function BioBackground({ bio }: { bio: BioPageContent }) {
   return (
     <section className="relative group bg-surface-muted section-space-tight">
       <CmsEditAnchor targetKey="bio:background" />
-      <div className="max-w-4xl mx-auto px-6">
-        <h2 className="text-3xl font-bold text-gray-900 mb-8">{bio.backgroundTitle}</h2>
-        <div className="prose prose-lg text-gray-700" dangerouslySetInnerHTML={{ __html: bio.backgroundHtml }} />
+      <div className="max-w-2xl mx-auto px-6">
+        <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-6 text-center">{bio.backgroundTitle}</h2>
+        <div className="prose prose-base mx-auto text-gray-700" dangerouslySetInnerHTML={{ __html: bio.backgroundHtml }} />
       </div>
     </section>
   );
@@ -126,9 +134,9 @@ function BioAchievements({ bio }: { bio: BioPageContent }) {
   if (!bio.showAchievements || !htmlHasVisibleText(bio.achievementsHtml)) return null;
   return (
     <section className="bg-surface-muted section-space-tight">
-      <div className="max-w-4xl mx-auto px-6">
-        <h2 className="text-3xl font-bold text-gray-900 mb-8">{bio.achievementsTitle}</h2>
-        <div className="prose prose-lg text-gray-700" dangerouslySetInnerHTML={{ __html: bio.achievementsHtml }} />
+      <div className="max-w-2xl mx-auto px-6">
+        <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-6 text-center">{bio.achievementsTitle}</h2>
+        <div className="prose prose-base mx-auto text-gray-700" dangerouslySetInnerHTML={{ __html: bio.achievementsHtml }} />
       </div>
     </section>
   );
@@ -140,23 +148,23 @@ function BioStudio({ bio }: { bio: BioPageContent }) {
   return (
     <section className="relative group section-space-tight">
       <CmsEditAnchor targetKey="bio:studio" />
-      <div className={`${hasStudioImage ? 'max-w-6xl' : 'max-w-4xl'} mx-auto px-6`}>
-        <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">{bio.studioTitle}</h2>
+      <div className={`${hasStudioImage ? 'max-w-5xl' : 'max-w-2xl'} mx-auto px-6`}>
+        <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-6 text-center">{bio.studioTitle}</h2>
         <div className={hasStudioImage ? 'grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-12 items-center' : ''}>
           {bio.studioImage && (
             <div className="relative w-full aspect-[4/3] rounded-lg overflow-hidden shadow-lg">
-              <Image
+              <OptimizedImage
                 src={bio.studioImage}
                 alt={bio.studioImageAlt.trim() || 'Studio workspace'}
+                variantSize="md"
                 fill
                 className="object-cover"
                 sizes="(max-width: 1024px) 100vw, 50vw"
-                unoptimized={shouldUnoptimizeImage(bio.studioImage)}
               />
             </div>
           )}
           {htmlHasVisibleText(bio.studioPracticeHtml) && (
-            <div className="prose prose-lg text-gray-700" dangerouslySetInnerHTML={{ __html: bio.studioPracticeHtml }} />
+            <div className="prose prose-base mx-auto text-gray-700" dangerouslySetInnerHTML={{ __html: bio.studioPracticeHtml }} />
           )}
         </div>
       </div>
@@ -169,9 +177,9 @@ function BioCollections({ bio }: { bio: BioPageContent }) {
   return (
     <section className="relative group bg-surface-muted section-space-tight">
       <CmsEditAnchor targetKey="bio:collections" />
-      <div className="max-w-4xl mx-auto px-6 text-center">
-        <h2 className="text-3xl font-bold text-gray-900 mb-8">{bio.collectionsTitle}</h2>
-        <div className="prose prose-lg mx-auto text-gray-700 text-left" dangerouslySetInnerHTML={{ __html: bio.collectionsHtml }} />
+      <div className="max-w-2xl mx-auto px-6">
+        <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-6 text-center">{bio.collectionsTitle}</h2>
+        <div className="prose prose-base mx-auto text-gray-700" dangerouslySetInnerHTML={{ __html: bio.collectionsHtml }} />
       </div>
     </section>
   );
@@ -182,10 +190,10 @@ function BioCta({ bio }: { bio: BioPageContent }) {
   return (
     <section className="relative group section-space-tight">
       <CmsEditAnchor targetKey="bio:cta" />
-      <div className="max-w-4xl mx-auto px-6 text-center">
-        <h2 className="text-3xl font-bold text-gray-900 mb-6">{bio.cta.title}</h2>
+      <div className="max-w-2xl mx-auto px-6 text-center">
+        <h2 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-4">{bio.cta.title}</h2>
         {bio.cta.subtitle.trim() && (
-          <p className="text-lg text-gray-600 mb-8 max-w-2xl mx-auto">
+          <p className="text-base text-gray-600 mb-8 max-w-xl mx-auto leading-relaxed">
             {bio.cta.subtitle}
           </p>
         )}

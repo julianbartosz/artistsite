@@ -29,15 +29,22 @@ function splitFilename(filename: string): { stem: string; ext: string } {
 
 export async function buildImageVariants(buffer: Buffer, filename: string): Promise<GeneratedImageVariant[]> {
   const { stem } = splitFilename(filename);
-  const metadata = await sharp(buffer).metadata();
+  const metadata = await sharp(buffer, { animated: true }).metadata();
   if (!metadata.width) {
     return [];
   }
 
+  // Animated GIF/WebP: keep the original file for detail playback, but emit static
+  // first-frame WebP posters so listing thumbs do not decode every frame.
+  const isAnimated = metadata.format === 'gif' || (metadata.pages ?? 1) > 1;
   const variants: GeneratedImageVariant[] = [];
 
   for (const variant of VARIANTS) {
-    const outBuffer = await sharp(buffer)
+    const pipeline = isAnimated
+      ? sharp(buffer, { animated: false, page: 0 })
+      : sharp(buffer);
+
+    const outBuffer = await pipeline
       .rotate()
       .resize({ width: variant.maxWidth, withoutEnlargement: true })
       .webp({ quality: variant.quality })

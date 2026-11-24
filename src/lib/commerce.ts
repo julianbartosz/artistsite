@@ -1,4 +1,4 @@
-import { pickVariantUrl, type ImageVariantSize } from '@/lib/image-variant-url';
+import { isVideoUrl, pickVariantUrl, type ImageVariantSize } from '@/lib/image-variant-url';
 
 export interface ProductVariant {
   id: string;
@@ -59,6 +59,10 @@ export interface Product {
   shipping: {
     domestic: number;
     international: number;
+    /** Defaults to true when omitted (legacy listings). */
+    domesticEnabled?: boolean;
+    /** Defaults to true when omitted (legacy listings). */
+    internationalEnabled?: boolean;
   };
   specifications: {
     framed: boolean;
@@ -221,13 +225,18 @@ export function applyEditionInventory(
 
 export function normalizeProduct(product: ProductInput): Product {
   const gallery = product.images.gallery.map(image => image.trim()).filter(Boolean);
-  const thumbnail = product.images.thumbnail.trim() || gallery[0] || PRODUCT_IMAGE_FALLBACK;
+  const rawThumb = product.images.thumbnail.trim();
+  const firstStill = (!rawThumb || isVideoUrl(rawThumb))
+    ? gallery.find((image) => !isVideoUrl(image))
+    : rawThumb;
+  const thumbnail = firstStill || rawThumb || gallery[0] || PRODUCT_IMAGE_FALLBACK;
   const sizes = normalizeVariantGroup(product.variants?.sizes);
   const framing = normalizeVariantGroup(product.variants?.framing);
   const materials = normalizeVariantGroup(product.variants?.materials);
   const hasVariants = Boolean(sizes || framing || materials);
   const customizations = normalizeCustomizations(product.customizations);
   const edition = normalizeEdition(product.edition);
+  const shipping = normalizeShipping(product.shipping);
 
   return {
     ...product,
@@ -236,10 +245,113 @@ export function normalizeProduct(product: ProductInput): Product {
       thumbnail,
       gallery: gallery.length > 0 ? gallery : [thumbnail],
     },
+    shipping,
     variants: hasVariants ? { sizes, framing, materials } : undefined,
     customizations,
     edition,
   } as Product;
+}
+
+export const SUPPORTED_CHECKOUT_COUNTRIES = ['US', 'CA', 'GB', 'AU'] as const;
+export type SupportedCheckoutCountry = (typeof SUPPORTED_CHECKOUT_COUNTRIES)[number];
+
+export const CHECKOUT_COUNTRY_LABELS: Record<SupportedCheckoutCountry, string> = {
+  US: 'United States',
+  CA: 'Canada',
+  GB: 'United Kingdom',
+  AU: 'Australia',
+};
+
+export function normalizeShipping(value: Product['shipping'] | undefined | null): Product['shipping'] {
+  const domesticRaw = Number(value?.domestic ?? 0);
+  const internationalRaw = Number(value?.international ?? 0);
+  return {
+    domestic: Number.isFinite(domesticRaw) && domesticRaw >= 0 ? domesticRaw : 0,
+    international: Number.isFinite(internationalRaw) && internationalRaw >= 0 ? internationalRaw : 0,
+    domesticEnabled: value?.domesticEnabled !== false,
+    internationalEnabled: value?.internationalEnabled !== false,
+  };
+}
+
+export function productShipsDomestically(product: Pick<Product, 'shipping'>): boolean {
+  return product.shipping?.domesticEnabled !== false;
+}
+
+export function productShipsInternationally(product: Pick<Product, 'shipping'>): boolean {
+  return product.shipping?.internationalEnabled !== false;
+}
+
+export function productAllowsCountry(product: Pick<Product, 'shipping'>, country: string): boolean {
+  const domestic = productShipsDomestically(product);
+  const international = productShipsInternationally(product);
+  if (!domestic && !international) return true; // Local pickup / no shipping required
+  return country === 'US' ? domestic : international;
+}
+
+export function calculateItemShipping(product: Pick<Product, 'shipping'>, country: string): number {
+  const domestic = productShipsDomestically(product);
+  const international = productShipsInternationally(product);
+  if (!domestic && !international) return 0;
+  return country === 'US' ? (product.shipping?.domestic ?? 0) : (product.shipping?.international ?? 0);
+}
+
+export function allowedCheckoutCountriesForItems(
+  items: Array<{ product: Pick<Product, 'shipping'> }>,
+): { countries: SupportedCheckoutCountry[]; isPickupOnly: boolean; hasConflict: boolean } {
+  if (items.length === 0) {
+    return { countries: [...SUPPORTED_CHECKOUT_COUNTRIES], isPickupOnly: false, hasConflict: false };
+  }
+  const shippable = items.filter(
+    (item) => productShipsDomestically(item.product) || productShipsInternationally(item.product),
+  );
+  if (shippable.length === 0) {
+    return { countries: [...SUPPORTED_CHECKOUT_COUNTRIES], isPickupOnly: true, hasConflict: false };
+  }
+  const allowUs = shippable.every((item) => productShipsDomestically(item.product));
+  const allowIntl = shippable.every((item) => productShipsInternationally(item.product));
+  const countries: SupportedCheckoutCountry[] = [
+    ...(allowUs ? (['US'] as const) : []),
+    ...(allowIntl ? (['CA', 'GB', 'AU'] as const) : []),
+  ];
+  return { countries, isPickupOnly: false, hasConflict: countries.length === 0 };
+}
+
+export function describeProductShipping(
+  product: Pick<Product, 'shipping' | 'currency'>,
+): {
+  domesticLabel: string | null;
+  internationalLabel: string | null;
+  isPickupOnly: boolean;
+  summary: string;
+} {
+  const domestic = productShipsDomestically(product);
+  const international = productShipsInternationally(product);
+  const currency = product.currency || 'USD';
+  const formatLane = (amount: number) => (amount <= 0 ? 'Free' : formatPrice(amount, currency));
+
+  if (!domestic && !international) {
+    return {
+      domesticLabel: null,
+      internationalLabel: null,
+      isPickupOnly: true,
+      summary: 'Local pickup / arranged with studio',
+    };
+  }
+
+  const domesticLabel = domestic ? formatLane(product.shipping.domestic) : null;
+  const internationalLabel = international ? formatLane(product.shipping.international) : null;
+
+  const parts: string[] = [];
+  if (domesticLabel) parts.push(`US ${domesticLabel}`);
+  if (internationalLabel) parts.push(`International ${internationalLabel}`);
+  else if (domestic) parts.push('US shipping only');
+
+  return {
+    domesticLabel,
+    internationalLabel,
+    isPickupOnly: false,
+    summary: parts.join(' • '),
+  };
 }
 
 /** True when the product exposes size/frame/material or customization choices. */
@@ -252,16 +364,86 @@ export function productHasPurchaseOptions(product: Product): boolean {
   );
 }
 
+export function productRawImageSrc(
+  product: Product,
+  preferred?: string,
+): string {
+  const explicit = preferred?.trim();
+  if (explicit) return explicit;
+
+  const candidates = [
+    product.images.thumbnail?.trim(),
+    ...product.images.gallery.map((image) => image.trim()),
+  ].filter((url): url is string => Boolean(url));
+
+  const firstStill = candidates.find((url) => !isVideoUrl(url));
+  return firstStill || candidates[0] || PRODUCT_IMAGE_FALLBACK;
+}
+
+/** Deduplicate and trim an ordered list of image/video URLs, falling back to the shared placeholder when empty. */
+export function collectImageGallery(
+  ...sources: Array<string | readonly string[] | null | undefined>
+): string[] {
+  const seen = new Set<string>();
+  const list: string[] = [];
+  for (const source of sources) {
+    if (!source) continue;
+    const entries = typeof source === 'string' ? [source] : source;
+    for (const raw of entries) {
+      if (typeof raw !== 'string') continue;
+      const trimmed = raw.trim();
+      if (!trimmed || seen.has(trimmed)) continue;
+      seen.add(trimmed);
+      list.push(trimmed);
+    }
+  }
+  return list.length > 0 ? list : [PRODUCT_IMAGE_FALLBACK];
+}
+
+/**
+ * Ordered, deduplicated gallery media for a shop product.
+ * Respects `gallery`'s explicit order when `thumbnail` is already present (e.g. a video-first gallery
+ * whose `thumbnail` points to the first still photo for OG/Stripe/cart previews), while still
+ * prepending `thumbnail` for legacy records where it was stored separately from `gallery`.
+ */
+export function productGalleryImages(product: Pick<Product, 'images'>): string[] {
+  const thumb = product.images.thumbnail?.trim() || '';
+  const cleanedGallery = product.images.gallery
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter(Boolean);
+
+  if (!thumb || thumb === PRODUCT_IMAGE_FALLBACK || cleanedGallery.includes(thumb)) {
+    return collectImageGallery(cleanedGallery, thumb);
+  }
+  return collectImageGallery(thumb, cleanedGallery);
+}
+
+/** Ordered, deduplicated gallery images for a portfolio artwork without duplicating legacy thumb/main pairs. */
+export function artworkGalleryImages(images: {
+  main?: string | null;
+  thumbnail?: string | null;
+  gallery?: readonly string[] | null;
+}): string[] {
+  const primary = images.main?.trim() || images.thumbnail?.trim() || '';
+  return collectImageGallery(primary, images.gallery);
+}
+
 export function productImageSrc(
   product: Product,
   preferred?: string,
   size: ImageVariantSize = 'thumb',
 ): string {
-  const base = preferred?.trim()
-    || product.images.thumbnail?.trim()
-    || product.images.gallery.find((image) => image.trim())
-    || PRODUCT_IMAGE_FALLBACK;
-  return pickVariantUrl(base, size);
+  return pickVariantUrl(productRawImageSrc(product, preferred), size);
+}
+
+/** Human-readable copy for numbered limited editions across product cards and detail pages. */
+export function formatEditionStatus(edition: Product['edition'] | null | undefined): string | null {
+  if (!edition || !Number.isFinite(edition.total) || edition.total < 1) return null;
+  const total = Math.floor(edition.total);
+  const remaining = Math.max(0, Math.min(total, Math.floor(edition.remaining)));
+  if (remaining === 0) return `Sold out · Edition of ${total}`;
+  if (remaining === total) return `Edition of ${total}`;
+  return `${remaining} of ${total} remaining`;
 }
 
 export interface CartItemVariant {

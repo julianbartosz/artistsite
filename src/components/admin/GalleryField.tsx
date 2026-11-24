@@ -13,6 +13,7 @@ import {
   type MediaLibraryItem,
 } from '@/lib/image-upload-client';
 import type { PostMediaItem } from '@/lib/admin-content';
+import { isGifUrl } from '@/lib/image-variant-url';
 import { reorder } from '@/components/admin/EditorFields';
 import MediaPickerModal from '@/components/admin/MediaPickerModal';
 import MediaThumb from '@/components/admin/MediaThumb';
@@ -95,8 +96,8 @@ export default function GalleryField(props: GalleryFieldProps) {
     if (selected.length === 0) {
       setError(
         acceptMedia
-          ? 'Unsupported file type. Use JPG, PNG, WebP, GIF, HEIC, MP4, WebM, or MOV.'
-          : 'Unsupported file type. Use JPG, PNG, WebP, GIF, or HEIC.',
+          ? 'Unsupported file type. Upload any image or an MP4, WebM, or MOV video.'
+          : 'Unsupported file type. Please choose an image file.',
       );
       return;
     }
@@ -164,11 +165,15 @@ export default function GalleryField(props: GalleryFieldProps) {
                   {firstItemLabel}
                 </span>
               )}
-              {item.type === 'video' && (
+              {item.type === 'video' ? (
                 <span className="absolute right-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
                   Video
                 </span>
-              )}
+              ) : isGifUrl(item.url) ? (
+                <span className="absolute right-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                  GIF
+                </span>
+              ) : null}
               <div className="grid grid-cols-3 border-t border-gray-200">
                 <button type="button" disabled={index === 0} onClick={() => emit(reorder(items, index, -1))} className={TILE_ACTION} aria-label="Move earlier">
                   <ChevronLeft size={16} aria-hidden="true" />
@@ -214,8 +219,8 @@ export default function GalleryField(props: GalleryFieldProps) {
         </div>
         <p className="mt-2 text-xs font-normal text-gray-500">
           {acceptMedia
-            ? 'Photos up to 25 MB (JPG, PNG, WebP, GIF, HEIC) · videos up to 80 MB (MP4, MOV, WebM)'
-            : 'JPG, PNG, WebP, GIF, or HEIC · up to 25 MB each'}
+            ? 'Any image up to 25 MB (including GIF & HEIC) · videos up to 80 MB (MP4, MOV, WebM)'
+            : 'Any image format · up to 25 MB each'}
         </p>
       </div>
 

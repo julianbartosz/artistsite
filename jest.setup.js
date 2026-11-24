@@ -48,7 +48,12 @@ process.env.NEXTAUTH_URL = 'http://localhost:3000'
 
 jest.mock('server-only', () => ({}))
 
-jest.mock('sanitize-html', () => jest.fn((html) => html))
+jest.mock('sanitize-html', () =>
+  Object.assign(jest.fn((html) => html), {
+    defaults: { allowedTags: [], allowedAttributes: {} },
+    simpleTransform: jest.fn(() => jest.fn()),
+  }),
+)
 
 jest.mock('next/cache', () => ({
   unstable_cache: (fn) => fn,

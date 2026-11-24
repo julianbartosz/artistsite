@@ -178,7 +178,7 @@ export function Footer({
 
         <div className="border-t border-white/10 mt-8 pt-6 flex flex-row flex-wrap items-start justify-between gap-x-6 gap-y-3">
           <p className="text-gray-400 text-sm">
-            © {currentYear} {siteIdentity.copyrightName}. All rights reserved.
+            © {currentYear} {siteIdentity.copyrightName.trim()}. All rights reserved.
           </p>
           <p className="text-gray-400 text-sm max-w-md text-left sm:text-right leading-relaxed">
             {siteIdentity.footerTagline}

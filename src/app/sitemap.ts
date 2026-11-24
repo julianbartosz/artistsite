@@ -1,6 +1,7 @@
 import { MetadataRoute } from 'next';
 import { getAllProducts } from '@/lib/commerce-server';
 import { PRODUCT_IMAGE_FALLBACK, productImageSrc } from '@/lib/commerce';
+import { isVideoUrl } from '@/lib/image-variant-url';
 import { getAllPosts } from '@/lib/markdown';
 import { UPDATES_PATH, updatesPostPath } from '@/lib/site-content-shared';
 import { getAllArtworks } from '@/lib/portfolio';
@@ -15,7 +16,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Next writes sitemap values into XML verbatim.
   const link = (path: string) => escapeHtml(absoluteUrl(path, siteUrl));
   const imageLinks = (images: Array<string | undefined>) => [...new Set(images)]
-    .filter((image): image is string => Boolean(image) && image !== PRODUCT_IMAGE_FALLBACK)
+    .filter((image): image is string => Boolean(image) && image !== PRODUCT_IMAGE_FALLBACK && !isVideoUrl(image))
     .map(link);
 
   const staticPages: MetadataRoute.Sitemap = [

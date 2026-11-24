@@ -6,9 +6,21 @@ import {
   isRateLimited,
   type ContactFormData 
 } from '@/lib/form-validation';
-import { blogPostPayloadSchema, parsePostMedia, normalizeAudienceEmails } from '@/lib/admin-content';
+import {
+  artworkPayloadSchema,
+  blogPostPayloadSchema,
+  normalizeAudienceEmails,
+  parsePostMedia,
+  productPayloadSchema,
+} from '@/lib/admin-content';
 import { viewerCanAccessPost } from '@/lib/markdown';
+import { buildCatalogPriceRanges } from '@/lib/search-params';
 import { buildLaunchReadinessItems } from '@/lib/setup-readiness';
+import {
+  homeHeroImagePositionClass,
+  portfolioPageSchema,
+  SITE_CONTENT_DEFAULTS,
+} from '@/lib/site-content-shared';
 import React from 'react';
 import { markdownToHtml } from '@/lib/markdown-to-html';
 import { htmlHasVisibleText } from '@/lib/content-sanitize';
@@ -542,6 +554,46 @@ describe('launch readiness checklist', () => {
     expect(partial.find((item) => item.key === 'payments')?.complete).toBe(false);
     expect(both.find((item) => item.key === 'payments')?.complete).toBe(true);
   });
+
+  it('marks updates optional when hidden in navigation or disabled on home', () => {
+    const defaultItems = buildLaunchReadinessItems({});
+    expect(defaultItems.find((item) => item.key === 'blog')?.optional).toBe(false);
+
+    const hiddenItems = buildLaunchReadinessItems({
+      content: {
+        ...SITE_CONTENT_DEFAULTS,
+        home: {
+          ...SITE_CONTENT_DEFAULTS.home,
+          blog: { ...SITE_CONTENT_DEFAULTS.home.blog, showSection: false },
+        },
+      },
+    });
+    expect(hiddenItems.find((item) => item.key === 'blog')?.optional).toBe(true);
+  });
+});
+
+describe('dynamic catalog price ranges', () => {
+  it.each([
+    { name: 'empty or single price', prices: [25], expectedLabels: [] },
+    { name: 'identical prices', prices: [20, 20, 20], expectedLabels: [] },
+    {
+      name: 'small prints & postcards ($5-$30)',
+      prices: [5, 5, 20, 22, 30],
+      expectedLabels: ['Under $10', '$10 – $25', '$25 – $50'],
+    },
+    {
+      name: 'mid-range catalog ($20-$180)',
+      prices: [20, 45, 120, 180],
+      expectedLabels: ['Under $25', '$25 – $75', '$75 – $150', 'Over $150'],
+    },
+    {
+      name: 'fine art gallery ($350-$6000)',
+      prices: [350, 900, 1800, 6000],
+      expectedLabels: ['Under $500', '$500 – $1,000', '$1,000 – $2,500', 'Over $5,000'],
+    },
+  ])('builds catalog-scaled brackets for $name', ({ prices, expectedLabels }) => {
+    expect(buildCatalogPriceRanges(prices).map((range) => range.label)).toEqual(expectedLabels);
+  });
 });
 
 describe('portfolio / blog rich content ingress', () => {
@@ -650,5 +702,40 @@ describe('newsletter composition', () => {
     { name: 'missing', tamper: () => '', expected: null },
   ])('unsubscribe token: $name', ({ tamper, expected }) => {
     expect(verifyUnsubscribeToken(tamper(createUnsubscribeToken('Collector@Example.com')))).toBe(expected);
+  });
+});
+
+describe('studio content authoring & presentation defaults', () => {
+  it('leaves medium blank by default instead of injecting Mixed Media', () => {
+    const product = productPayloadSchema.parse({
+      title: 'Sunlit Postcard',
+      price: 5,
+      category: 'Postcards',
+      images: { thumbnail: '', gallery: [] },
+      shipping: { domestic: 2, international: 0 },
+      specifications: { framed: false, signed: true, certificate: false },
+    });
+    const artwork = artworkPayloadSchema.parse({
+      title: 'Quiet Sketch',
+      images: { main: '', thumbnail: '', gallery: [] },
+    });
+    expect(product.medium).toBe('');
+    expect(artwork.medium).toBe('');
+  });
+
+  it.each([
+    { focus: 'top' as const, expected: 'object-top' },
+    { focus: 'upper' as const, expected: 'object-[center_25%]' },
+    { focus: 'center' as const, expected: 'object-center' },
+    { focus: 'bottom' as const, expected: 'object-bottom' },
+    { focus: undefined, expected: 'object-[center_25%]' },
+  ])('maps hero image focus $focus to $expected', ({ focus, expected }) => {
+    expect(homeHeroImagePositionClass(focus)).toBe(expected);
+  });
+
+  it('defaults portfolio layout showSoldBadge to false for quieter gallery presentation', () => {
+    const parsed = portfolioPageSchema.parse({ title: 'Portfolio', subtitle: '' });
+    expect(parsed.layout.showSoldBadge).toBe(false);
+    expect(SITE_CONTENT_DEFAULTS.portfolio.layout.showSoldBadge).toBe(false);
   });
 });

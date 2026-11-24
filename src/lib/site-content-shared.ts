@@ -10,6 +10,29 @@ export const SITE_CONTENT_KEYS = {
   blog: 'PAGE_BLOG_JSON',
 } as const;
 
+/** Split plain textarea copy into paragraphs on blank lines while preserving intentional line breaks inside each paragraph. */
+export function splitPlainParagraphs(text: string | null | undefined): string[] {
+  if (!text) return [];
+  const normalized = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+  const paragraphs: string[] = [];
+  let currentLines: string[] = [];
+
+  for (const line of normalized.split('\n')) {
+    if (line.trim() === '') {
+      if (currentLines.length > 0) {
+        paragraphs.push(currentLines.join('\n').trim());
+        currentLines = [];
+      }
+    } else {
+      currentLines.push(line);
+    }
+  }
+  if (currentLines.length > 0) {
+    paragraphs.push(currentLines.join('\n').trim());
+  }
+  return paragraphs;
+}
+
 export type SiteContentPage = keyof typeof SITE_CONTENT_KEYS;
 export const SITE_CONTENT_PAGES = Object.keys(SITE_CONTENT_KEYS) as [SiteContentPage, ...SiteContentPage[]];
 
@@ -17,6 +40,8 @@ const optionalImage = z.string().default('');
 export const heroCtaKeySchema = z.enum(['shop', 'portfolio', 'contact']);
 export const heroHeightSchema = z.enum(['compact', 'full']);
 export const heroImagePlacementSchema = z.enum(['inline', 'badge', 'background']);
+export const heroImageFocusSchema = z.enum(['top', 'upper', 'center', 'bottom']);
+export type HeroImageFocus = z.infer<typeof heroImageFocusSchema>;
 export const FONT_PRESET_VALUES = ['system', 'serif', 'editorial'] as const;
 /** `modern` was a near-duplicate of `system` and is folded into it for stored themes. */
 export const fontPresetSchema = z.preprocess(
@@ -441,10 +466,28 @@ export function listingHeroPaddingClass(height: z.infer<typeof heroHeightSchema>
   return height === 'full' ? 'py-12 md:py-16' : 'py-6 md:py-8';
 }
 
-export function homeHeroHeightClass(height: z.infer<typeof heroHeightSchema>): string {
-  return height === 'full'
-    ? 'min-h-[70vh] md:min-h-[85vh] max-h-[85vh]'
+export function homeHeroHeightClass(
+  height: z.infer<typeof heroHeightSchema>,
+  options?: { isBackground?: boolean },
+): string {
+  if (height === 'full') return 'min-h-[70vh] md:min-h-[85vh] max-h-[85vh]';
+  return options?.isBackground
+    ? 'min-h-[24rem] md:min-h-[30rem] py-16 md:py-24'
     : 'section-space';
+}
+
+export function homeHeroImagePositionClass(focus?: HeroImageFocus): string {
+  switch (focus) {
+    case 'top':
+      return 'object-top';
+    case 'center':
+      return 'object-center';
+    case 'bottom':
+      return 'object-bottom';
+    case 'upper':
+    default:
+      return 'object-[center_25%]';
+  }
 }
 
 export type HeroCtaKey = z.infer<typeof heroCtaKeySchema>;
@@ -741,6 +784,7 @@ export const homePageSchema = z.object({
     portraitImage: optionalImage,
     height: heroHeightSchema.default('compact'),
     imagePlacement: heroImagePlacementSchema.default('inline'),
+    imageFocus: heroImageFocusSchema.default('upper'),
     primaryCta: heroCtaKeySchema.default('shop'),
     showSecondaryCtas: z.boolean().default(false),
   }),
@@ -926,8 +970,10 @@ export function normalizePortfolioCategories(value: unknown): PortfolioCategory[
 
 /**
  * Ordered filter chips: configured visible categories first (even before artworks exist).
- * Unlisted artwork tags append only when includeUnlisted is true (Studio toggle),
- * so day-one artists can curate filters instead of inheriting every freeform tag.
+ * When an artist has not configured any curated categories yet, automatically derive humanized
+ * filter chips from their artworks (unless includeUnlisted is explicitly false) so day-one
+ * portfolios still have working category filters.
+ * When curated categories ARE configured, unlisted artwork tags append only when includeUnlisted is true.
  */
 export function resolvePortfolioFilterCategories(
   artworkCategoryKeys: string[],
@@ -939,6 +985,7 @@ export function resolvePortfolioFilterCategories(
     const trimmed = category.trim();
     if (!trimmed) continue;
     const key = normalizePortfolioCategoryKey(trimmed);
+    if (key === 'uncategorized') continue;
     if (!artworkByKey.has(key)) artworkByKey.set(key, trimmed);
   }
 
@@ -955,7 +1002,9 @@ export function resolvePortfolioFilterCategories(
     });
   }
 
-  if (options?.includeUnlisted !== true) return result;
+  const shouldAppendUnlisted = configured.length === 0 || options?.includeUnlisted === true;
+
+  if (!shouldAppendUnlisted) return result;
 
   const leftovers = [...artworkByKey.entries()]
     .filter(([key]) => !used.has(key))
@@ -1031,7 +1080,7 @@ const DEFAULT_PORTFOLIO_LAYOUT = {
   imageFit: 'cover' as const,
   thumbAspect: 'square' as const,
   showFeaturedBadge: true,
-  showSoldBadge: true,
+  showSoldBadge: false,
   showMeta: true,
   showPrice: false,
   includeUnlistedCategories: false,
@@ -1049,7 +1098,7 @@ export const portfolioPageSchema = listingPageSchema.extend({
     imageFit: portfolioImageFitSchema.default('cover'),
     thumbAspect: portfolioThumbAspectSchema.default('square'),
     showFeaturedBadge: z.boolean().default(true),
-    showSoldBadge: z.boolean().default(true),
+    showSoldBadge: z.boolean().default(false),
     showMeta: z.boolean().default(true),
     showPrice: z.boolean().default(false),
     includeUnlistedCategories: z.boolean().default(false),
@@ -1362,6 +1411,7 @@ export const DEFAULT_HOME_PAGE: HomePageContent = {
     portraitImage: '',
     height: 'compact',
     imagePlacement: 'inline',
+    imageFocus: 'upper',
     primaryCta: 'shop',
     showSecondaryCtas: false,
   },

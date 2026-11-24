@@ -1,34 +1,28 @@
 'use client';
 
-import Image from 'next/image';
 import Link from 'next/link';
 import { useState } from 'react';
-import { Product, PRODUCT_IMAGE_FALLBACK, formatPrice, productImageSrc } from '@/lib/commerce';
-import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
+import { Product, formatEditionStatus, formatPrice, productGalleryImages } from '@/lib/commerce';
+import type { PublicInventoryStatus } from '@/lib/inventory';
+import ImageCarousel from '@/components/ImageCarousel';
 import StockIndicator from '@/components/StockIndicator';
 import { WishlistButton } from '@/components/WishlistButton';
 import ProductQuickLook from '@/components/ProductQuickLook';
 
 interface ProductCardProps {
   product: Product;
+  /** Pre-fetched public inventory from search results to eliminate per-card /api/inventory waterfalls. */
+  inventory?: PublicInventoryStatus | null;
+  /** Prioritize above-the-fold card imagery for faster LCP. */
+  priority?: boolean;
 }
 
-export function ShopProductCard({ product }: ProductCardProps) {
+export function ShopProductCard({ product, inventory, priority = false }: ProductCardProps) {
   const [quickLookOpen, setQuickLookOpen] = useState(false);
-  const rawImage = product.images.thumbnail?.trim()
-    || product.images.gallery.find((image) => image.trim())
-    || PRODUCT_IMAGE_FALLBACK;
-  const [imageSrc, setImageSrc] = useState(() => productImageSrc(product));
-  const isLimitedEdition = product.edition && product.edition.remaining < product.edition.total;
+  const editionStatus = formatEditionStatus(product.edition);
+  const isLimitedEdition = Boolean(editionStatus);
   const productHref = `/shop/${product.id}`;
-
-  function handleImageError() {
-    if (imageSrc !== rawImage) {
-      setImageSrc(rawImage);
-    } else if (imageSrc !== PRODUCT_IMAGE_FALLBACK) {
-      setImageSrc(PRODUCT_IMAGE_FALLBACK);
-    }
-  }
+  const galleryImages = productGalleryImages(product);
 
   return (
     <>
@@ -36,18 +30,17 @@ export function ShopProductCard({ product }: ProductCardProps) {
       data-testid="product-card"
       className="group h-full card-surface bg-surface overflow-hidden hover:shadow-lg transition-shadow flex flex-col"
     >
-      <div className="relative aspect-square bg-gray-100 flex-shrink-0">
-        <Link href={productHref} data-testid="product-card-link" className="absolute inset-0 z-10 block">
-          <Image
-            src={imageSrc}
-            alt={product.title}
-            fill
-            className="object-cover group-hover:scale-105 transition-transform duration-300 motion-reduce:transform-none"
-            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-            unoptimized={shouldUnoptimizeImage(imageSrc)}
-            onError={handleImageError}
-          />
-        </Link>
+      <ImageCarousel
+        images={galleryImages}
+        alt={product.title}
+        href={productHref}
+        linkTestId="product-card-link"
+        variantSize="md"
+        priority={priority}
+        className="relative aspect-square bg-gray-100 flex-shrink-0 overflow-hidden"
+        imageClassName="object-cover group-hover:scale-105 transition-transform duration-300 motion-reduce:transform-none"
+        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+      >
         <div
           className="absolute top-3 right-3 z-20 opacity-0 transition-opacity duration-200 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-hover:pointer-events-auto [@media(hover:none)]:opacity-100 focus-within:opacity-100 pointer-events-none focus-within:pointer-events-auto"
           onMouseDown={(event) => event.stopPropagation()}
@@ -69,14 +62,14 @@ export function ShopProductCard({ product }: ProductCardProps) {
             </span>
           </div>
         )}
-      </div>
+      </ImageCarousel>
 
       <Link href={productHref} className="flex flex-col flex-1 p-4 sm:p-6 min-h-0">
         <h3 className="text-lg font-semibold text-gray-900 mb-1 group-hover:text-gray-700 transition-colors line-clamp-2">
           {product.title}
         </h3>
-        <p className="text-sm text-gray-600">{product.medium}</p>
-        <p className="text-sm text-gray-500 mb-2">{product.dimensions}</p>
+        {product.medium.trim() && <p className="text-sm text-gray-600">{product.medium}</p>}
+        {product.dimensions.trim() && <p className="text-sm text-gray-500 mb-2">{product.dimensions}</p>}
         <p className="hidden md:block text-gray-700 text-sm mb-3 line-clamp-2 flex-1">{product.description}</p>
       </Link>
 
@@ -104,7 +97,7 @@ export function ShopProductCard({ product }: ProductCardProps) {
 
         <div className="mt-2">
           {product.availability === 'available' ? (
-            <StockIndicator productId={product.id} missingInventoryLabel="Available" />
+            <StockIndicator productId={product.id} inventory={inventory} missingInventoryLabel="Available" />
           ) : (
             <span
               className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
@@ -124,9 +117,9 @@ export function ShopProductCard({ product }: ProductCardProps) {
           )}
         </div>
 
-        {isLimitedEdition && (
+        {editionStatus && (
           <p className="text-xs text-red-600 mt-2">
-            Only {product.edition!.remaining} of {product.edition!.total} remaining
+            {editionStatus}
           </p>
         )}
       </div>

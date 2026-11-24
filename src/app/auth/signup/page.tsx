@@ -4,19 +4,26 @@ import { getProviders, signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { mergeGuestWishlistIntoAccount } from '@/components/WishlistButton';
-import { safeCallbackUrl } from '@/app/auth/signin/SignInForm';
+import { destinationAfterSignIn, safeCallbackUrl, waitForClientSession } from '@/app/auth/signin/SignInForm';
+
+function firstParam(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return value[0] ?? '';
+  return value ?? '';
+}
 
 export default function SignUpPage({
   searchParams,
 }: {
-  searchParams: Promise<{ callbackUrl?: string | string[] }>;
+  searchParams: Promise<{ callbackUrl?: string | string[]; email?: string | string[]; from?: string | string[] }>;
 }) {
-  const { callbackUrl: callbackParam } = use(searchParams);
-  const callbackUrl = safeCallbackUrl(Array.isArray(callbackParam) ? callbackParam[0] : callbackParam);
+  const params = use(searchParams);
+  const callbackUrl = safeCallbackUrl(firstParam(params.callbackUrl) || null);
+  const prefilledEmail = firstParam(params.email).trim();
+  const routedFromSignIn = firstParam(params.from) === 'signin';
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
-    email: '',
+    email: prefilledEmail,
     password: '',
     confirmPassword: '',
     phone: ''
@@ -91,7 +98,9 @@ export default function SignUpPage({
         setError('Account created but sign-in failed. Please try signing in manually.');
       } else {
         await mergeGuestWishlistIntoAccount();
-        router.push(callbackUrl);
+        const session = await waitForClientSession();
+        const destination = destinationAfterSignIn(callbackUrl, Boolean(session?.user?.isAdmin));
+        router.push(destination);
         router.refresh();
       }
     } catch (error) {
@@ -121,6 +130,11 @@ export default function SignUpPage({
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-surface py-8 px-4 shadow sm:rounded-lg sm:px-10">
+          {routedFromSignIn && prefilledEmail && (
+            <div role="status" className="mb-6 rounded border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+              No account exists for <strong>{prefilledEmail}</strong> yet. Finish setting up your account below.
+            </div>
+          )}
           <form className="space-y-6" onSubmit={handleSubmit}>
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded">

@@ -1,6 +1,11 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { InventoryStatus } from '@/lib/inventory';
+import { InventoryStatus, PublicInventoryStatus } from '@/lib/inventory';
+
+type StockIndicatorInventory = Pick<
+  InventoryStatus,
+  'stockStatus' | 'availableStock' | 'allowBackorders'
+> | PublicInventoryStatus;
 
 interface StockIndicatorProps {
   productId: string;
@@ -8,6 +13,11 @@ interface StockIndicatorProps {
   className?: string;
   /** Shown when no inventory row exists (typical for one-of-a-kind originals). */
   missingInventoryLabel?: string;
+  /**
+   * When provided by a parent that already loaded inventory (e.g. Inventory dashboard),
+   * use that live data instead of a one-shot mount fetch that goes stale after saves.
+   */
+  inventory?: StockIndicatorInventory | null;
 }
 
 export function StockIndicator({
@@ -15,28 +25,40 @@ export function StockIndicator({
   showDetails = false,
   className = "",
   missingInventoryLabel,
+  inventory: inventoryFromParent,
 }: StockIndicatorProps) {
-  const [inventory, setInventory] = useState<InventoryStatus | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const controlled = inventoryFromParent !== undefined;
+  const [fetchedInventory, setFetchedInventory] = useState<StockIndicatorInventory | null>(null);
+  const [isLoading, setIsLoading] = useState(!controlled);
+  const inventory = controlled ? inventoryFromParent : fetchedInventory;
 
   useEffect(() => {
+    if (controlled) {
+      setIsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
     const fetchInventory = async () => {
       try {
         const response = await fetch(`/api/inventory?productId=${productId}`);
         const data = await response.json();
         
-        if (data.success) {
-          setInventory(data.inventory);
+        if (!cancelled && data.success) {
+          setFetchedInventory(data.inventory);
         }
       } catch (error) {
         console.error('Failed to fetch inventory:', error);
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
 
     fetchInventory();
-  }, [productId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [productId, controlled, inventoryFromParent]);
 
   if (isLoading) {
     return (

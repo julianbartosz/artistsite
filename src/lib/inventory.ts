@@ -111,6 +111,26 @@ export class InventoryService {
   }
 
   /**
+   * Batched public-safe inventory lookup for storefront listing pages (eliminates N+1 /api/inventory calls).
+   */
+  static async getBulkPublicInventoryStatus(
+    productIds: string[],
+  ): Promise<Record<string, PublicInventoryStatus>> {
+    if (productIds.length === 0) return {};
+    const statusMap = await this.getBulkInventoryStatus(productIds);
+    const result: Record<string, PublicInventoryStatus> = {};
+    for (const [productId, inventory] of statusMap.entries()) {
+      result[productId] = {
+        productId: inventory.productId,
+        availableStock: inventory.availableStock,
+        stockStatus: inventory.stockStatus,
+        allowBackorders: inventory.allowBackorders,
+      };
+    }
+    return result;
+  }
+
+  /**
    * Get inventory status for multiple products
    */
   static async getBulkInventoryStatus(productIds: string[]): Promise<Map<string, InventoryStatus>> {
@@ -518,7 +538,7 @@ export class InventoryService {
   }
 
   /**
-   * Update stock status based on current levels
+   * Update stock status and synchronize active stock alerts with current levels.
    */
   static async updateStockStatus(productId: string): Promise<void> {
     const inventory = await prisma.productInventory.findUnique({
@@ -537,10 +557,15 @@ export class InventoryService {
         where: { id: inventory.id },
         data: { stockStatus: newStatus }
       });
-
-      // Create alert if needed
-      await this.checkAndCreateAlerts(productId, inventory.availableStock, newStatus);
     }
+
+    // Always reconcile alerts so restocks auto-resolve stale alerts and count changes stay accurate.
+    await this.syncProductAlerts(
+      productId,
+      inventory.availableStock,
+      inventory.lowStockThreshold,
+      newStatus,
+    );
 
     // Keep catalog availability in sync with tracked stock so sold-out
     // originals leave the shop without a manual availability edit.
@@ -573,63 +598,103 @@ export class InventoryService {
     availableStock: number,
     lowStockThreshold: number
   ): string {
-    if (availableStock === 0) return 'out_of_stock';
+    if (availableStock <= 0) return 'out_of_stock';
     if (availableStock <= lowStockThreshold) return 'low_stock';
     return 'in_stock';
   }
 
   /**
-   * Check and create stock alerts
+   * Keep active stock alerts strictly in sync with a product's current stock status:
+   * - Auto-resolve all active alerts when back in stock (or discontinued).
+   * - Auto-resolve alerts of superseded types (e.g. out_of_stock -> low_stock).
+   * - Update existing matching alert counts/messages in place without re-emailing.
+   * - Create and email a new alert only when newly entering an alert state.
    */
-  private static async checkAndCreateAlerts(
+  static async syncProductAlerts(
     productId: string,
-    currentStock: number,
-    stockStatus: string
+    availableStock: number,
+    lowStockThreshold: number,
+    stockStatus: string,
+    options: { sendEmail?: boolean } = {},
   ): Promise<void> {
-    const inventory = await prisma.productInventory.findUnique({
-      where: { productId }
-    });
+    const now = new Date();
+    const target =
+      stockStatus === 'out_of_stock'
+        ? {
+            type: 'out_of_stock' as const,
+            severity: 'critical' as const,
+            message: 'Product is out of stock',
+          }
+        : stockStatus === 'low_stock'
+          ? {
+              type: 'low_stock' as const,
+              severity: 'medium' as const,
+              message: `Product stock is low (${availableStock} remaining)`,
+            }
+          : null;
 
-    if (!inventory) return;
+    if (!target) {
+      await prisma.stockAlert.updateMany({
+        where: { productId, isActive: true },
+        data: { isActive: false, resolvedAt: now },
+      });
+      return;
+    }
 
-    // Check if alert already exists and is active
-    const existingAlert = await prisma.stockAlert.findFirst({
+    // Resolve any active alerts of a different type (e.g. out_of_stock when now low_stock).
+    await prisma.stockAlert.updateMany({
       where: {
         productId,
-        type: stockStatus === 'out_of_stock' ? 'out_of_stock' : 'low_stock',
-        isActive: true
-      }
+        isActive: true,
+        type: { not: target.type },
+      },
+      data: { isActive: false, resolvedAt: now },
     });
 
-    if (existingAlert) return;
+    const matchingAlerts = await prisma.stockAlert.findMany({
+      where: { productId, type: target.type, isActive: true },
+      orderBy: { createdAt: 'desc' },
+    });
 
-    // Create new alert
-    let alertType: string;
-    let severity: string;
-    let message: string;
-
-    if (stockStatus === 'out_of_stock') {
-      alertType = 'out_of_stock';
-      severity = 'critical';
-      message = `Product is out of stock`;
-    } else if (stockStatus === 'low_stock') {
-      alertType = 'low_stock';
-      severity = 'medium';
-      message = `Product stock is low (${currentStock} remaining)`;
-    } else {
-      return; // No alert needed
+    if (matchingAlerts.length > 0) {
+      const [primary, ...duplicates] = matchingAlerts;
+      if (
+        primary.currentStock !== availableStock ||
+        primary.thresholdValue !== lowStockThreshold ||
+        primary.message !== target.message ||
+        primary.severity !== target.severity
+      ) {
+        await prisma.stockAlert.update({
+          where: { id: primary.id },
+          data: {
+            currentStock: availableStock,
+            thresholdValue: lowStockThreshold,
+            message: target.message,
+            severity: target.severity,
+          },
+        });
+      }
+      if (duplicates.length > 0) {
+        await prisma.stockAlert.updateMany({
+          where: { id: { in: duplicates.map((entry) => entry.id) } },
+          data: { isActive: false, resolvedAt: now },
+        });
+      }
+      return;
     }
 
     await prisma.stockAlert.create({
       data: {
         productId,
-        type: alertType,
-        severity,
-        message,
-        currentStock,
-        thresholdValue: inventory.lowStockThreshold
-      }
+        type: target.type,
+        severity: target.severity,
+        message: target.message,
+        currentStock: availableStock,
+        thresholdValue: lowStockThreshold,
+      },
     });
+
+    if (options.sendEmail === false) return;
 
     try {
       const [{ brandedEmailHtml, getEmailBrand, sendTemplateEmail }, { escapeHtml }, { getConfig }, { absoluteUrl }] = await Promise.all([
@@ -649,12 +714,12 @@ export class InventoryService {
         select: { title: true },
       });
       const title = product?.title || productId;
-      const subject = alertType === 'out_of_stock'
+      const subject = target.type === 'out_of_stock'
         ? `Out of stock: ${title}`
         : `Low stock: ${title}`;
-      const detail = alertType === 'out_of_stock'
+      const detail = target.type === 'out_of_stock'
         ? `"${title}" is out of stock.`
-        : `"${title}" is low (${currentStock} remaining).`;
+        : `"${title}" is low (${availableStock} remaining).`;
       const brand = await getEmailBrand();
       const inventoryUrl = absoluteUrl('/admin?tab=inventory', brand.siteUrl);
       await sendTemplateEmail(recipient, {
@@ -672,23 +737,89 @@ export class InventoryService {
   }
 
   /**
-   * Get active stock alerts
+   * Get active stock alerts (self-heals any legacy drifted alerts whose inventory moved).
    */
   static async getActiveAlerts(severity?: string): Promise<StockAlert[]> {
-    const where: any = { isActive: true };
-    if (severity) {
-      where.severity = severity;
-    }
-
-    const alerts = await prisma.stockAlert.findMany({
-      where,
+    const rawAlerts = await prisma.stockAlert.findMany({
+      where: { isActive: true },
       orderBy: [
         { severity: 'desc' },
         { createdAt: 'desc' }
       ]
     });
 
-    return alerts.map(alert => ({
+    if (rawAlerts.length > 0) {
+      const alertProductIds = [...new Set(rawAlerts.map((alert) => alert.productId))];
+      const inventories = await prisma.productInventory.findMany({
+        where: { productId: { in: alertProductIds } },
+      });
+      const invByProduct = new Map(inventories.map((inv) => [inv.productId, inv]));
+
+      let reconciledAny = false;
+      const seenByProduct = new Map<string, number>();
+      for (const alert of rawAlerts) {
+        seenByProduct.set(alert.productId, (seenByProduct.get(alert.productId) ?? 0) + 1);
+      }
+
+      for (const productId of alertProductIds) {
+        const inv = invByProduct.get(productId);
+        if (!inv) {
+          await prisma.stockAlert.updateMany({
+            where: { productId, isActive: true },
+            data: { isActive: false, resolvedAt: new Date() },
+          });
+          reconciledAny = true;
+          continue;
+        }
+        const computedStatus = this.calculateStockStatus(inv.availableStock, inv.lowStockThreshold);
+        const productAlerts = rawAlerts.filter((entry) => entry.productId === productId);
+        const expectedType = computedStatus === 'out_of_stock'
+          ? 'out_of_stock'
+          : computedStatus === 'low_stock'
+            ? 'low_stock'
+            : null;
+        const needsSync =
+          (seenByProduct.get(productId) ?? 0) > 1
+          || expectedType === null
+          || productAlerts.some(
+            (entry) => entry.type !== expectedType || entry.currentStock !== inv.availableStock,
+          );
+        if (needsSync) {
+          await this.syncProductAlerts(
+            productId,
+            inv.availableStock,
+            inv.lowStockThreshold,
+            computedStatus,
+            { sendEmail: false },
+          );
+          reconciledAny = true;
+        }
+      }
+
+      if (reconciledAny) {
+        const refreshed = await prisma.stockAlert.findMany({
+          where: severity ? { isActive: true, severity } : { isActive: true },
+          orderBy: [
+            { severity: 'desc' },
+            { createdAt: 'desc' }
+          ]
+        });
+        return refreshed.map(alert => ({
+          id: alert.id,
+          productId: alert.productId,
+          type: alert.type as any,
+          severity: alert.severity as any,
+          message: alert.message,
+          currentStock: alert.currentStock,
+          thresholdValue: alert.thresholdValue || undefined,
+          isActive: alert.isActive,
+          createdAt: alert.createdAt
+        }));
+      }
+    }
+
+    const filtered = severity ? rawAlerts.filter((alert) => alert.severity === severity) : rawAlerts;
+    return filtered.map(alert => ({
       id: alert.id,
       productId: alert.productId,
       type: alert.type as any,
@@ -777,7 +908,7 @@ export class InventoryService {
       }
 
       const stockDifference = update.currentStock - inventory.currentStock;
-      
+
       if (stockDifference !== 0) {
         await this.recordStockMovement({
           productId: update.productId,
@@ -802,6 +933,10 @@ export class InventoryService {
           where: { productId: update.productId },
           data: updateData
         });
+        await this.updateStockStatus(update.productId);
+      } else if (stockDifference === 0) {
+        // Ensure status/alerts stay reconciled even if caller re-saves current stock.
+        await this.updateStockStatus(update.productId);
       }
     }
   }

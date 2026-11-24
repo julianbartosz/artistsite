@@ -1,8 +1,9 @@
 'use client';
 
 import React, { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { CheckboxField, EditorSection, HtmlField, ReorderButtons, SelectField, TextAreaField, TextField, reorder } from '@/components/admin/EditorFields';
+import { IntegerField } from '@/components/admin/StudioFormFields';
 import SiteAppearancePanel from '@/components/admin/SiteAppearancePanel';
 import MediaImageField from '@/components/admin/MediaImageField';
 import BioNarrativeWizard from '@/components/admin/BioNarrativeWizard';
@@ -135,41 +136,17 @@ function BoundedIntField({
   help?: string;
   onChange: (value: number) => void;
 }) {
-  const [draft, setDraft] = useState(String(value));
-  const [lastPropValue, setLastPropValue] = useState(value);
-
-  if (lastPropValue !== value) {
-    setLastPropValue(value);
-    setDraft(String(value));
-  }
-
   return (
-    <label className="block text-sm font-medium text-gray-700">
-      {label}
-      <input
-        type="number"
-        min={min}
-        max={max}
-        value={draft}
-        onChange={(event) => {
-          const next = event.target.value;
-          setDraft(next);
-          if (!next.trim()) return;
-          const parsed = Number.parseInt(next, 10);
-          if (Number.isFinite(parsed) && parsed >= min && parsed <= max) {
-            onChange(parsed);
-          }
-        }}
-        onBlur={() => {
-          const parsed = Number.parseInt(draft, 10);
-          const clamped = Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : value;
-          setDraft(String(clamped));
-          if (clamped !== value) onChange(clamped);
-        }}
-        className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900"
-      />
-      {help && <span className="mt-1 block text-xs font-normal text-gray-500">{help}</span>}
-    </label>
+    <IntegerField
+      label={label}
+      value={value}
+      min={min}
+      max={max}
+      help={help}
+      onChange={(next) => {
+        if (typeof next === 'number') onChange(next);
+      }}
+    />
   );
 }
 
@@ -232,82 +209,45 @@ function HeroImagePlacementPicker({
         ))}
       </div>
       {!hasPhoto && (
-        <p className="mt-1.5 text-xs text-gray-500">Upload a photo in “Headline &amp; welcome message” below to see this placement on your homepage.</p>
+        <p className="mt-1.5 text-xs text-gray-500">Add a photo below to see this placement on your homepage.</p>
       )}
     </fieldset>
   );
 }
 
-function LegalPagesEditor() {
-  const [privacyHtml, setPrivacyHtml] = useState('');
-  const [termsHtml, setTermsHtml] = useState('');
-  const [savedPrivacyHtml, setSavedPrivacyHtml] = useState('');
-  const [savedTermsHtml, setSavedTermsHtml] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch('/api/admin/settings')
-      .then((response) => response.json())
-      .then((data) => {
-        const records = Object.fromEntries((data.settings || []).map((item: { key: string; value?: string }) => [item.key, item.value || '']));
-        const loadedPrivacy = records.LEGAL_PRIVACY_HTML || '';
-        const loadedTerms = records.LEGAL_TERMS_HTML || '';
-        setPrivacyHtml(loadedPrivacy);
-        setTermsHtml(loadedTerms);
-        setSavedPrivacyHtml(loadedPrivacy);
-        setSavedTermsHtml(loadedTerms);
-      })
-      .catch(() => setMessage('Could not load legal pages.'))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const legalDirty = privacyHtml !== savedPrivacyHtml || termsHtml !== savedTermsHtml;
-
-  async function saveLegalPages() {
-    setSaving(true);
-    setMessage(null);
-    try {
-      const response = await fetch('/api/admin/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          settings: {
-            LEGAL_PRIVACY_HTML: privacyHtml,
-            LEGAL_TERMS_HTML: termsHtml,
-          },
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to save legal pages');
-      setSavedPrivacyHtml(privacyHtml);
-      setSavedTermsHtml(termsHtml);
-      setMessage('Legal pages saved.');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Failed to save legal pages');
-    } finally {
-      setSaving(false);
-    }
-  }
-
+function LegalPagesEditor({
+  privacyHtml,
+  termsHtml,
+  loading,
+  error,
+  onChangePrivacy,
+  onChangeTerms,
+}: {
+  privacyHtml: string;
+  termsHtml: string;
+  loading: boolean;
+  error: string | null;
+  onChangePrivacy: (html: string) => void;
+  onChangeTerms: (html: string) => void;
+}) {
   if (loading) {
     return <p className="text-sm text-gray-500">Loading legal pages…</p>;
   }
 
   return (
     <div className="space-y-4">
+      {error && <p className="text-sm text-red-700" role="alert">{error}</p>}
       <div className="space-y-2">
         <HtmlField
           label="Privacy policy"
           value={privacyHtml}
-          onChange={setPrivacyHtml}
+          onChange={onChangePrivacy}
           help="Shown at /privacy. Leave blank to keep the built-in studio policy."
         />
         {!privacyHtml.trim() && (
           <button
             type="button"
-            onClick={() => setPrivacyHtml(DEFAULT_PRIVACY_HTML)}
+            onClick={() => onChangePrivacy(DEFAULT_PRIVACY_HTML)}
             className="text-xs font-medium text-primary hover:underline"
           >
             Load default privacy policy to customize
@@ -318,30 +258,18 @@ function LegalPagesEditor() {
         <HtmlField
           label="Terms of service"
           value={termsHtml}
-          onChange={setTermsHtml}
+          onChange={onChangeTerms}
           help="Shown at /terms. Leave blank to keep the built-in studio terms."
         />
         {!termsHtml.trim() && (
           <button
             type="button"
-            onClick={() => setTermsHtml(DEFAULT_TERMS_HTML)}
+            onClick={() => onChangeTerms(DEFAULT_TERMS_HTML)}
             className="text-xs font-medium text-primary hover:underline"
           >
             Load default terms of service to customize
           </button>
         )}
-      </div>
-      {message && <p className="text-sm text-gray-700" role="status">{message}</p>}
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={() => void saveLegalPages()}
-          disabled={saving || !legalDirty}
-          className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
-        >
-          {saving ? 'Saving legal pages…' : 'Save legal pages'}
-        </button>
-        {legalDirty && <span className="text-xs text-amber-700">Unsaved legal page changes</span>}
       </div>
     </div>
   );
@@ -501,7 +429,6 @@ function PortfolioCategoryEditor({
 }
 
 export default function AdminSiteContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [activePage, setActivePage] = useState<SiteContentPage>('identity');
   const [content, setContent] = useState<SiteContentByPage | null>(null);
@@ -513,17 +440,27 @@ export default function AdminSiteContent() {
   const [artworkOptions, setArtworkOptions] = useState<ArtworkOption[]>([]);
   const [previewOpen, setPreviewOpen] = useState(true);
   const [saved, setSaved] = useState<SiteContentByPage | null>(null);
+  const [legalPages, setLegalPages] = useState({ privacyHtml: '', termsHtml: '' });
+  const [savedLegalPages, setSavedLegalPages] = useState({ privacyHtml: '', termsHtml: '' });
+  const [legalLoading, setLegalLoading] = useState(true);
+  const [legalLoadError, setLegalLoadError] = useState<string | null>(null);
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasPreviewDraftRef = useRef(false);
 
-  const selectPageTab = useCallback((page: SiteContentPage) => {
+  const selectPageTab = useCallback((page: SiteContentPage, section?: string) => {
     setActivePage(page);
-    const params = new URLSearchParams(searchParams.toString());
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
     params.set('tab', 'pages');
     params.set('page', page);
-    params.delete('section');
-    router.replace(`/admin?${params.toString()}`, { scroll: false });
-  }, [router, searchParams]);
+    if (section) {
+      params.set('section', section);
+    } else {
+      params.delete('section');
+    }
+    const nextUrl = `/admin?${params.toString()}`;
+    window.history.replaceState(null, '', nextUrl);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
@@ -534,9 +471,14 @@ export default function AdminSiteContent() {
     return () => media.removeEventListener('change', sync);
   }, []);
 
-  const dirtyPages = content && saved
+  const legalDirty = legalPages.privacyHtml !== savedLegalPages.privacyHtml
+    || legalPages.termsHtml !== savedLegalPages.termsHtml;
+  const dirtyContentPages = content && saved
     ? SITE_CONTENT_PAGES.filter((page) => !samePageContent(content[page], saved[page]))
     : [];
+  const dirtyPages: SiteContentPage[] = legalDirty && !dirtyContentPages.includes('identity')
+    ? ['identity', ...dirtyContentPages]
+    : dirtyContentPages;
   const isDirty = dirtyPages.length > 0;
 
   const pushPreview = useCallback(async (snapshot: SiteContentByPage) => {
@@ -612,6 +554,19 @@ export default function AdminSiteContent() {
 
   useEffect(() => {
     void loadContent();
+    fetch('/api/admin/settings', { cache: 'no-store' })
+      .then((response) => response.json())
+      .then((data) => {
+        const records = Object.fromEntries((data.settings || []).map((item: { key: string; value?: string }) => [item.key, item.value || '']));
+        const loaded = {
+          privacyHtml: records.LEGAL_PRIVACY_HTML || '',
+          termsHtml: records.LEGAL_TERMS_HTML || '',
+        };
+        setLegalPages(loaded);
+        setSavedLegalPages(loaded);
+      })
+      .catch(() => setLegalLoadError('Could not load legal pages.'))
+      .finally(() => setLegalLoading(false));
     fetch('/api/admin/artworks', { cache: 'no-store' })
       .then((response) => response.json())
       .then((data) => {
@@ -645,10 +600,11 @@ export default function AdminSiteContent() {
       .catch(() => undefined);
   }, []);
 
+  const hasDirtyContent = dirtyContentPages.length > 0;
   useEffect(() => {
     if (!content) return undefined;
     if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
-    if (isDirty) {
+    if (hasDirtyContent) {
       previewTimerRef.current = setTimeout(() => {
         void pushPreview(content);
       }, 300);
@@ -660,42 +616,63 @@ export default function AdminSiteContent() {
     return () => {
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
     };
-  }, [content, isDirty, pushPreview, clearPreview]);
+  }, [content, hasDirtyContent, pushPreview, clearPreview]);
 
   useUnsavedChangesGuard(isDirty);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!content || !saved || dirtyPages.length === 0) return;
+    if (!content || !saved || !isDirty) return;
 
-    const submitted = Object.fromEntries(dirtyPages.map((page) => [page, content[page]])) as Partial<SiteContentByPage>;
+    const submitted = Object.fromEntries(dirtyContentPages.map((page) => [page, content[page]])) as Partial<SiteContentByPage>;
+    const submittedLegal = legalDirty ? { ...legalPages } : null;
     setSaving(true);
     setMessage(null);
     try {
-      const response = await fetch('/api/admin/site-content', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pages: submitted }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to save site content');
-      const stored = (data.pages ?? submitted) as Partial<SiteContentByPage>;
-      const nextSaved = { ...saved };
-      for (const page of dirtyPages) {
-        if (stored[page]) assignPage(nextSaved, page, stored[page] as SiteContentByPage[typeof page]);
+      let stored: Partial<SiteContentByPage> = submitted;
+      if (dirtyContentPages.length > 0) {
+        const response = await fetch('/api/admin/site-content', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pages: submitted }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to save site content');
+        stored = (data.pages ?? submitted) as Partial<SiteContentByPage>;
       }
-      setSaved(nextSaved);
-      // Keep edits made while the request was in flight; only pages unchanged since submit adopt the stored copy.
-      setContent((current) => {
-        if (!current) return current;
-        const next = { ...current };
-        for (const page of dirtyPages) {
-          if (samePageContent(current[page], submitted[page] as SiteContentByPage[typeof page])) {
-            assignPage(next, page, nextSaved[page]);
-          }
+      if (submittedLegal) {
+        const legalResponse = await fetch('/api/admin/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            settings: {
+              LEGAL_PRIVACY_HTML: submittedLegal.privacyHtml,
+              LEGAL_TERMS_HTML: submittedLegal.termsHtml,
+            },
+          }),
+        });
+        const legalData = await legalResponse.json().catch(() => ({}));
+        if (!legalResponse.ok) throw new Error(legalData.error || 'Failed to save legal pages');
+        setSavedLegalPages(submittedLegal);
+      }
+      if (dirtyContentPages.length > 0) {
+        const nextSaved = { ...saved };
+        for (const page of dirtyContentPages) {
+          if (stored[page]) assignPage(nextSaved, page, stored[page] as SiteContentByPage[typeof page]);
         }
-        return next;
-      });
+        setSaved(nextSaved);
+        // Keep edits made while the request was in flight; only pages unchanged since submit adopt the stored copy.
+        setContent((current) => {
+          if (!current) return current;
+          const next = { ...current };
+          for (const page of dirtyContentPages) {
+            if (samePageContent(current[page], submitted[page] as SiteContentByPage[typeof page])) {
+              assignPage(next, page, nextSaved[page]);
+            }
+          }
+          return next;
+        });
+      }
       setMessage(dirtyPages.length === 1 ? 'Saved and published.' : `Saved and published ${dirtyPages.length} pages.`);
       await clearPreview();
     } catch (error) {
@@ -731,11 +708,7 @@ export default function AdminSiteContent() {
   const previewHref = SITE_CONTENT_PREVIEW_HREF[activePage];
 
   return (
-    <div className="space-y-6" data-testid="site-content-editor">
-      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-        Edit public page copy and structure here without touching code. Routes stay fixed so navigation cannot point at broken URLs. Updates, portfolio pieces, and products are managed in their own tabs.
-      </div>
-
+    <div className="space-y-5" data-testid="site-content-editor">
       <div className="flex flex-wrap gap-2">
         {PAGE_TABS.map((tab) => {
           const tabDirty = dirtyPages.includes(tab.key);
@@ -766,14 +739,16 @@ export default function AdminSiteContent() {
             <h2 className="text-lg font-semibold text-gray-900">{activeTab.label}</h2>
             <p className="mt-1 text-sm text-gray-600">{activeTab.description}</p>
           </div>
-          <a
-            href={previewHref}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            View page
-          </a>
+          <div className="flex shrink-0 items-center gap-2">
+            <a
+              href={previewHref}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              View live ↗
+            </a>
+          </div>
         </div>
 
         {message && (
@@ -786,14 +761,12 @@ export default function AdminSiteContent() {
               <TextField label="Site name" value={content.identity.siteName} onChange={(value) => setContent({ ...content, identity: { ...content.identity, siteName: value } })} help="Used in page titles, footer, and metadata." />
               <TextField label="Header name" value={content.identity.headerName} onChange={(value) => setContent({ ...content, identity: { ...content.identity, headerName: value } })} help="Optional shorter name for the navigation bar. Leave blank to use the full site name." />
               <TextField label="Copyright name" value={content.identity.copyrightName} onChange={(value) => setContent({ ...content, identity: { ...content.identity, copyrightName: value } })} />
-              <div className="md:col-span-2">
-                <TextAreaField
-                  label="Tagline"
-                  value={content.identity.tagline}
-                  onChange={(value) => setContent({ ...content, identity: { ...content.identity, tagline: value } })}
-                  help="Shown in the footer and search previews."
-                />
-              </div>
+              <TextField
+                label="Tagline"
+                value={content.identity.tagline}
+                onChange={(value) => setContent({ ...content, identity: { ...content.identity, tagline: value } })}
+                help="Shown in the footer and search previews."
+              />
               <div className="md:col-span-2">
                 <TextField label="Footer note" value={content.identity.footerTagline} onChange={(value) => setContent({ ...content, identity: { ...content.identity, footerTagline: value } })} />
               </div>
@@ -821,8 +794,12 @@ export default function AdminSiteContent() {
               <TextField label="Legal heading" value={content.identity.footer.legalHeading} onChange={(value) => setContent({ ...content, identity: { ...content.identity, footer: { ...content.identity.footer, legalHeading: value } } })} />
               <CheckboxField label="Show legal links" checked={content.identity.footer.showLegal} onChange={(value) => setContent({ ...content, identity: { ...content.identity, footer: { ...content.identity.footer, showLegal: value } } })} />
               <CheckboxField label="Show extra footer column" checked={content.identity.footer.extraColumn.show} onChange={(value) => setContent({ ...content, identity: { ...content.identity, footer: { ...content.identity.footer, extraColumn: { ...content.identity.footer.extraColumn, show: value } } } })} />
-              <TextField label="Extra column heading" value={content.identity.footer.extraColumn.heading} onChange={(value) => setContent({ ...content, identity: { ...content.identity, footer: { ...content.identity.footer, extraColumn: { ...content.identity.footer.extraColumn, heading: value } } } })} help="For example: Studio hours, Visit us, or Press kit." />
-              <HtmlField label="Extra column body" value={content.identity.footer.extraColumn.bodyHtml} onChange={(value) => setContent({ ...content, identity: { ...content.identity, footer: { ...content.identity.footer, extraColumn: { ...content.identity.footer.extraColumn, bodyHtml: value } } } })} />
+              {content.identity.footer.extraColumn.show && (
+                <>
+                  <TextField label="Extra column heading" value={content.identity.footer.extraColumn.heading} onChange={(value) => setContent({ ...content, identity: { ...content.identity, footer: { ...content.identity.footer, extraColumn: { ...content.identity.footer.extraColumn, heading: value } } } })} help="For example: Studio hours, Visit us, or Press kit." />
+                  <HtmlField label="Extra column body" value={content.identity.footer.extraColumn.bodyHtml} onChange={(value) => setContent({ ...content, identity: { ...content.identity, footer: { ...content.identity.footer, extraColumn: { ...content.identity.footer.extraColumn, bodyHtml: value } } } })} />
+                </>
+              )}
             </EditorSection>
             <EditorSection title="Navigation" defaultOpen id={cmsSectionElementId('identity', 'navigation')}>
               <p className="text-sm text-gray-600">Reorder pages, rename links, and hide them from the header or footer. Destinations stay locked to existing site routes.</p>
@@ -845,15 +822,32 @@ export default function AdminSiteContent() {
               />
             </EditorSection>
             <EditorSection title="Legal pages" id={cmsSectionElementId('identity', 'legal')}>
-              <p className="text-sm text-gray-600">Privacy and terms pages linked from your footer.</p>
-              <LegalPagesEditor />
+              <p className="text-sm text-gray-600">Privacy and terms pages linked from your footer. Saved together with Branding changes.</p>
+              <LegalPagesEditor
+                privacyHtml={legalPages.privacyHtml}
+                termsHtml={legalPages.termsHtml}
+                loading={legalLoading}
+                error={legalLoadError}
+                onChangePrivacy={(privacyHtml) => setLegalPages((prev) => ({ ...prev, privacyHtml }))}
+                onChangeTerms={(termsHtml) => setLegalPages((prev) => ({ ...prev, termsHtml }))}
+              />
             </EditorSection>
           </div>
         )}
 
         {activePage === 'home' && (
           <div className="space-y-4">
-            <p className="text-sm text-gray-600">Colors, type, and shape are in Branding → Site appearance.</p>
+            <p className="text-sm text-gray-600">
+              Colors, type, and shape are in{' '}
+              <button
+                type="button"
+                onClick={() => selectPageTab('identity', 'branding')}
+                className="font-medium text-primary hover:underline"
+              >
+                Branding → Site appearance
+              </button>
+              .
+            </p>
             <SelectField
               label="Homepage layout"
               value={content.home.layoutTemplate}
@@ -868,32 +862,6 @@ export default function AdminSiteContent() {
               ]}
               help="Changes which block visitors see first without hiding your banner."
             />
-            <EditorSection title="Homepage blocks" defaultOpen>
-              <p className="text-sm text-gray-600">Choose which blocks appear on your homepage and in what order. Homepage layout (Gallery first / Story first) can place artwork or about above the banner. Hide individual blocks in their panels below.</p>
-              <div className="space-y-3">
-                {content.home.sectionOrder.map((sectionKey, index) => (
-                  <div key={sectionKey} className="flex items-center justify-between rounded-md border border-gray-200 p-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-gray-900">{HOME_SECTION_LABELS[sectionKey]}</span>
-                      {!homeSectionIsVisible(content.home, sectionKey) && (
-                        <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-500">Hidden</span>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <ReorderButtons
-                        name={HOME_SECTION_LABELS[sectionKey]}
-                        index={index}
-                        count={content.home.sectionOrder.length}
-                        onMove={(direction) => setContent({
-                          ...content,
-                          home: { ...content.home, sectionOrder: reorder(content.home.sectionOrder, index, direction) },
-                        })}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </EditorSection>
             <EditorSection title="Top of homepage" defaultOpen id={cmsSectionElementId('home', 'hero')}>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <SelectField
@@ -905,12 +873,32 @@ export default function AdminSiteContent() {
                     { value: 'full', label: 'Tall — full screen banner' },
                   ]}
                 />
+                {content.home.hero.imagePlacement === 'background' && content.home.hero.portraitImage.trim() && (
+                  <SelectField
+                    label="Photo focus"
+                    value={content.home.hero.imageFocus ?? 'upper'}
+                    onChange={(value) => setContent({
+                      ...content,
+                      home: { ...content.home, hero: { ...content.home.hero, imageFocus: value as typeof content.home.hero.imageFocus } },
+                    })}
+                    options={[
+                      { value: 'top', label: 'Top of photo' },
+                      { value: 'upper', label: 'Upper (portraits)' },
+                      { value: 'center', label: 'Center' },
+                      { value: 'bottom', label: 'Bottom of photo' },
+                    ]}
+                    help="Shifts which part of your background photo stays centered behind the headline."
+                  />
+                )}
                 <div className="md:col-span-2">
                   <HeroImagePlacementPicker
                     value={content.home.hero.imagePlacement}
                     hasPhoto={Boolean(content.home.hero.portraitImage.trim())}
                     onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, imagePlacement: value as typeof content.home.hero.imagePlacement } } })}
                   />
+                </div>
+                <div className="md:col-span-2">
+                  <MediaImageField label="Your photo" value={content.home.hero.portraitImage} onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, portraitImage: value } } })} help="Upload an image or pick from your library. Leave blank to hide." />
                 </div>
                 <SelectField
                   label="Primary button"
@@ -936,119 +924,188 @@ export default function AdminSiteContent() {
                 <TextField label="Title line 1" value={content.home.hero.titleLine1} onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, titleLine1: value } } })} />
                 <TextField label="Title line 2" value={content.home.hero.titleLine2} onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, titleLine2: value } } })} />
                 <div className="md:col-span-2"><TextAreaField label="Subtitle" value={content.home.hero.subtitle} onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, subtitle: value } } })} /></div>
-                <TextField label="Shop button" value={content.home.hero.ctaShop} onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, ctaShop: value } } })} />
-                <TextField label="Portfolio button" value={content.home.hero.ctaPortfolio} onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, ctaPortfolio: value } } })} />
-                <TextField label="Contact button" value={content.home.hero.ctaContact} onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, ctaContact: value } } })} />
-                <div className="md:col-span-2">
-                  <MediaImageField label="Your photo" value={content.home.hero.portraitImage} onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, portraitImage: value } } })} help="Upload an image or pick from your library. Leave blank to hide." />
-                </div>
+                {(content.home.hero.showSecondaryCtas || content.home.hero.primaryCta === 'shop') && (
+                  <TextField label="Shop button" value={content.home.hero.ctaShop} onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, ctaShop: value } } })} />
+                )}
+                {(content.home.hero.showSecondaryCtas || content.home.hero.primaryCta === 'portfolio') && (
+                  <TextField label="Portfolio button" value={content.home.hero.ctaPortfolio} onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, ctaPortfolio: value } } })} />
+                )}
+                {(content.home.hero.showSecondaryCtas || content.home.hero.primaryCta === 'contact') && (
+                  <TextField label="Contact button" value={content.home.hero.ctaContact} onChange={(value) => setContent({ ...content, home: { ...content.home, hero: { ...content.home.hero, ctaContact: value } } })} />
+                )}
+              </div>
+            </EditorSection>
+            <EditorSection title="Homepage blocks" defaultOpen>
+              <p className="text-sm text-gray-600">Toggle blocks on or off and set their order. Edit each block’s copy in its panel below.</p>
+              <div className="space-y-2.5">
+                {content.home.sectionOrder.map((sectionKey, index) => {
+                  const visible = homeSectionIsVisible(content.home, sectionKey);
+                  const setVisible = (checked: boolean) => {
+                    if (sectionKey === 'featured') {
+                      setContent({ ...content, home: { ...content.home, featured: { ...content.home.featured, showSection: checked } } });
+                    } else if (sectionKey === 'about') {
+                      setContent({ ...content, home: { ...content.home, about: { ...content.home.about, showSection: checked } } });
+                    } else if (sectionKey === 'blog') {
+                      setContent({ ...content, home: { ...content.home, blog: { ...content.home.blog, showSection: checked } } });
+                    } else {
+                      setContent({ ...content, home: { ...content.home, newsletter: { ...content.home.newsletter, showSection: checked } } });
+                    }
+                  };
+                  return (
+                    <div key={sectionKey} className="flex items-center justify-between gap-3 rounded-md border border-gray-200 px-3 py-2.5">
+                      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-sm font-medium text-gray-900">
+                        <input
+                          type="checkbox"
+                          checked={visible}
+                          onChange={(event) => setVisible(event.target.checked)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                        <span className={visible ? 'text-gray-900' : 'text-gray-500'}>{HOME_SECTION_LABELS[sectionKey]}</span>
+                        {!visible && (
+                          <span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-normal text-gray-500">Hidden</span>
+                        )}
+                      </label>
+                      <div className="flex gap-2">
+                        <ReorderButtons
+                          name={HOME_SECTION_LABELS[sectionKey]}
+                          index={index}
+                          count={content.home.sectionOrder.length}
+                          onMove={(direction) => setContent({
+                            ...content,
+                            home: { ...content.home, sectionOrder: reorder(content.home.sectionOrder, index, direction) },
+                          })}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </EditorSection>
             <EditorSection title="Artwork spotlight" id={cmsSectionElementId('home', 'featured')}>
               <CheckboxField label="Show this section" checked={content.home.featured.showSection} onChange={(value) => setContent({ ...content, home: { ...content.home, featured: { ...content.home.featured, showSection: value } } })} />
-              <SelectField
-                label="Grid columns"
-                value={content.home.featured.columns}
-                onChange={(value) => setContent({
-                  ...content,
-                  home: {
-                    ...content.home,
-                    featured: { ...content.home.featured, columns: value as typeof content.home.featured.columns },
-                  },
-                })}
-                options={[
-                  { value: '2', label: '2 columns' },
-                  { value: '3', label: '3 columns' },
-                  { value: '4', label: '4 columns' },
-                ]}
-              />
-              <SelectField
-                label="Which works to show"
-                value={content.home.featured.selectionMode}
-                onChange={(value) => setContent({
-                  ...content,
-                  home: {
-                    ...content.home,
-                    featured: { ...content.home.featured, selectionMode: value as typeof content.home.featured.selectionMode },
-                  },
-                })}
-                options={[
-                  { value: 'featured_flag', label: 'Portfolio items marked featured' },
-                  { value: 'latest', label: 'Latest portfolio items' },
-                  { value: 'manual', label: 'Pick specific works' },
-                ]}
-              />
-              <BoundedIntField
-                label="Number of works"
-                value={content.home.featured.limit}
-                min={1}
-                max={12}
-                onChange={(limit) => setContent({
-                  ...content,
-                  home: { ...content.home, featured: { ...content.home.featured, limit } },
-                })}
-                help="Between 1 and 12."
-              />
-              {content.home.featured.selectionMode === 'manual' && (
-                <div className="space-y-2">
-                  <span className="block text-sm font-medium text-gray-700">Selected works (in order)</span>
-                  {artworkOptions.length === 0 ? (
-                    <p className="text-sm text-gray-500">Add portfolio items in the Content tab first.</p>
-                  ) : (
-                    artworkOptions.map((artwork) => {
-                      const selected = content.home.featured.manualSlugs.includes(artwork.slug);
-                      return (
-                        <label key={artwork.slug} className="flex items-center gap-2 text-sm text-gray-700">
-                          <input
-                            type="checkbox"
-                            checked={selected}
-                            onChange={(event) => {
-                              const manualSlugs = event.target.checked
-                                ? [...content.home.featured.manualSlugs, artwork.slug]
-                                : content.home.featured.manualSlugs.filter((slug) => slug !== artwork.slug);
-                              setContent({
-                                ...content,
-                                home: { ...content.home, featured: { ...content.home.featured, manualSlugs } },
-                              });
-                            }}
-                          />
-                          <span>{artwork.title}{artwork.featured ? ' (featured)' : ''}</span>
-                        </label>
-                      );
-                    })
+              {content.home.featured.showSection && (
+                <>
+                  <SelectField
+                    label="Grid columns"
+                    value={content.home.featured.columns}
+                    onChange={(value) => setContent({
+                      ...content,
+                      home: {
+                        ...content.home,
+                        featured: { ...content.home.featured, columns: value as typeof content.home.featured.columns },
+                      },
+                    })}
+                    options={[
+                      { value: '2', label: '2 columns' },
+                      { value: '3', label: '3 columns' },
+                      { value: '4', label: '4 columns' },
+                    ]}
+                  />
+                  <SelectField
+                    label="Which works to show"
+                    value={content.home.featured.selectionMode}
+                    onChange={(value) => setContent({
+                      ...content,
+                      home: {
+                        ...content.home,
+                        featured: { ...content.home.featured, selectionMode: value as typeof content.home.featured.selectionMode },
+                      },
+                    })}
+                    options={[
+                      { value: 'featured_flag', label: 'Portfolio items marked featured' },
+                      { value: 'latest', label: 'Latest portfolio items' },
+                      { value: 'manual', label: 'Pick specific works' },
+                    ]}
+                  />
+                  <BoundedIntField
+                    label="Number of works"
+                    value={content.home.featured.limit}
+                    min={1}
+                    max={12}
+                    onChange={(limit) => setContent({
+                      ...content,
+                      home: { ...content.home, featured: { ...content.home.featured, limit } },
+                    })}
+                    help="Between 1 and 12."
+                  />
+                  {content.home.featured.selectionMode === 'manual' && (
+                    <div className="space-y-2">
+                      <span className="block text-sm font-medium text-gray-700">Selected works (in order)</span>
+                      {artworkOptions.length === 0 ? (
+                        <p className="text-sm text-gray-500">Add portfolio items in the Content tab first.</p>
+                      ) : (
+                        artworkOptions.map((artwork) => {
+                          const selected = content.home.featured.manualSlugs.includes(artwork.slug);
+                          return (
+                            <label key={artwork.slug} className="flex items-center gap-2 text-sm text-gray-700">
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={(event) => {
+                                  const manualSlugs = event.target.checked
+                                    ? [...content.home.featured.manualSlugs, artwork.slug]
+                                    : content.home.featured.manualSlugs.filter((slug) => slug !== artwork.slug);
+                                  setContent({
+                                    ...content,
+                                    home: { ...content.home, featured: { ...content.home.featured, manualSlugs } },
+                                  });
+                                }}
+                              />
+                              <span>{artwork.title}{artwork.featured ? ' (featured)' : ''}</span>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
                   )}
-                </div>
+                  <TextField label="Section title" value={content.home.featured.title} onChange={(value) => setContent({ ...content, home: { ...content.home, featured: { ...content.home.featured, title: value } } })} />
+                  <TextAreaField label="Section description" value={content.home.featured.description} onChange={(value) => setContent({ ...content, home: { ...content.home, featured: { ...content.home.featured, description: value } } })} />
+                  <TextField label="View-all link text" value={content.home.featured.cta} onChange={(value) => setContent({ ...content, home: { ...content.home, featured: { ...content.home.featured, cta: value } } })} />
+                  <CheckboxField
+                    label="Show artwork descriptions under thumbnails"
+                    checked={content.home.featured.showDescriptions}
+                    onChange={(value) => setContent({ ...content, home: { ...content.home, featured: { ...content.home.featured, showDescriptions: value } } })}
+                  />
+                </>
               )}
-              <TextField label="Section title" value={content.home.featured.title} onChange={(value) => setContent({ ...content, home: { ...content.home, featured: { ...content.home.featured, title: value } } })} />
-              <TextAreaField label="Section description" value={content.home.featured.description} onChange={(value) => setContent({ ...content, home: { ...content.home, featured: { ...content.home.featured, description: value } } })} />
-              <TextField label="View-all link text" value={content.home.featured.cta} onChange={(value) => setContent({ ...content, home: { ...content.home, featured: { ...content.home.featured, cta: value } } })} />
-              <CheckboxField
-                label="Show artwork descriptions under thumbnails"
-                checked={content.home.featured.showDescriptions}
-                onChange={(value) => setContent({ ...content, home: { ...content.home, featured: { ...content.home.featured, showDescriptions: value } } })}
-              />
             </EditorSection>
             <EditorSection title="About preview" id={cmsSectionElementId('home', 'about')}>
               <CheckboxField label="Show this section" checked={content.home.about.showSection} onChange={(value) => setContent({ ...content, home: { ...content.home, about: { ...content.home.about, showSection: value } } })} />
-              <TextField label="Section title" value={content.home.about.title} onChange={(value) => setContent({ ...content, home: { ...content.home, about: { ...content.home.about, title: value } } })} />
-              <TextAreaField label="First paragraph" value={content.home.about.paragraph1} onChange={(value) => setContent({ ...content, home: { ...content.home, about: { ...content.home.about, paragraph1: value } } })} />
-              <TextAreaField label="Second paragraph" value={content.home.about.paragraph2} onChange={(value) => setContent({ ...content, home: { ...content.home, about: { ...content.home.about, paragraph2: value } } })} />
-              <TextField label="Call-to-action button" value={content.home.about.cta} onChange={(value) => setContent({ ...content, home: { ...content.home, about: { ...content.home.about, cta: value } } })} />
-              <MediaImageField label="Studio image" value={content.home.about.studioImage} onChange={(value) => setContent({ ...content, home: { ...content.home, about: { ...content.home.about, studioImage: value } } })} help="Leave blank to hide the image." />
+              {content.home.about.showSection && (
+                <>
+                  <TextField label="Section title" value={content.home.about.title} onChange={(value) => setContent({ ...content, home: { ...content.home, about: { ...content.home.about, title: value } } })} />
+                  <TextAreaField
+                    label="About text"
+                    value={[content.home.about.paragraph1, content.home.about.paragraph2].filter((block) => block.trim()).join('\n\n')}
+                    help="Write one or more paragraphs about yourself. Leave a blank line between paragraphs."
+                    onChange={(value) => setContent({ ...content, home: { ...content.home, about: { ...content.home.about, paragraph1: value, paragraph2: '' } } })}
+                  />
+                  <TextField label="Call-to-action button" value={content.home.about.cta} onChange={(value) => setContent({ ...content, home: { ...content.home, about: { ...content.home.about, cta: value } } })} help="Leave blank to hide this button." />
+                  <MediaImageField label="Studio image" value={content.home.about.studioImage} onChange={(value) => setContent({ ...content, home: { ...content.home, about: { ...content.home.about, studioImage: value } } })} help="Leave blank to hide the image." />
+                </>
+              )}
             </EditorSection>
             <EditorSection title="Updates preview" id={cmsSectionElementId('home', 'blog')}>
               <CheckboxField label="Show this section" checked={content.home.blog.showSection} onChange={(value) => setContent({ ...content, home: { ...content.home, blog: { ...content.home.blog, showSection: value } } })} />
-              <TextField label="Section title" value={content.home.blog.title} onChange={(value) => setContent({ ...content, home: { ...content.home, blog: { ...content.home.blog, title: value } } })} />
-              <TextAreaField label="Section description" value={content.home.blog.description} onChange={(value) => setContent({ ...content, home: { ...content.home, blog: { ...content.home.blog, description: value } } })} />
-              <TextField label="View-all link text" value={content.home.blog.cta} onChange={(value) => setContent({ ...content, home: { ...content.home, blog: { ...content.home.blog, cta: value } } })} />
+              {content.home.blog.showSection && (
+                <>
+                  <TextField label="Section title" value={content.home.blog.title} onChange={(value) => setContent({ ...content, home: { ...content.home, blog: { ...content.home.blog, title: value } } })} />
+                  <TextAreaField label="Section description" value={content.home.blog.description} onChange={(value) => setContent({ ...content, home: { ...content.home, blog: { ...content.home.blog, description: value } } })} />
+                  <TextField label="View-all link text" value={content.home.blog.cta} onChange={(value) => setContent({ ...content, home: { ...content.home, blog: { ...content.home.blog, cta: value } } })} />
+                </>
+              )}
             </EditorSection>
             <EditorSection title="Newsletter" id={cmsSectionElementId('home', 'newsletter')}>
               <CheckboxField label="Show this section" checked={content.home.newsletter.showSection} onChange={(value) => setContent({ ...content, home: { ...content.home, newsletter: { ...content.home.newsletter, showSection: value } } })} />
-              <TextField label="Section title" value={content.home.newsletter.title} onChange={(value) => setContent({ ...content, home: { ...content.home, newsletter: { ...content.home.newsletter, title: value } } })} />
-              <TextAreaField label="Section description" value={content.home.newsletter.description} onChange={(value) => setContent({ ...content, home: { ...content.home, newsletter: { ...content.home.newsletter, description: value } } })} />
-              <TextField label="Email placeholder" value={content.home.newsletter.placeholder} onChange={(value) => setContent({ ...content, home: { ...content.home, newsletter: { ...content.home.newsletter, placeholder: value } } })} />
-              <TextField label="Subscribe button" value={content.home.newsletter.buttonLabel} onChange={(value) => setContent({ ...content, home: { ...content.home, newsletter: { ...content.home.newsletter, buttonLabel: value } } })} />
-              <TextField label="Disclaimer" value={content.home.newsletter.disclaimer} onChange={(value) => setContent({ ...content, home: { ...content.home, newsletter: { ...content.home.newsletter, disclaimer: value } } })} />
+              {content.home.newsletter.showSection && (
+                <>
+                  <TextField label="Section title" value={content.home.newsletter.title} onChange={(value) => setContent({ ...content, home: { ...content.home, newsletter: { ...content.home.newsletter, title: value } } })} />
+                  <TextAreaField label="Section description" value={content.home.newsletter.description} onChange={(value) => setContent({ ...content, home: { ...content.home, newsletter: { ...content.home.newsletter, description: value } } })} />
+                  <TextField label="Email placeholder" value={content.home.newsletter.placeholder} onChange={(value) => setContent({ ...content, home: { ...content.home, newsletter: { ...content.home.newsletter, placeholder: value } } })} />
+                  <TextField label="Subscribe button" value={content.home.newsletter.buttonLabel} onChange={(value) => setContent({ ...content, home: { ...content.home, newsletter: { ...content.home.newsletter, buttonLabel: value } } })} />
+                  <TextField label="Disclaimer" value={content.home.newsletter.disclaimer} onChange={(value) => setContent({ ...content, home: { ...content.home, newsletter: { ...content.home.newsletter, disclaimer: value } } })} />
+                </>
+              )}
             </EditorSection>
           </div>
         )}
@@ -1059,23 +1116,53 @@ export default function AdminSiteContent() {
               bio={content.bio}
               onApply={(nextBio) => setContent({ ...content, bio: nextBio })}
             />
-            <EditorSection title="Section order" defaultOpen>
+            <EditorSection title="Bio & artist statement" defaultOpen id={cmsSectionElementId('bio', 'hero')}>
+              <TextField label="Page title" value={content.bio.hero.title} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, title: value } } })} />
+              <TextAreaField label="Intro bio" value={content.bio.hero.subtitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, subtitle: value } } })} help="Shown under the title on your public bio. Leave a blank line between paragraphs." />
+              <MediaImageField label="Your photo" value={content.bio.hero.portraitImage} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, portraitImage: value } } })} help="Leave blank for a clean centered layout." />
+              {content.bio.hero.portraitImage.trim() && (
+                <TextField label="Photo description" value={content.bio.hero.portraitImageAlt} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, portraitImageAlt: value } } })} help="Short alt text for accessibility. Leave blank for a generic label." />
+              )}
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <TextField label="Portfolio button" value={content.bio.hero.ctaPortfolio} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, ctaPortfolio: value } } })} help="Leave blank to hide this button." />
+                <TextField label="Contact button" value={content.bio.hero.ctaContact} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, ctaContact: value } } })} help="Leave blank to hide this button." />
+              </div>
+              {content.bio.showStatement && (
+                <div id={cmsSectionElementId('bio', 'statement')} className="space-y-4 border-t border-gray-100 pt-4">
+                  <TextField label="Artist statement heading (optional)" value={content.bio.statementTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, statementTitle: value } })} help="Leave blank to flow straight into the text without a separate heading." />
+                  <HtmlField label="Artist statement (formatted)" value={content.bio.artistStatementHtml} help="Formatted paragraphs about what you make and why. Use the alignment buttons to center headings or text. Stays hidden until you write something." onChange={(value) => setContent({ ...content, bio: { ...content.bio, artistStatementHtml: value } })} />
+                </div>
+              )}
+            </EditorSection>
+            <EditorSection title="Page sections & order" defaultOpen>
               <p className="text-sm text-gray-600">
-                Reorder blocks on the public page. Path and recognition sit side-by-side when adjacent and both visible.
+                Turn off anything that does not fit your story and reorder what stays visible. Empty CV blocks never appear on the public page.
               </p>
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 {content.bio.sectionOrder.map((sectionKey, index) => {
                   const visible = bioSectionIsVisible(content.bio, sectionKey);
+                  const toggleSection = (checked: boolean) => {
+                    if (sectionKey === 'statement') setContent({ ...content, bio: { ...content.bio, showStatement: checked } });
+                    else if (sectionKey === 'background') setContent({ ...content, bio: { ...content.bio, showBackground: checked } });
+                    else if (sectionKey === 'achievements') setContent({ ...content, bio: { ...content.bio, showAchievements: checked } });
+                    else if (sectionKey === 'studio') setContent({ ...content, bio: { ...content.bio, showStudio: checked } });
+                    else if (sectionKey === 'collections') setContent({ ...content, bio: { ...content.bio, showCollections: checked } });
+                    else setContent({ ...content, bio: { ...content.bio, showCta: checked } });
+                  };
                   return (
-                    <div key={sectionKey} className="flex items-center justify-between rounded-md border border-gray-200 p-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-medium text-gray-900">{BIO_SECTION_LABELS[sectionKey]}</span>
+                    <div key={sectionKey} className="flex items-center justify-between gap-3 rounded-md border border-gray-200 px-3 py-2.5">
+                      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-sm font-medium text-gray-900">
+                        <input
+                          type="checkbox"
+                          checked={visible}
+                          onChange={(event) => toggleSection(event.target.checked)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                        <span className={visible ? 'text-gray-900' : 'text-gray-500'}>{BIO_SECTION_LABELS[sectionKey]}</span>
                         {!visible && (
-                          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-gray-500">
-                            Hidden
-                          </span>
+                          <span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-normal text-gray-500">Hidden</span>
                         )}
-                      </div>
+                      </label>
                       <div className="flex gap-2">
                         <ReorderButtons
                           name={BIO_SECTION_LABELS[sectionKey]}
@@ -1092,54 +1179,47 @@ export default function AdminSiteContent() {
                 })}
               </div>
             </EditorSection>
-            <EditorSection title="Visible sections" defaultOpen>
-              <p className="text-sm text-gray-600">
-                Turn off anything that does not fit your story — empty CV blocks never appear on the public page.
-              </p>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <CheckboxField label="Artist statement" checked={content.bio.showStatement} onChange={(value) => setContent({ ...content, bio: { ...content.bio, showStatement: value } })} />
-                <CheckboxField label="Your path (optional)" checked={content.bio.showBackground} onChange={(value) => setContent({ ...content, bio: { ...content.bio, showBackground: value } })} help="Education, self-taught route, or how you found your practice." />
-                <CheckboxField label="Shows & recognition (optional)" checked={content.bio.showAchievements} onChange={(value) => setContent({ ...content, bio: { ...content.bio, showAchievements: value } })} help="Leave off until you have exhibitions, awards, or residencies to share." />
-                <CheckboxField label="How you work" checked={content.bio.showStudio} onChange={(value) => setContent({ ...content, bio: { ...content.bio, showStudio: value } })} />
-                <CheckboxField label="Collections & press (optional)" checked={content.bio.showCollections} onChange={(value) => setContent({ ...content, bio: { ...content.bio, showCollections: value } })} />
-                <CheckboxField label="Closing call to action" checked={content.bio.showCta} onChange={(value) => setContent({ ...content, bio: { ...content.bio, showCta: value } })} />
-              </div>
-            </EditorSection>
-            <EditorSection title="Welcome area" defaultOpen id={cmsSectionElementId('bio', 'hero')}>
-              <TextField label="Page title" value={content.bio.hero.title} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, title: value } } })} />
-              <TextAreaField label="Intro text" value={content.bio.hero.subtitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, subtitle: value } } })} help="Shown under the title on your public bio. Leave blank until you have a real intro." />
-              <MediaImageField label="Your photo" value={content.bio.hero.portraitImage} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, portraitImage: value } } })} help="Leave blank to hide." />
-              <TextField label="Photo description" value={content.bio.hero.portraitImageAlt} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, portraitImageAlt: value } } })} help="Short alt text for accessibility. Leave blank for a generic label." />
-              <TextField label="Portfolio button" value={content.bio.hero.ctaPortfolio} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, ctaPortfolio: value } } })} help="Leave blank to hide this button." />
-              <TextField label="Contact button" value={content.bio.hero.ctaContact} onChange={(value) => setContent({ ...content, bio: { ...content.bio, hero: { ...content.bio.hero, ctaContact: value } } })} help="Leave blank to hide this button." />
-            </EditorSection>
-            <EditorSection title="Artist statement" id={cmsSectionElementId('bio', 'statement')}>
-              <TextField label="Artist statement heading" value={content.bio.statementTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, statementTitle: value } })} />
-              <HtmlField label="Artist statement" value={content.bio.artistStatementHtml} help="A few paragraphs about what you make and why. This section stays hidden on the site until you write something." onChange={(value) => setContent({ ...content, bio: { ...content.bio, artistStatementHtml: value } })} />
-            </EditorSection>
-            <EditorSection title="How you work" id={cmsSectionElementId('bio', 'studio')}>
-              <TextField label="Section heading" value={content.bio.studioTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, studioTitle: value } })} />
-              <MediaImageField label="Studio image" value={content.bio.studioImage} onChange={(value) => setContent({ ...content, bio: { ...content.bio, studioImage: value } })} help="Optional. Leave blank to hide." />
-              <TextField label="Studio image description" value={content.bio.studioImageAlt} onChange={(value) => setContent({ ...content, bio: { ...content.bio, studioImageAlt: value } })} help="Short alt text for accessibility." />
-              <HtmlField label="Process / studio notes" value={content.bio.studioPracticeHtml} onChange={(value) => setContent({ ...content, bio: { ...content.bio, studioPracticeHtml: value } })} />
-            </EditorSection>
-            <EditorSection title="Optional CV blocks" id={cmsSectionElementId('bio', 'background')}>
-              <TextField label="Path heading" value={content.bio.backgroundTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, backgroundTitle: value } })} />
-              <HtmlField label="Your path" value={content.bio.backgroundHtml} help="Optional. School, self-taught route, or anything that frames your practice — hide the section if it does not fit." onChange={(value) => setContent({ ...content, bio: { ...content.bio, backgroundHtml: value } })} />
-              <TextField label="Recognition heading" value={content.bio.achievementsTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, achievementsTitle: value } })} />
-              <HtmlField label="Shows & recognition" value={content.bio.achievementsHtml} help="Optional. Exhibitions, awards, or residencies — hide until you have something to share." onChange={(value) => setContent({ ...content, bio: { ...content.bio, achievementsHtml: value } })} />
-            </EditorSection>
-            <EditorSection title="Collections & press" id={cmsSectionElementId('bio', 'collections')}>
-              <TextField label="Section heading" value={content.bio.collectionsTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, collectionsTitle: value } })} />
-              <HtmlField label="Collections & press" value={content.bio.collectionsHtml} help="Optional. Leave blank and keep the section hidden until press or collections exist." onChange={(value) => setContent({ ...content, bio: { ...content.bio, collectionsHtml: value } })} />
-            </EditorSection>
-            <EditorSection title="Closing call to action" id={cmsSectionElementId('bio', 'cta')}>
-              <TextField label="Closing section title" value={content.bio.cta.title} onChange={(value) => setContent({ ...content, bio: { ...content.bio, cta: { ...content.bio.cta, title: value } } })} />
-              <TextAreaField label="Closing section subtitle" value={content.bio.cta.subtitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, cta: { ...content.bio.cta, subtitle: value } } })} />
-              <TextField label="Closing portfolio button" value={content.bio.cta.portfolioLabel} onChange={(value) => setContent({ ...content, bio: { ...content.bio, cta: { ...content.bio.cta, portfolioLabel: value } } })} help="Leave blank to hide." />
-              <TextField label="Closing shop button" value={content.bio.cta.shopLabel} onChange={(value) => setContent({ ...content, bio: { ...content.bio, cta: { ...content.bio.cta, shopLabel: value } } })} help="Leave blank to hide." />
-              <TextField label="Closing contact button" value={content.bio.cta.contactLabel} onChange={(value) => setContent({ ...content, bio: { ...content.bio, cta: { ...content.bio.cta, contactLabel: value } } })} help="Leave blank to hide." />
-            </EditorSection>
+            {content.bio.showStudio && (
+              <EditorSection title="How you work" id={cmsSectionElementId('bio', 'studio')}>
+                <TextField label="Section heading" value={content.bio.studioTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, studioTitle: value } })} />
+                <MediaImageField label="Studio image" value={content.bio.studioImage} onChange={(value) => setContent({ ...content, bio: { ...content.bio, studioImage: value } })} help="Optional. Leave blank to hide." />
+                {content.bio.studioImage.trim() && (
+                  <TextField label="Studio image description" value={content.bio.studioImageAlt} onChange={(value) => setContent({ ...content, bio: { ...content.bio, studioImageAlt: value } })} help="Short alt text for accessibility." />
+                )}
+                <HtmlField label="Process / studio notes" value={content.bio.studioPracticeHtml} onChange={(value) => setContent({ ...content, bio: { ...content.bio, studioPracticeHtml: value } })} />
+              </EditorSection>
+            )}
+            {(content.bio.showBackground || content.bio.showAchievements) && (
+              <EditorSection title="Optional CV blocks" id={cmsSectionElementId('bio', 'background')}>
+                {content.bio.showBackground && (
+                  <>
+                    <TextField label="Path heading" value={content.bio.backgroundTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, backgroundTitle: value } })} />
+                    <HtmlField label="Your path" value={content.bio.backgroundHtml} help="Optional. School, self-taught route, or anything that frames your practice." onChange={(value) => setContent({ ...content, bio: { ...content.bio, backgroundHtml: value } })} />
+                  </>
+                )}
+                {content.bio.showAchievements && (
+                  <>
+                    <TextField label="Recognition heading" value={content.bio.achievementsTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, achievementsTitle: value } })} />
+                    <HtmlField label="Shows & recognition" value={content.bio.achievementsHtml} help="Optional. Exhibitions, awards, or residencies." onChange={(value) => setContent({ ...content, bio: { ...content.bio, achievementsHtml: value } })} />
+                  </>
+                )}
+              </EditorSection>
+            )}
+            {content.bio.showCollections && (
+              <EditorSection title="Collections & press" id={cmsSectionElementId('bio', 'collections')}>
+                <TextField label="Section heading" value={content.bio.collectionsTitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, collectionsTitle: value } })} />
+                <HtmlField label="Collections & press" value={content.bio.collectionsHtml} help="Optional press mentions or public/private collections." onChange={(value) => setContent({ ...content, bio: { ...content.bio, collectionsHtml: value } })} />
+              </EditorSection>
+            )}
+            {content.bio.showCta && (
+              <EditorSection title="Closing call to action" id={cmsSectionElementId('bio', 'cta')}>
+                <TextField label="Closing section title" value={content.bio.cta.title} onChange={(value) => setContent({ ...content, bio: { ...content.bio, cta: { ...content.bio.cta, title: value } } })} />
+                <TextAreaField label="Closing section subtitle" value={content.bio.cta.subtitle} onChange={(value) => setContent({ ...content, bio: { ...content.bio, cta: { ...content.bio.cta, subtitle: value } } })} />
+                <TextField label="Closing portfolio button" value={content.bio.cta.portfolioLabel} onChange={(value) => setContent({ ...content, bio: { ...content.bio, cta: { ...content.bio.cta, portfolioLabel: value } } })} help="Leave blank to hide." />
+                <TextField label="Closing shop button" value={content.bio.cta.shopLabel} onChange={(value) => setContent({ ...content, bio: { ...content.bio, cta: { ...content.bio.cta, shopLabel: value } } })} help="Leave blank to hide." />
+                <TextField label="Closing contact button" value={content.bio.cta.contactLabel} onChange={(value) => setContent({ ...content, bio: { ...content.bio, cta: { ...content.bio.cta, contactLabel: value } } })} help="Leave blank to hide." />
+              </EditorSection>
+            )}
           </div>
         )}
 
@@ -1149,16 +1229,20 @@ export default function AdminSiteContent() {
               <TextField label="Page title" value={content.contact.header.title} onChange={(value) => setContent({ ...content, contact: { ...content.contact, header: { ...content.contact.header, title: value } } })} />
               <TextAreaField label="Page subtitle" value={content.contact.header.subtitle} onChange={(value) => setContent({ ...content, contact: { ...content.contact, header: { ...content.contact.header, subtitle: value } } })} />
               <TextField label="Form heading" value={content.contact.form.title} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, title: value } } })} />
-              <TextAreaField label="Success message" value={content.contact.form.successMessage} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, successMessage: value } } })} />
-              <TextField label="Inquiry label" value={content.contact.form.inquiryLabel} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, inquiryLabel: value } } })} />
-              <TextField label="Name label" value={content.contact.form.nameLabel} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, nameLabel: value } } })} />
-              <TextField label="Email label" value={content.contact.form.emailLabel} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, emailLabel: value } } })} />
-              <TextField label="Subject label" value={content.contact.form.subjectLabel} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, subjectLabel: value } } })} />
-              <TextField label="Message label" value={content.contact.form.messageLabel} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, messageLabel: value } } })} />
               <TextField label="Submit button" value={content.contact.form.submitLabel} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, submitLabel: value } } })} />
-              <TextField label="Name placeholder" value={content.contact.form.namePlaceholder} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, namePlaceholder: value } } })} />
-              <TextField label="Email placeholder" value={content.contact.form.emailPlaceholder} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, emailPlaceholder: value } } })} />
-              <TextField label="Subject placeholder" value={content.contact.form.subjectPlaceholder} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, subjectPlaceholder: value } } })} />
+              <TextAreaField label="Success message" value={content.contact.form.successMessage} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, successMessage: value } } })} />
+            </EditorSection>
+            <EditorSection title="Form field labels & placeholders">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <TextField label="Inquiry label" value={content.contact.form.inquiryLabel} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, inquiryLabel: value } } })} />
+                <TextField label="Name label" value={content.contact.form.nameLabel} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, nameLabel: value } } })} />
+                <TextField label="Email label" value={content.contact.form.emailLabel} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, emailLabel: value } } })} />
+                <TextField label="Subject label" value={content.contact.form.subjectLabel} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, subjectLabel: value } } })} />
+                <TextField label="Message label" value={content.contact.form.messageLabel} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, messageLabel: value } } })} />
+                <TextField label="Name placeholder" value={content.contact.form.namePlaceholder} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, namePlaceholder: value } } })} />
+                <TextField label="Email placeholder" value={content.contact.form.emailPlaceholder} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, emailPlaceholder: value } } })} />
+                <TextField label="Subject placeholder" value={content.contact.form.subjectPlaceholder} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, subjectPlaceholder: value } } })} />
+              </div>
               <TextAreaField label="Message placeholder" value={content.contact.form.messagePlaceholder} onChange={(value) => setContent({ ...content, contact: { ...content.contact, form: { ...content.contact.form, messagePlaceholder: value } } })} />
             </EditorSection>
             <EditorSection title="Inquiry types" id={cmsSectionElementId('contact', 'inquiry')}>
@@ -1318,7 +1402,7 @@ export default function AdminSiteContent() {
                   })}
                 />
                 <CheckboxField
-                  label="Show sold badge"
+                  label="Show not available badge"
                   checked={content.portfolio.layout.showSoldBadge}
                   onChange={(value) => setContent({
                     ...content,
@@ -1427,89 +1511,147 @@ export default function AdminSiteContent() {
             />
             <EditorSection title="Purchase information" id={cmsSectionElementId('shop', 'purchase')}>
               <CheckboxField label="Show this section" checked={content.shop.showPurchaseInfo} onChange={(value) => setContent({ ...content, shop: { ...content.shop, showPurchaseInfo: value } })} />
-              <TextField label="Section title" value={content.shop.purchaseInfo.title} onChange={(value) => setContent({ ...content, shop: { ...content.shop, purchaseInfo: { ...content.shop.purchaseInfo, title: value } } })} />
-              <TextField label="Authenticity heading" value={content.shop.purchaseInfo.authenticityTitle} onChange={(value) => setContent({ ...content, shop: { ...content.shop, purchaseInfo: { ...content.shop.purchaseInfo, authenticityTitle: value } } })} />
-              <TextAreaField label="Authenticity text" value={content.shop.purchaseInfo.authenticityText} onChange={(value) => setContent({ ...content, shop: { ...content.shop, purchaseInfo: { ...content.shop.purchaseInfo, authenticityText: value } } })} />
-              <TextField label="Shipping heading" value={content.shop.purchaseInfo.shippingTitle} onChange={(value) => setContent({ ...content, shop: { ...content.shop, purchaseInfo: { ...content.shop.purchaseInfo, shippingTitle: value } } })} />
-              <TextAreaField label="Shipping text" value={content.shop.purchaseInfo.shippingText} onChange={(value) => setContent({ ...content, shop: { ...content.shop, purchaseInfo: { ...content.shop.purchaseInfo, shippingText: value } } })} />
-              <TextField label="Commissions heading" value={content.shop.purchaseInfo.commissionsTitle} onChange={(value) => setContent({ ...content, shop: { ...content.shop, purchaseInfo: { ...content.shop.purchaseInfo, commissionsTitle: value } } })} />
-              <TextAreaField label="Commissions text" value={content.shop.purchaseInfo.commissionsText} onChange={(value) => setContent({ ...content, shop: { ...content.shop, purchaseInfo: { ...content.shop.purchaseInfo, commissionsText: value } } })} />
-              <TextField label="Contact button" value={content.shop.purchaseInfo.ctaLabel} onChange={(value) => setContent({ ...content, shop: { ...content.shop, purchaseInfo: { ...content.shop.purchaseInfo, ctaLabel: value } } })} help="Leave blank to hide." />
+              {content.shop.showPurchaseInfo && (
+                <>
+                  <TextField label="Section title" value={content.shop.purchaseInfo.title} onChange={(value) => setContent({ ...content, shop: { ...content.shop, purchaseInfo: { ...content.shop.purchaseInfo, title: value } } })} />
+                  <TextField label="Authenticity heading" value={content.shop.purchaseInfo.authenticityTitle} onChange={(value) => setContent({ ...content, shop: { ...content.shop, purchaseInfo: { ...content.shop.purchaseInfo, authenticityTitle: value } } })} />
+                  <TextAreaField label="Authenticity text" value={content.shop.purchaseInfo.authenticityText} onChange={(value) => setContent({ ...content, shop: { ...content.shop, purchaseInfo: { ...content.shop.purchaseInfo, authenticityText: value } } })} />
+                  <TextField label="Shipping heading" value={content.shop.purchaseInfo.shippingTitle} onChange={(value) => setContent({ ...content, shop: { ...content.shop, purchaseInfo: { ...content.shop.purchaseInfo, shippingTitle: value } } })} />
+                  <TextAreaField label="Shipping text" value={content.shop.purchaseInfo.shippingText} onChange={(value) => setContent({ ...content, shop: { ...content.shop, purchaseInfo: { ...content.shop.purchaseInfo, shippingText: value } } })} />
+                  <TextField label="Commissions heading" value={content.shop.purchaseInfo.commissionsTitle} onChange={(value) => setContent({ ...content, shop: { ...content.shop, purchaseInfo: { ...content.shop.purchaseInfo, commissionsTitle: value } } })} />
+                  <TextAreaField label="Commissions text" value={content.shop.purchaseInfo.commissionsText} onChange={(value) => setContent({ ...content, shop: { ...content.shop, purchaseInfo: { ...content.shop.purchaseInfo, commissionsText: value } } })} />
+                  <TextField label="Contact button" value={content.shop.purchaseInfo.ctaLabel} onChange={(value) => setContent({ ...content, shop: { ...content.shop, purchaseInfo: { ...content.shop.purchaseInfo, ctaLabel: value } } })} help="Leave blank to hide." />
+                </>
+              )}
             </EditorSection>
           </div>
         )}
 
         {activePage === 'blog' && (
           <div className="space-y-4" id={cmsSectionElementId('blog', 'listing')}>
-            <SelectField
-              label="Listing header size"
-              value={content.blog.hero.height}
-              onChange={(value) => setContent({ ...content, blog: { ...content.blog, hero: { ...content.blog.hero, height: value as typeof content.blog.hero.height } } })}
-              options={[
-                { value: 'compact', label: 'Compact' },
-                { value: 'full', label: 'Spacious' },
-              ]}
-            />
-            <p className="text-sm text-gray-600">The header and footer link label is edited in Branding → Navigation (the Updates item). This page controls the feed itself.</p>
-            <TextField label="Page title" value={content.blog.title} onChange={(value) => setContent({ ...content, blog: { ...content.blog, title: value } })} />
-            <TextAreaField label="Page subtitle" value={content.blog.subtitle} onChange={(value) => setContent({ ...content, blog: { ...content.blog, subtitle: value } })} />
-            <SelectField
-              label="Feed layout"
-              value={content.blog.feedLayout}
-              onChange={(value) => setContent({ ...content, blog: { ...content.blog, feedLayout: value as typeof content.blog.feedLayout } })}
-              options={[
-                { value: 'timeline', label: 'Timeline (captions under media)' },
-                { value: 'grid', label: 'Grid (studio wall)' },
-              ]}
-            />
-            <CheckboxField label="Show journal / studio filters" checked={content.blog.showFormatFilters} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showFormatFilters: value } })} />
-            <TextField label="Journal filter label" value={content.blog.journalLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, journalLabel: value } })} />
-            <TextField label="Studio filter label" value={content.blog.studioLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, studioLabel: value } })} />
-            <CheckboxField label="Show collector-only section" checked={content.blog.showPrivateSection} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showPrivateSection: value } })} help="Private updates appear only to signed-in emails you whitelist on the post." />
-            <TextField label="Collector section title" value={content.blog.privateSectionTitle} onChange={(value) => setContent({ ...content, blog: { ...content.blog, privateSectionTitle: value } })} />
-            <TextAreaField label="Collector section description" value={content.blog.privateSectionSubtitle} onChange={(value) => setContent({ ...content, blog: { ...content.blog, privateSectionSubtitle: value } })} />
-            <TextField label="Sign-in button" value={content.blog.privateSignInLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, privateSignInLabel: value } })} />
-            <TextField label="Quick look button" value={content.blog.quickLookLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, quickLookLabel: value } })} />
-            <TextField label="Save update button" value={content.blog.saveUpdateLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, saveUpdateLabel: value } })} />
-            <TextField label="Ask artist button" value={content.blog.askArtistLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, askArtistLabel: value } })} />
-            <TextField label="Featured badge label" value={content.blog.featuredLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, featuredLabel: value } })} />
-            <TextField label="Public tab label" value={content.blog.publicTabLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, publicTabLabel: value } })} />
-            <TextField label="All filter label" value={content.blog.allFilterLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, allFilterLabel: value } })} />
-            <CheckboxField label="Show publish date on timeline posts" checked={content.blog.showFeedDate} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showFeedDate: value } })} />
-            <CheckboxField label="Show author on timeline posts" checked={content.blog.showFeedAuthor} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showFeedAuthor: value } })} />
-            <CheckboxField label="Show tags on timeline posts" checked={content.blog.showFeedTags} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showFeedTags: value } })} />
-            <CheckboxField label="Show comments on updates" checked={content.blog.showComments} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showComments: value } })} help="Signed-in visitors comment on the post page; the feed shows the count. Hide comments from the post page and restore them in Inbox." />
-            <CheckboxField label="Show likes on updates" checked={content.blog.showLikes} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showLikes: value } })} help="Anyone can like, no account needed. Turning this off hides counts and stops new likes." />
-            <TextField label="Comments section label" value={content.blog.commentsLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, commentsLabel: value } })} />
-            <TextField label="Like button label" value={content.blog.likeLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, likeLabel: value } })} />
-            <SelectField
-              label="Auto-create private update when order enters processing"
-              value={content.blog.autoOrderProgressPost}
-              onChange={(value) => setContent({ ...content, blog: { ...content.blog, autoOrderProgressPost: value as typeof content.blog.autoOrderProgressPost } })}
-              options={[
-                { value: 'off', label: 'Off' },
-                { value: 'draft', label: 'Create as draft for review' },
-                { value: 'publish', label: 'Publish and notify collector' },
-              ]}
-            />
-            <TextAreaField label="Order progress update template" value={content.blog.autoOrderProgressExcerpt} onChange={(value) => setContent({ ...content, blog: { ...content.blog, autoOrderProgressExcerpt: value } })} help="Use {{summary}} and {{orderNumber}} placeholders." />
-            <CheckboxField label="Send public updates digest email" checked={content.blog.digestEnabled} onChange={(value) => setContent({ ...content, blog: { ...content.blog, digestEnabled: value } })} />
-            <BoundedIntField
-              label="Digest interval (days)"
-              value={content.blog.digestIntervalDays}
-              min={1}
-              max={30}
-              onChange={(digestIntervalDays) => setContent({ ...content, blog: { ...content.blog, digestIntervalDays } })}
-              help="Between 1 and 30 days."
-            />
-            <TextField label="Digest email subject" value={content.blog.digestSubject} onChange={(value) => setContent({ ...content, blog: { ...content.blog, digestSubject: value } })} />
-            <TextAreaField label="Digest email intro" value={content.blog.digestIntro} onChange={(value) => setContent({ ...content, blog: { ...content.blog, digestIntro: value } })} />
-            <CheckboxField label="Send collector private-updates digest" checked={content.blog.collectorDigestEnabled} onChange={(value) => setContent({ ...content, blog: { ...content.blog, collectorDigestEnabled: value } })} />
-            <TextField label="Collector digest subject" value={content.blog.collectorDigestSubject} onChange={(value) => setContent({ ...content, blog: { ...content.blog, collectorDigestSubject: value } })} />
-            <TextAreaField label="Collector digest intro" value={content.blog.collectorDigestIntro} onChange={(value) => setContent({ ...content, blog: { ...content.blog, collectorDigestIntro: value } })} />
-            <CheckboxField label="Show subscribe button" checked={content.blog.showSubscribe} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showSubscribe: value } })} />
-            <TextField label="Subscribe button label" value={content.blog.subscribeLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, subscribeLabel: value } })} />
-            <CheckboxField label="Show RSS and Atom feeds" checked={content.blog.showRss} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showRss: value } })} />
+            <p className="text-sm text-gray-600">
+              Header and footer link text lives in{' '}
+              <button
+                type="button"
+                onClick={() => selectPageTab('identity', 'navigation')}
+                className="font-medium text-primary hover:underline"
+              >
+                Branding → Navigation
+              </button>
+              . This page controls the Updates feed itself.
+            </p>
+            <EditorSection title="Feed header & layout" defaultOpen>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <SelectField
+                  label="Listing header size"
+                  value={content.blog.hero.height}
+                  onChange={(value) => setContent({ ...content, blog: { ...content.blog, hero: { ...content.blog.hero, height: value as typeof content.blog.hero.height } } })}
+                  options={[
+                    { value: 'compact', label: 'Compact' },
+                    { value: 'full', label: 'Spacious' },
+                  ]}
+                />
+                <SelectField
+                  label="Feed layout"
+                  value={content.blog.feedLayout}
+                  onChange={(value) => setContent({ ...content, blog: { ...content.blog, feedLayout: value as typeof content.blog.feedLayout } })}
+                  options={[
+                    { value: 'timeline', label: 'Timeline (captions under media)' },
+                    { value: 'grid', label: 'Grid (studio wall)' },
+                  ]}
+                />
+              </div>
+              <TextField label="Page title" value={content.blog.title} onChange={(value) => setContent({ ...content, blog: { ...content.blog, title: value } })} />
+              <TextAreaField label="Page subtitle" value={content.blog.subtitle} onChange={(value) => setContent({ ...content, blog: { ...content.blog, subtitle: value } })} />
+              <CheckboxField label="Show journal / studio filters" checked={content.blog.showFormatFilters} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showFormatFilters: value } })} />
+              {content.blog.showFormatFilters && (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <TextField label="Journal filter label" value={content.blog.journalLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, journalLabel: value } })} />
+                  <TextField label="Studio filter label" value={content.blog.studioLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, studioLabel: value } })} />
+                </div>
+              )}
+              <div className="grid grid-cols-1 gap-2 pt-1 md:grid-cols-3">
+                <CheckboxField label="Show dates" checked={content.blog.showFeedDate} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showFeedDate: value } })} />
+                <CheckboxField label="Show author" checked={content.blog.showFeedAuthor} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showFeedAuthor: value } })} />
+                <CheckboxField label="Show tags" checked={content.blog.showFeedTags} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showFeedTags: value } })} />
+              </div>
+            </EditorSection>
+            <EditorSection title="Collector-only section">
+              <CheckboxField label="Show collector-only section" checked={content.blog.showPrivateSection} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showPrivateSection: value } })} help="Private updates appear only to signed-in emails you whitelist on the post." />
+              {content.blog.showPrivateSection && (
+                <>
+                  <TextField label="Collector section title" value={content.blog.privateSectionTitle} onChange={(value) => setContent({ ...content, blog: { ...content.blog, privateSectionTitle: value } })} />
+                  <TextAreaField label="Collector section description" value={content.blog.privateSectionSubtitle} onChange={(value) => setContent({ ...content, blog: { ...content.blog, privateSectionSubtitle: value } })} />
+                  <TextField label="Sign-in button" value={content.blog.privateSignInLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, privateSignInLabel: value } })} />
+                </>
+              )}
+            </EditorSection>
+            <EditorSection title="Reactions, comments & labels">
+              <CheckboxField label="Show comments on updates" checked={content.blog.showComments} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showComments: value } })} help="Signed-in visitors comment on the post page; hide or restore comments in Inbox." />
+              <CheckboxField label="Show likes on updates" checked={content.blog.showLikes} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showLikes: value } })} help="Anyone can like without signing in." />
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {content.blog.showComments && (
+                  <TextField label="Comments section label" value={content.blog.commentsLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, commentsLabel: value } })} />
+                )}
+                {content.blog.showLikes && (
+                  <TextField label="Like button label" value={content.blog.likeLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, likeLabel: value } })} />
+                )}
+                <TextField label="Quick look button" value={content.blog.quickLookLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, quickLookLabel: value } })} />
+                <TextField label="Save update button" value={content.blog.saveUpdateLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, saveUpdateLabel: value } })} />
+                <TextField label="Ask artist button" value={content.blog.askArtistLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, askArtistLabel: value } })} />
+                <TextField label="Featured badge label" value={content.blog.featuredLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, featuredLabel: value } })} />
+                <TextField label="Public tab label" value={content.blog.publicTabLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, publicTabLabel: value } })} />
+                <TextField label="All filter label" value={content.blog.allFilterLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, allFilterLabel: value } })} />
+              </div>
+            </EditorSection>
+            <EditorSection title="Subscriptions & email digests">
+              <CheckboxField label="Show subscribe button" checked={content.blog.showSubscribe} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showSubscribe: value } })} />
+              {content.blog.showSubscribe && (
+                <TextField label="Subscribe button label" value={content.blog.subscribeLabel} onChange={(value) => setContent({ ...content, blog: { ...content.blog, subscribeLabel: value } })} />
+              )}
+              <CheckboxField label="Show RSS and Atom feeds" checked={content.blog.showRss} onChange={(value) => setContent({ ...content, blog: { ...content.blog, showRss: value } })} />
+              <div className="space-y-3 border-t border-gray-100 pt-3">
+                <SelectField
+                  label="Auto-create private update when order enters processing"
+                  value={content.blog.autoOrderProgressPost}
+                  onChange={(value) => setContent({ ...content, blog: { ...content.blog, autoOrderProgressPost: value as typeof content.blog.autoOrderProgressPost } })}
+                  options={[
+                    { value: 'off', label: 'Off' },
+                    { value: 'draft', label: 'Create as draft for review' },
+                    { value: 'publish', label: 'Publish and notify collector' },
+                  ]}
+                />
+                {content.blog.autoOrderProgressPost !== 'off' && (
+                  <TextAreaField label="Order progress update template" value={content.blog.autoOrderProgressExcerpt} onChange={(value) => setContent({ ...content, blog: { ...content.blog, autoOrderProgressExcerpt: value } })} help="Use {{summary}} and {{orderNumber}} placeholders." />
+                )}
+              </div>
+              <div className="space-y-3 border-t border-gray-100 pt-3">
+                <CheckboxField label="Send public updates digest email" checked={content.blog.digestEnabled} onChange={(value) => setContent({ ...content, blog: { ...content.blog, digestEnabled: value } })} />
+                {content.blog.digestEnabled && (
+                  <>
+                    <BoundedIntField
+                      label="Digest interval (days)"
+                      value={content.blog.digestIntervalDays}
+                      min={1}
+                      max={30}
+                      onChange={(digestIntervalDays) => setContent({ ...content, blog: { ...content.blog, digestIntervalDays } })}
+                      help="Between 1 and 30 days."
+                    />
+                    <TextField label="Digest email subject" value={content.blog.digestSubject} onChange={(value) => setContent({ ...content, blog: { ...content.blog, digestSubject: value } })} />
+                    <TextAreaField label="Digest email intro" value={content.blog.digestIntro} onChange={(value) => setContent({ ...content, blog: { ...content.blog, digestIntro: value } })} />
+                  </>
+                )}
+              </div>
+              <div className="space-y-3 border-t border-gray-100 pt-3">
+                <CheckboxField label="Send collector private-updates digest" checked={content.blog.collectorDigestEnabled} onChange={(value) => setContent({ ...content, blog: { ...content.blog, collectorDigestEnabled: value } })} />
+                {content.blog.collectorDigestEnabled && (
+                  <>
+                    <TextField label="Collector digest subject" value={content.blog.collectorDigestSubject} onChange={(value) => setContent({ ...content, blog: { ...content.blog, collectorDigestSubject: value } })} />
+                    <TextAreaField label="Collector digest intro" value={content.blog.collectorDigestIntro} onChange={(value) => setContent({ ...content, blog: { ...content.blog, collectorDigestIntro: value } })} />
+                  </>
+                )}
+              </div>
+            </EditorSection>
           </div>
         )}
 
@@ -1526,6 +1668,7 @@ export default function AdminSiteContent() {
               onClick={() => {
                 if (!window.confirm('Discard all unsaved page changes?')) return;
                 setContent(saved);
+                setLegalPages(savedLegalPages);
                 setMessage('Unsaved changes discarded.');
                 void clearPreview();
               }}
@@ -1540,7 +1683,7 @@ export default function AdminSiteContent() {
         </div>
       </form>
 
-      <div className="rounded-lg border bg-white overflow-hidden xl:sticky xl:top-28">
+      <div className="scroll-mt-24 rounded-lg border bg-white overflow-hidden xl:sticky xl:top-28">
         <div className="border-b px-4 py-3 flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 className="text-sm font-semibold text-gray-900">Live preview</h3>
@@ -1555,9 +1698,11 @@ export default function AdminSiteContent() {
             >
               {previewOpen ? 'Hide preview' : 'Show preview'}
             </button>
-            <a href={`${previewHref}?cmsPreview=1&preview=${previewToken}`} target="_blank" rel="noreferrer" className="inline-flex min-h-9 items-center text-sm font-medium text-primary hover:opacity-80">
-              Open full page
-            </a>
+            {isDirty && (
+              <a href={`${previewHref}?cmsPreview=1&preview=${previewToken}`} target="_blank" rel="noreferrer" className="inline-flex min-h-9 items-center text-sm font-medium text-primary hover:opacity-80">
+                Open draft ↗
+              </a>
+            )}
           </div>
         </div>
         {previewOpen && (

@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 import React from "react";
 import { getAllPosts } from "@/lib/markdown";
@@ -7,8 +6,10 @@ import { getSiteContent } from "@/lib/site-content";
 import {
   homeHeroCtas,
   homeHeroHeightClass,
+  homeHeroImagePositionClass,
   gridColumnsClass,
   resolveHomeSectionRenderPlan,
+  splitPlainParagraphs,
   UPDATES_PATH,
   updatesPostPath,
   type HomePageContent,
@@ -18,7 +19,9 @@ import type { ArtworkPiece } from "@/lib/portfolio";
 import type { BlogPost } from "@/lib/markdown";
 import { NewsletterSignup } from "@/components/NewsletterSignup";
 import CmsEditAnchor from "@/components/admin/CmsEditAnchor";
-import { shouldUnoptimizeImage } from "@/lib/image-variant-url";
+import ImageCarousel from "@/components/ImageCarousel";
+import OptimizedImage from "@/components/OptimizedImage";
+import { artworkGalleryImages, collectImageGallery } from "@/lib/commerce";
 
 export const dynamic = 'force-dynamic';
 
@@ -38,6 +41,7 @@ type HomeSectionContext = {
   featuredArtworks: ArtworkPiece[];
   recentPosts: BlogPost[];
   artworkImageFit: 'cover' | 'contain';
+  showPortfolioSoldBadge: boolean;
 };
 
 const HOME_EDIT_TARGETS: Partial<Record<HomeSectionKey, string>> = {
@@ -60,7 +64,7 @@ function wrapHomeSection(sectionKey: HomeSectionKey, node: React.ReactNode) {
 }
 
 function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
-  const { home, featuredArtworks, recentPosts, artworkImageFit } = ctx;
+  const { home, featuredArtworks, recentPosts, artworkImageFit, showPortfolioSoldBadge } = ctx;
   const featuredFitClass = artworkImageFit === 'contain' ? 'object-contain' : 'object-cover';
 
   switch (key) {
@@ -75,34 +79,39 @@ function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
             </div>
 
             <div className={`${gridColumnsClass(home.featured.columns)} mb-10`}>
-              {featuredArtworks.map((artwork) => (
-                <Link key={artwork.slug} href={`/portfolio/${artwork.slug}`} className="group block">
-                  <div className="relative mb-3 aspect-square overflow-hidden bg-gray-100">
-                    <Image
-                      src={artwork.images.thumbnail}
+              {featuredArtworks.map((artwork) => {
+                const artworkHref = `/portfolio/${artwork.slug}`;
+                return (
+                  <article key={artwork.slug} className="group">
+                    <ImageCarousel
+                      images={artworkGalleryImages(artwork.images)}
                       alt={artwork.title}
-                      fill
-                      className={`${featuredFitClass} transition-transform duration-300 group-hover:scale-105 motion-reduce:transform-none`}
+                      href={artworkHref}
+                      variantSize="md"
+                      className="relative mb-3 aspect-square overflow-hidden bg-gray-100"
+                      imageClassName={`${featuredFitClass} transition-transform duration-300 group-hover:scale-105 motion-reduce:transform-none`}
                       sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                      unoptimized={shouldUnoptimizeImage(artwork.images.thumbnail)}
-                    />
-                    {!artwork.available && (
-                      <span className="absolute right-3 top-3 bg-white/95 px-2 py-1 text-xs font-medium text-gray-900">
-                        Sold
-                      </span>
-                    )}
-                  </div>
-                  <h3 className="text-xl font-semibold text-gray-900 transition-colors group-hover:text-gray-700">
-                    {artwork.title}
-                  </h3>
-                  <p className="mt-1 text-sm text-gray-600">
-                    {[artwork.medium, artwork.year].filter(Boolean).join(' · ')}
-                  </p>
-                  {home.featured.showDescriptions && (
-                    <p className="mt-2 text-gray-700 line-clamp-2">{artwork.description}</p>
-                  )}
-                </Link>
-              ))}
+                    >
+                      {showPortfolioSoldBadge && !artwork.available && (
+                        <span className="pointer-events-none absolute right-3 top-3 z-20 bg-white/95 px-2 py-1 text-xs font-medium text-gray-900">
+                          Not available
+                        </span>
+                      )}
+                    </ImageCarousel>
+                    <Link href={artworkHref} className="block">
+                      <h3 className="text-xl font-semibold text-gray-900 transition-colors group-hover:text-gray-700">
+                        {artwork.title}
+                      </h3>
+                      <p className="mt-1 text-sm text-gray-600">
+                        {[artwork.medium, artwork.year].filter(Boolean).join(' · ')}
+                      </p>
+                      {home.featured.showDescriptions && (
+                        <p className="mt-2 text-gray-700 line-clamp-2">{artwork.description}</p>
+                      )}
+                    </Link>
+                  </article>
+                );
+              })}
             </div>
 
             <div className="text-center">
@@ -114,29 +123,39 @@ function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
         </section>
       );
 
-    case 'about':
+    case 'about': {
       if (!home.about.showSection) return null;
+      const aboutParagraphs = [home.about.paragraph1, home.about.paragraph2]
+        .flatMap((block) => splitPlainParagraphs(block));
+      const hasStudioImage = Boolean(home.about.studioImage);
       return (
         <section key="about" className="section-space-tight bg-surface-muted">
-          <div className={`${home.about.studioImage ? 'max-w-6xl' : 'max-w-3xl'} mx-auto px-6`}>
-            <div className={home.about.studioImage ? 'grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center' : ''}>
+          <div className={`${hasStudioImage ? 'max-w-6xl' : 'max-w-2xl text-center'} mx-auto px-6`}>
+            <div className={hasStudioImage ? 'grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center' : ''}>
               <div>
-                <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-6">{home.about.title}</h2>
-                <p className="text-lg text-gray-700 mb-6 leading-relaxed">{home.about.paragraph1}</p>
-                <p className="text-lg text-gray-700 mb-8 leading-relaxed">{home.about.paragraph2}</p>
-                <Link href="/contact" className="btn-primary px-6 py-3 inline-block">
-                  {home.about.cta}
-                </Link>
+                <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-6">{home.about.title}</h2>
+                {aboutParagraphs.length > 0 && (
+                  <div className="space-y-4 mb-8 text-base text-gray-700 leading-relaxed">
+                    {aboutParagraphs.map((paragraph, index) => (
+                      <p key={index} className="whitespace-pre-line">{paragraph}</p>
+                    ))}
+                  </div>
+                )}
+                {home.about.cta.trim() && (
+                  <Link href="/contact" className="btn-primary px-6 py-3 inline-block">
+                    {home.about.cta}
+                  </Link>
+                )}
               </div>
               {home.about.studioImage && (
                 <div className="relative aspect-square rounded-lg overflow-hidden bg-gray-200">
-                  <Image
+                  <OptimizedImage
                     src={home.about.studioImage}
                     alt="Artist studio"
+                    variantSize="md"
                     fill
                     className="object-cover"
                     sizes="(max-width: 1024px) 100vw, 50vw"
-                    unoptimized={shouldUnoptimizeImage(home.about.studioImage)}
                   />
                 </div>
               )}
@@ -144,6 +163,7 @@ function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
           </div>
         </section>
       );
+    }
 
     case 'blog':
       if (!home.blog.showSection || recentPosts.length === 0) return null;
@@ -156,36 +176,50 @@ function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-10">
-              {recentPosts.map((post) => (
-                <Link key={post.slug} href={updatesPostPath(post.slug)} className="group">
-                  <article className="bg-surface-muted rounded-lg overflow-hidden h-full hover:shadow-lg transition-shadow card-surface">
-                    {(post.coverImage || post.media[0]) && (
-                      <div className="aspect-[4/3] overflow-hidden bg-gray-200">
-                        {post.coverImage ? (
-                          <img src={post.coverImage} alt={post.title} className="h-full w-full object-cover" />
-                        ) : post.media[0]?.type === 'video' ? (
-                          <video src={post.media[0].url} className="h-full w-full object-cover" muted playsInline preload="metadata" />
-                        ) : (
-                          <img src={post.media[0]?.url} alt={post.title} className="h-full w-full object-cover" />
-                        )}
-                      </div>
-                    )}
-                    <div className="p-6">
-                    <time className="text-sm text-gray-500">
-                      {new Date(post.publishedAt).toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric',
-                      })}
-                    </time>
-                    <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-4 group-hover:text-gray-700 transition-colors">
-                      {post.format === 'short' ? (post.excerpt || post.title) : post.title}
-                    </h3>
-                    {post.format !== 'short' && <p className="text-gray-700 leading-relaxed">{post.excerpt}</p>}
-                    </div>
+              {recentPosts.map((post) => {
+                const postImages = post.media
+                  .filter((item) => item.type === 'image')
+                  .map((item) => item.url);
+                const rawGallery = [post.coverImage, ...postImages].filter(
+                  (src): src is string => Boolean(src && src.trim()),
+                );
+                const gallery = rawGallery.length > 0 ? collectImageGallery(rawGallery) : [];
+                const firstVideo = !post.coverImage && post.media[0]?.type === 'video' ? post.media[0] : null;
+                const postHref = updatesPostPath(post.slug);
+
+                return (
+                  <article key={post.slug} className="group bg-surface-muted rounded-lg overflow-hidden h-full hover:shadow-lg transition-shadow card-surface flex flex-col">
+                    {firstVideo ? (
+                      <Link href={postHref} className="block aspect-[4/3] overflow-hidden bg-gray-200">
+                        <video src={firstVideo.url} className="h-full w-full object-cover" muted playsInline preload="metadata" />
+                      </Link>
+                    ) : gallery.length > 0 ? (
+                      <ImageCarousel
+                        images={gallery}
+                        alt={post.title}
+                        href={postHref}
+                        variantSize="md"
+                        className="relative aspect-[4/3] overflow-hidden bg-gray-200"
+                        imageClassName="object-cover"
+                        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                      />
+                    ) : null}
+                    <Link href={postHref} className="p-6 block flex-1">
+                      <time className="text-sm text-gray-500">
+                        {new Date(post.publishedAt).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric',
+                        })}
+                      </time>
+                      <h3 className="text-xl font-semibold text-gray-900 mb-3 mt-4 group-hover:text-gray-700 transition-colors">
+                        {post.format === 'short' ? (post.excerpt || post.title) : post.title}
+                      </h3>
+                      {post.format !== 'short' && <p className="text-gray-700 leading-relaxed">{post.excerpt}</p>}
+                    </Link>
                   </article>
-                </Link>
-              ))}
+                );
+              })}
             </div>
 
             <div className="text-center">
@@ -236,7 +270,7 @@ export default async function Home() {
   const isBackgroundHero = home.hero.imagePlacement === 'background' && Boolean(portraitImage);
   const isInlineHero = home.hero.imagePlacement === 'inline' && Boolean(portraitImage);
   const isBadgeHero = home.hero.imagePlacement === 'badge' && Boolean(portraitImage);
-  const heroHeightClass = homeHeroHeightClass(home.hero.height);
+  const heroHeightClass = homeHeroHeightClass(home.hero.height, { isBackground: isBackgroundHero });
   const heroTextClass = isBackgroundHero ? 'text-white' : 'text-gray-900';
   const heroSubtitleClass = isBackgroundHero ? 'text-gray-100' : 'text-gray-700';
   const heroAccentClass = isBackgroundHero ? 'text-gray-200' : 'text-accent';
@@ -246,6 +280,7 @@ export default async function Home() {
     featuredArtworks,
     recentPosts,
     artworkImageFit: portfolio.layout.imageFit,
+    showPortfolioSoldBadge: portfolio.layout.showSoldBadge,
   };
 
   return (
@@ -260,21 +295,21 @@ export default async function Home() {
         <CmsEditAnchor targetKey="home:hero" />
         {isBackgroundHero && portraitImage && (
           <>
-            <Image src={portraitImage} alt="" fill className="object-cover" sizes="100vw" priority unoptimized={shouldUnoptimizeImage(portraitImage)} />
+            <OptimizedImage src={portraitImage} alt="" variantSize="lg" fill className={`object-cover ${homeHeroImagePositionClass(home.hero.imageFocus)}`} sizes="100vw" priority />
             <div className="absolute inset-0 bg-black/50" />
           </>
         )}
         <div className={`relative z-10 max-w-5xl mx-auto px-6 ${isInlineHero ? 'grid grid-cols-1 md:grid-cols-2 gap-10 items-center' : 'text-center'}`}>
           {isInlineHero && portraitImage && (
             <div className="relative mx-auto w-40 h-40 md:w-full md:h-auto md:aspect-[4/5] rounded-full md:rounded-lg overflow-hidden shadow-xl">
-              <Image
+              <OptimizedImage
                 src={portraitImage}
                 alt="Artist portrait"
+                variantSize="lg"
                 fill
                 className="object-cover"
                 sizes="(max-width: 768px) 160px, 50vw"
                 priority
-                unoptimized={shouldUnoptimizeImage(portraitImage)}
               />
             </div>
           )}
@@ -301,7 +336,7 @@ export default async function Home() {
             </div>
             {isBadgeHero && portraitImage && (
               <div className="relative mt-8 mx-auto w-24 h-24 rounded-full overflow-hidden border-4 border-white shadow-xl">
-                <Image src={portraitImage} alt="Artist portrait" fill className="object-cover" sizes="96px" unoptimized={shouldUnoptimizeImage(portraitImage)} />
+                <OptimizedImage src={portraitImage} alt="Artist portrait" variantSize="thumb" fill className="object-cover" sizes="96px" priority />
               </div>
             )}
           </div>

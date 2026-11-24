@@ -2,6 +2,7 @@
 
 // New interfaces for Phase 4: Advanced Catalog Features
 import { Product } from './commerce';
+import type { PublicInventoryStatus } from './inventory';
 
 export interface ProductView {
   id: string;
@@ -90,7 +91,11 @@ export interface SearchResults {
   filterOptions?: {
     categories: string[];
     mediums: string[];
+    priceRanges?: Array<{ label: string; min: number; max: number }>;
+    sizes?: string[];
   };
+  /** Public-safe inventory keyed by productId for paginated products (omits untracked originals). */
+  inventoryByProductId?: Record<string, PublicInventoryStatus>;
 }
 
 export interface RecommendationResult {

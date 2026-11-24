@@ -27,7 +27,9 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     await requireAdmin();
-    const payload = normalizeProductPayload(productPayloadSchema.parse(await request.json()));
+    const parsed = productPayloadSchema.parse(await request.json());
+    const initialStock = parsed.initialStock ?? 1;
+    const payload = normalizeProductPayload(parsed);
     const existingProduct = await db.product.findFirst({
       where: {
         OR: [
@@ -45,7 +47,7 @@ export async function POST(request: NextRequest) {
     const product = await db.product.create({ data: payload as any });
     const existingInventory = await db.productInventory.findUnique({ where: { productId: product.id } });
     if (!existingInventory) {
-      await InventoryService.initializeInventory(product.id, 1);
+      await InventoryService.initializeInventory(product.id, initialStock);
     }
     revalidateTag('products');
     revalidatePath('/shop');

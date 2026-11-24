@@ -5,7 +5,9 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { safeExternalHref } from '@/lib/site-content-shared';
 import type { LucideIcon } from 'lucide-react';
-import { BarChart3, Bot, CreditCard, DollarSign, LineChart, Mail, Megaphone, Smartphone, Target, Users } from 'lucide-react';
+import { BarChart3, CreditCard, DollarSign, LineChart, Mail, Megaphone, Smartphone, Target, Users } from 'lucide-react';
+import { IntegerField, MoneyField } from '@/components/admin/StudioFormFields';
+import GalleryField from '@/components/admin/GalleryField';
 
 interface MarketingOverview {
   totalRevenue: number;
@@ -64,7 +66,11 @@ interface CampaignsResponse {
   ads: CampaignSummary[];
 }
 
-export function UnifiedMarketingDashboard() {
+export function UnifiedMarketingDashboard({
+  onSelectTab,
+}: {
+  onSelectTab?: (tab: string) => void;
+} = {}) {
   const [overview, setOverview] = useState<MarketingOverview | null>(null);
   const [filters, setFilters] = useState<DashboardFilters>({
     dateRange: '30d',
@@ -72,7 +78,7 @@ export function UnifiedMarketingDashboard() {
     campaigns: []
   });
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'automation' | 'analytics'>('overview');
+  const [activeTab, setActiveTab] = useState<'campaigns' | 'performance'>('campaigns');
 
   useEffect(() => {
     loadDashboardData();
@@ -101,45 +107,38 @@ export function UnifiedMarketingDashboard() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
-
   return (
     <div data-testid="marketing-dashboard" className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Marketing</h1>
-          <p className="text-sm text-gray-600">Revenue, channel attribution, campaigns, and collector follow-up.</p>
+          <h2 className="text-xl font-semibold text-gray-900">Marketing</h2>
+          <p className="mt-0.5 text-sm text-gray-600">Promo codes, social posts, ad spend tracking, and channel performance.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <DateRangeSelector value={filters.dateRange} onChange={(range) => 
-            setFilters({ ...filters, dateRange: range })
-          } />
-          <ChannelFilter 
-            selected={filters.channels} 
-            onChange={(channels) => setFilters({ ...filters, channels })}
-          />
-        </div>
+        {activeTab === 'performance' && (
+          <div className="flex flex-wrap items-center gap-3">
+            <DateRangeSelector value={filters.dateRange} onChange={(range) => 
+              setFilters({ ...filters, dateRange: range })
+            } />
+            <ChannelFilter 
+              selected={filters.channels} 
+              onChange={(channels) => setFilters({ ...filters, channels })}
+            />
+          </div>
+        )}
       </div>
 
-      {/* Tab Navigation */}
+      {/* Tab Navigation — 2 crisp views (no duplicate Analytics sub-tab) */}
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex gap-6 overflow-x-auto whitespace-nowrap">
           {[
-            { key: 'overview', label: 'Overview', Icon: BarChart3 },
-            { key: 'campaigns', label: 'Campaigns', Icon: Target },
-            { key: 'automation', label: 'Automation', Icon: Bot },
-            { key: 'analytics', label: 'Analytics', Icon: LineChart }
+            { key: 'campaigns', label: 'Campaigns & promos', Icon: Target },
+            { key: 'performance', label: 'Performance', Icon: BarChart3 },
           ].map((tab) => (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key as any)}
+              type="button"
+              onClick={() => setActiveTab(tab.key as 'campaigns' | 'performance')}
               className={`shrink-0 py-2 px-1 border-b-2 font-medium text-sm ${
                 activeTab === tab.key
                   ? 'border-blue-500 text-blue-600'
@@ -154,16 +153,33 @@ export function UnifiedMarketingDashboard() {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'overview' && <OverviewTab overview={overview} onReload={loadDashboardData} />}
-      {activeTab === 'campaigns' && <CampaignsTab />}
-      {activeTab === 'automation' && <AutomationTab overview={overview} />}
-      {activeTab === 'analytics' && <AnalyticsTab overview={overview} />}
+      {activeTab === 'campaigns' && <CampaignsTab onSelectTab={onSelectTab} />}
+      {activeTab === 'performance' && (
+        loading && !overview ? (
+          <div className="flex items-center justify-center h-64">
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <OverviewTab overview={overview} onReload={loadDashboardData} onSelectTab={onSelectTab} />
+            <PerformanceInsightsRow overview={overview} onSelectTab={onSelectTab} />
+          </div>
+        )
+      )}
     </div>
   );
 }
 
 // Overview Tab Component
-function OverviewTab({ overview, onReload }: { overview: MarketingOverview | null; onReload: () => void }) {
+function OverviewTab({
+  overview,
+  onReload,
+  onSelectTab,
+}: {
+  overview: MarketingOverview | null;
+  onReload: () => void;
+  onSelectTab?: (tab: string) => void;
+}) {
   if (!overview) {
     return (
       <div className="bg-white p-8 rounded-lg shadow text-center">
@@ -257,9 +273,19 @@ function OverviewTab({ overview, onReload }: { overview: MarketingOverview | nul
               <span className="inline-flex items-center gap-2"><Mail className="h-4 w-4" aria-hidden="true" />Email Campaigns</span>
               <div className="text-right">
                 <div className="font-semibold">{overview.campaignPerformance?.email?.sent || 0} sent</div>
-                <Link href="/admin?tab=newsletter" className="text-sm text-gray-500 underline hover:text-gray-900">
-                  Open newsletters
-                </Link>
+                {onSelectTab ? (
+                  <button
+                    type="button"
+                    onClick={() => onSelectTab('newsletter')}
+                    className="text-sm text-gray-500 underline hover:text-gray-900"
+                  >
+                    Open newsletters
+                  </button>
+                ) : (
+                  <Link href="/admin?tab=newsletter" className="text-sm text-gray-500 underline hover:text-gray-900">
+                    Open newsletters
+                  </Link>
+                )}
               </div>
             </div>
             <div className="flex justify-between items-center">
@@ -283,18 +309,12 @@ function OverviewTab({ overview, onReload }: { overview: MarketingOverview | nul
           </div>
         </div>
       </div>
-
-      {/* Recent Activity */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4">Marketing Activity</h3>
-        <RecentActivityFeed overview={overview} />
-      </div>
     </div>
   );
 }
 
 // Campaigns Tab Component
-function CampaignsTab() {
+function CampaignsTab({ onSelectTab }: { onSelectTab?: (tab: string) => void }) {
   const [campaigns, setCampaigns] = useState<CampaignsResponse>({ social: [], ads: [] });
   const [campaignType, setCampaignType] = useState<'social' | 'ad'>('social');
   const [draft, setDraft] = useState<Record<string, any>>({
@@ -479,13 +499,25 @@ function CampaignsTab() {
       {message && <div className="rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">{message}</div>}
       {shareAssist && <ShareAssistPanel assist={shareAssist} />}
 
+      <PromoCodesPanel />
+
       <div className="bg-white p-6 rounded-lg shadow space-y-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="text-xl font-semibold">Create Campaign</h2>
+            <h3 className="text-lg font-semibold text-gray-900">Create Campaign</h3>
             <p className="text-sm text-gray-600">
               Social opens a copy-and-post assist (or auto-publishes when configured). Ad entries are a spend log only — they do not buy ads on Google or Meta. Email subscribers get newsletters from the{' '}
-              <Link href="/admin?tab=newsletter" className="font-medium text-gray-900 underline">Newsletter tab</Link>.
+              {onSelectTab ? (
+                <button
+                  type="button"
+                  onClick={() => onSelectTab('newsletter')}
+                  className="font-medium text-gray-900 underline"
+                >
+                  Newsletter tab
+                </button>
+              ) : (
+                <Link href="/admin?tab=newsletter" className="font-medium text-gray-900 underline">Newsletter tab</Link>
+              )}.
             </p>
           </div>
           <select value={campaignType} onChange={(event) => setCampaignType(event.target.value as 'social' | 'ad')} className="rounded-md border border-gray-300 px-3 py-2">
@@ -510,10 +542,13 @@ function CampaignsTab() {
             </select>
           </label>
           {campaignType === 'ad' && (
-            <label className="text-sm font-medium text-gray-700">
-              Budget
-              <input type="number" min="0" value={draft.budgetAmount} onChange={(event) => setDraft({ ...draft, budgetAmount: event.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
-            </label>
+            <MoneyField
+              label="Budget"
+              value={draft.budgetAmount === '' || draft.budgetAmount === undefined || draft.budgetAmount === null
+                ? ''
+                : Number(draft.budgetAmount)}
+              onChange={(next) => setDraft({ ...draft, budgetAmount: next === '' ? '' : next })}
+            />
           )}
           <label className="text-sm font-medium text-gray-700">
             Schedule
@@ -527,10 +562,12 @@ function CampaignsTab() {
             <textarea value={draft.content} onChange={(event) => setDraft({ ...draft, content: event.target.value })} rows={5} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
           </label>
           {campaignType === 'social' && (
-            <label className="block text-sm font-medium text-gray-700">
-              Media URLs
-              <textarea value={Array.isArray(draft.mediaUrls) ? draft.mediaUrls.join('\n') : draft.mediaUrls || ''} onChange={(event) => setDraft({ ...draft, mediaUrls: parseListValue(event.target.value) })} rows={3} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" placeholder="One image or video URL per line" />
-            </label>
+            <GalleryField
+              label="Post media"
+              help="Upload images or pick from your Media Library for this social post."
+              value={Array.isArray(draft.mediaUrls) ? draft.mediaUrls : []}
+              onChange={(next) => setDraft({ ...draft, mediaUrls: next })}
+            />
           )}
         </div>
 
@@ -540,10 +577,8 @@ function CampaignsTab() {
       </div>
 
       <div className="flex justify-between items-center">
-        <h2 className="text-xl font-semibold">Active Campaigns</h2>
+        <h3 className="text-lg font-semibold text-gray-900">Active Campaigns</h3>
       </div>
-
-      <PromoCodesPanel />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <CampaignSection
@@ -727,14 +762,28 @@ function PromoCodesPanel() {
             <option value="fixed">Fixed amount</option>
           </select>
         </label>
-        <label className="text-sm font-medium text-gray-700">
-          Value
-          <input type="number" min="0" step="0.01" value={draft.discountValue} onChange={(e) => setDraft({ ...draft, discountValue: e.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
-        </label>
-        <label className="text-sm font-medium text-gray-700">
-          Usage limit
-          <input type="number" min="1" value={draft.usageLimit} onChange={(e) => setDraft({ ...draft, usageLimit: e.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" placeholder="Optional" />
-        </label>
+        {draft.discountType === 'percentage' ? (
+          <IntegerField
+            label="Value (%)"
+            min={0}
+            max={100}
+            value={draft.discountValue === '' ? '' : Number(draft.discountValue)}
+            onChange={(next) => setDraft({ ...draft, discountValue: next === '' ? '' : String(next) })}
+          />
+        ) : (
+          <MoneyField
+            label="Value"
+            value={draft.discountValue === '' ? '' : Number(draft.discountValue)}
+            onChange={(next) => setDraft({ ...draft, discountValue: next === '' ? '' : String(next) })}
+          />
+        )}
+        <IntegerField
+          label="Usage limit"
+          min={1}
+          placeholder="Optional"
+          value={draft.usageLimit === '' ? '' : Number(draft.usageLimit)}
+          onChange={(next) => setDraft({ ...draft, usageLimit: next === '' ? '' : String(next) })}
+        />
         <label className="text-sm font-medium text-gray-700">
           Expires
           <input type="datetime-local" value={draft.expiresAt} onChange={(e) => setDraft({ ...draft, expiresAt: e.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
@@ -785,147 +834,102 @@ function PromoCodesPanel() {
   );
 }
 
-// Automation Tab Component
-function AutomationTab({ overview }: { overview: MarketingOverview | null }) {
-  const automation = overview?.automation;
-
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Email Automation */}
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="inline-flex items-center gap-2 text-lg font-semibold"><Mail className="h-5 w-5" aria-hidden="true" />Email Automation</h3>
-            <span className="text-sm text-green-600 bg-green-100 px-2 py-1 rounded">
-              {automation?.email.active || 0} Active
-            </span>
-          </div>
-          <div className="space-y-3">
-            <AutomationRule
-              name="Welcome Series"
-              trigger="New user signup"
-              status={(automation?.email.sent || 0) > 0 ? 'active' : 'ready'}
-              performance={`${automation?.email.sent || 0} emails sent`}
-            />
-            <AutomationRule
-              name="Cart Abandonment"
-              trigger="Cart inactive 1 hour"
-              status={(automation?.email.cartAbandonment || 0) > 0 ? 'active' : 'ready'}
-              performance={`${automation?.email.cartAbandonment || 0} cart signals captured`}
-            />
-            <AutomationRule
-              name="Post-Purchase Follow-up"
-              trigger="Order completed"
-              status={(automation?.email.postPurchase || 0) > 0 ? 'active' : 'ready'}
-              performance={`${automation?.email.postPurchase || 0} follow-up events`}
-            />
-          </div>
-        </div>
-
-        {/* Social Media Automation */}
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="inline-flex items-center gap-2 text-lg font-semibold"><Smartphone className="h-5 w-5" aria-hidden="true" />Social Automation</h3>
-            <span className="text-sm text-green-600 bg-green-100 px-2 py-1 rounded">
-              {automation?.social.active || 0} Active
-            </span>
-          </div>
-          <div className="space-y-3">
-            <AutomationRule
-              name="Product Showcase"
-              trigger="New product added"
-              status={(automation?.social.posts || 0) > 0 ? 'active' : 'ready'}
-              performance={`${automation?.social.posts || 0} posts recorded`}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Automation Performance */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4">Automation Performance</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="text-center">
-            <div className="text-3xl font-bold text-blue-600">{automation?.email.sent || 0}</div>
-            <div className="text-sm text-gray-500">Emails Sent</div>
-          </div>
-          <div className="text-center">
-            <div className="text-3xl font-bold text-green-600">{automation?.social.posts || 0}</div>
-            <div className="text-sm text-gray-500">Social Posts Recorded</div>
-          </div>
-          <div className="text-center">
-            <div className="text-3xl font-bold text-purple-600">{(automation?.email.cartAbandonment || 0) + (automation?.email.postPurchase || 0)}</div>
-            <div className="text-sm text-gray-500">Automation Signals</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Analytics Tab Component
-function AnalyticsTab({ overview }: { overview: MarketingOverview | null }) {
+// Customer Journey & Automation Summary (deduplicated against Analytics tab)
+function PerformanceInsightsRow({
+  overview,
+  onSelectTab,
+}: {
+  overview: MarketingOverview | null;
+  onSelectTab?: (tab: string) => void;
+}) {
   const journey = overview?.analytics?.journey || [];
   const maxVisitors = Math.max(1, ...journey.map(item => item.visitors));
-  const metrics = overview?.analytics?.metrics;
-  const topChannels = overview?.topPerformingChannels || [];
+  const automation = overview?.automation;
+
+  const automationRows = [
+    {
+      name: 'Welcome & follow-up emails',
+      detail: `${automation?.email.sent || 0} sent · ${automation?.email.postPurchase || 0} post-purchase signals`,
+      active: (automation?.email.sent || 0) > 0 || (automation?.email.postPurchase || 0) > 0,
+    },
+    {
+      name: 'Cart recovery',
+      detail: `${automation?.email.cartAbandonment || 0} abandoned cart signals captured`,
+      active: (automation?.email.cartAbandonment || 0) > 0,
+    },
+    {
+      name: 'Social auto-publish',
+      detail: `${automation?.social.posts || 0} social posts recorded`,
+      active: (automation?.social.posts || 0) > 0,
+    },
+  ];
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Customer Journey Analytics */}
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-lg font-semibold mb-4">Customer Journey</h3>
-          <div className="space-y-4">
-            {journey.length === 0 ? (
-              <div className="text-sm text-gray-500">No journey data available yet.</div>
-            ) : journey.map(item => (
-              <JourneyStep key={item.step} step={item.step} percentage={(item.visitors / maxVisitors) * 100} visitors={item.visitors.toLocaleString()} />
-            ))}
-          </div>
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="bg-white p-6 rounded-lg shadow">
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">Customer Journey</h3>
+          {onSelectTab ? (
+            <button
+              type="button"
+              onClick={() => onSelectTab('analytics')}
+              className="text-xs font-medium text-blue-700 hover:underline"
+            >
+              Open full Analytics →
+            </button>
+          ) : (
+            <Link href="/admin?tab=analytics" className="text-xs font-medium text-blue-700 hover:underline">
+              Open full Analytics →
+            </Link>
+          )}
         </div>
-
-        {/* Channel Attribution */}
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-lg font-semibold mb-4">Revenue Attribution</h3>
-          <div className="space-y-3">
-            {topChannels.length === 0 ? (
-              <div className="text-sm text-gray-500">No attribution data available yet.</div>
-            ) : topChannels.map(channel => (
-              <AttributionBar key={channel.channel} channel={channel.channel} percentage={overview?.totalRevenue ? (channel.revenue / overview.totalRevenue) * 100 : 0} revenue={`$${channel.revenue.toLocaleString()}`} />
-            ))}
-          </div>
+        <div className="space-y-4">
+          {journey.length === 0 ? (
+            <div className="text-sm text-gray-500">No journey data available yet.</div>
+          ) : journey.map(item => (
+            <JourneyStep
+              key={item.step}
+              step={item.step}
+              percentage={(item.visitors / maxVisitors) * 100}
+              count={item.visitors}
+            />
+          ))}
         </div>
       </div>
 
-      {/* Advanced Analytics */}
       <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4">Advanced Analytics</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <AnalyticsMetric
-            title="Customer Lifetime Value"
-            value={`$${(metrics?.averageLifetimeValue || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
-            trend={`${metrics?.activeProfiles || 0} profiles`}
-            description="Average CLV across all segments"
-          />
-          <AnalyticsMetric
-            title="Purchases"
-            value={`${metrics?.purchaseCount || 0}`}
-            trend="orders"
-            description="Paid orders in this period"
-          />
-          <AnalyticsMetric
-            title="Channel Revenue"
-            value={`$${(overview?.totalRevenue || 0).toLocaleString()}`}
-            trend={`${topChannels.length} channels`}
-            description="Revenue captured in selected period"
-          />
-          <AnalyticsMetric
-            title="Engagement Score"
-            value={`${Math.round(metrics?.averageEngagementScore || 0)}`}
-            trend="average"
-            description="Average customer engagement"
-          />
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">Automations</h3>
+          {onSelectTab ? (
+            <button
+              type="button"
+              onClick={() => onSelectTab('settings')}
+              className="text-xs font-medium text-blue-700 hover:underline"
+            >
+              Configure in Settings →
+            </button>
+          ) : (
+            <Link href="/admin?tab=settings" className="text-xs font-medium text-blue-700 hover:underline">
+              Configure in Settings →
+            </Link>
+          )}
+        </div>
+        <div className="divide-y divide-gray-100">
+          {automationRows.map((row) => (
+            <div key={row.name} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-900">{row.name}</p>
+                <p className="text-xs text-gray-500">{row.detail}</p>
+              </div>
+              <span
+                className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                  row.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'
+                }`}
+              >
+                {row.active ? 'Active' : 'Ready'}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -1067,57 +1071,55 @@ function CampaignSection({ title, icon, campaigns, onRun, onDelete, onSaveActual
               };
               return (
                 <div className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
-                  <label className="font-medium text-gray-700">
-                    Impressions
-                    <input
-                      type="number"
-                      min="0"
-                      value={values.impressions}
-                      onChange={(event) => setAdActuals((current) => ({ ...current, [campaign.id]: { ...values, impressions: event.target.value } }))}
-                      className="mt-1 block w-full rounded border border-gray-300 px-2 py-1"
-                    />
-                  </label>
-                  <label className="font-medium text-gray-700">
-                    Clicks
-                    <input
-                      type="number"
-                      min="0"
-                      value={values.clicks}
-                      onChange={(event) => setAdActuals((current) => ({ ...current, [campaign.id]: { ...values, clicks: event.target.value } }))}
-                      className="mt-1 block w-full rounded border border-gray-300 px-2 py-1"
-                    />
-                  </label>
-                  <label className="font-medium text-gray-700">
-                    Conversions
-                    <input
-                      type="number"
-                      min="0"
-                      value={values.conversions}
-                      onChange={(event) => setAdActuals((current) => ({ ...current, [campaign.id]: { ...values, conversions: event.target.value } }))}
-                      className="mt-1 block w-full rounded border border-gray-300 px-2 py-1"
-                    />
-                  </label>
-                  <label className="font-medium text-gray-700">
-                    Actual cost
-                    <input
-                      type="number"
-                      min="0"
-                      value={values.cost}
-                      onChange={(event) => setAdActuals((current) => ({ ...current, [campaign.id]: { ...values, cost: event.target.value } }))}
-                      className="mt-1 block w-full rounded border border-gray-300 px-2 py-1"
-                    />
-                  </label>
-                  <label className="font-medium text-gray-700">
-                    ROAS
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={values.roas}
-                      onChange={(event) => setAdActuals((current) => ({ ...current, [campaign.id]: { ...values, roas: event.target.value } }))}
-                      className="mt-1 block w-full rounded border border-gray-300 px-2 py-1"
-                    />
-                  </label>
+                  <IntegerField
+                    label="Impressions"
+                    compact
+                    min={0}
+                    value={values.impressions === '' ? '' : Number(values.impressions)}
+                    onChange={(next) => setAdActuals((current) => ({
+                      ...current,
+                      [campaign.id]: { ...values, impressions: next === '' ? '' : String(next) },
+                    }))}
+                  />
+                  <IntegerField
+                    label="Clicks"
+                    compact
+                    min={0}
+                    value={values.clicks === '' ? '' : Number(values.clicks)}
+                    onChange={(next) => setAdActuals((current) => ({
+                      ...current,
+                      [campaign.id]: { ...values, clicks: next === '' ? '' : String(next) },
+                    }))}
+                  />
+                  <IntegerField
+                    label="Conversions"
+                    compact
+                    min={0}
+                    value={values.conversions === '' ? '' : Number(values.conversions)}
+                    onChange={(next) => setAdActuals((current) => ({
+                      ...current,
+                      [campaign.id]: { ...values, conversions: next === '' ? '' : String(next) },
+                    }))}
+                  />
+                  <MoneyField
+                    label="Actual cost"
+                    compact
+                    value={values.cost === '' ? '' : Number(values.cost)}
+                    onChange={(next) => setAdActuals((current) => ({
+                      ...current,
+                      [campaign.id]: { ...values, cost: next === '' ? '' : String(next) },
+                    }))}
+                  />
+                  <MoneyField
+                    label="ROAS"
+                    compact
+                    showCurrency={false}
+                    value={values.roas === '' ? '' : Number(values.roas)}
+                    onChange={(next) => setAdActuals((current) => ({
+                      ...current,
+                      [campaign.id]: { ...values, roas: next === '' ? '' : String(next) },
+                    }))}
+                  />
                   <button
                     type="button"
                     onClick={() => onSaveActuals(campaign, {
@@ -1151,38 +1153,18 @@ function CampaignSection({ title, icon, campaigns, onRun, onDelete, onSaveActual
   );
 }
 
-function AutomationRule({ name, trigger, status, performance }: {
-  name: string;
-  trigger: string;
-  status: string;
-  performance: string;
-}) {
-  return (
-    <div className="border border-gray-200 rounded-lg p-3">
-      <div className="flex items-center justify-between mb-2">
-        <div className="font-medium">{name}</div>
-        <div className={`text-xs px-2 py-1 rounded ${
-          status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-        }`}>
-          {status}
-        </div>
-      </div>
-      <div className="text-xs text-gray-500 mb-1">Trigger: {trigger}</div>
-      <div className="text-xs text-blue-600">{performance}</div>
-    </div>
-  );
-}
-
-function JourneyStep({ step, percentage, visitors }: {
+function JourneyStep({ step, percentage, count }: {
   step: string;
   percentage: number;
-  visitors: string;
+  count: number;
 }) {
   return (
     <div>
       <div className="flex justify-between text-sm mb-1">
         <span>{step}</span>
-        <span>{visitors} visitors</span>
+        <span>
+          {count.toLocaleString()} {count === 1 ? 'visitor' : 'visitors'}
+        </span>
       </div>
       <div className="w-full bg-gray-200 rounded-full h-2">
         <div
@@ -1190,85 +1172,6 @@ function JourneyStep({ step, percentage, visitors }: {
           style={{ width: `${percentage}%` }}
         ></div>
       </div>
-    </div>
-  );
-}
-
-function AttributionBar({ channel, percentage, revenue }: {
-  channel: string;
-  percentage: number;
-  revenue: string;
-}) {
-  return (
-    <div>
-      <div className="flex justify-between text-sm mb-1">
-        <span>{channel}</span>
-        <span>{revenue}</span>
-      </div>
-      <div className="w-full bg-gray-200 rounded-full h-2">
-        <div
-          className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full"
-          style={{ width: `${percentage}%` }}
-        ></div>
-      </div>
-    </div>
-  );
-}
-
-function AnalyticsMetric({ title, value, trend, description }: {
-  title: string;
-  value: string;
-  trend: string;
-  description: string;
-}) {
-  return (
-    <div className="text-center">
-      <div className="text-2xl font-bold text-gray-900">{value}</div>
-      <div className="text-sm font-medium text-gray-600">{title}</div>
-      <div className={`text-xs ${trend.startsWith('+') ? 'text-green-600' : trend.startsWith('-') ? 'text-red-600' : 'text-gray-500'}`}>
-        {trend}
-      </div>
-      <div className="text-xs text-gray-500 mt-1">{description}</div>
-    </div>
-  );
-}
-
-function RecentActivityFeed({ overview }: { overview: MarketingOverview | null }) {
-  const emailSent = overview?.campaignPerformance?.email?.sent || 0;
-  const socialPosts = overview?.campaignPerformance?.social?.posts || 0;
-  const adConversions = overview?.campaignPerformance?.ads?.conversions || 0;
-  const totalRevenue = overview?.totalRevenue || 0;
-
-  if (emailSent === 0 && socialPosts === 0 && adConversions === 0 && totalRevenue === 0) {
-    return (
-      <p className="text-sm text-gray-500">
-        No campaign or order activity recorded in this period yet.
-      </p>
-    );
-  }
-
-  const activities = [
-    { label: `${emailSent} email events sent`, type: 'email', active: emailSent > 0 },
-    { label: `${socialPosts} social posts recorded`, type: 'social', active: socialPosts > 0 },
-    { label: `${adConversions} ad conversions recorded`, type: 'ads', active: adConversions > 0 },
-    { label: `$${totalRevenue.toLocaleString()} paid order revenue`, type: 'revenue', active: totalRevenue > 0 }
-  ].filter((activity) => activity.active);
-
-  return (
-    <div className="space-y-3">
-      {activities.map((activity, index) => (
-        <div key={index} className="flex items-center space-x-3">
-          <div className={`w-2 h-2 rounded-full ${
-            activity.type === 'email' ? 'bg-blue-500' :
-            activity.type === 'social' ? 'bg-purple-500' :
-            activity.type === 'ads' ? 'bg-green-500' :
-            'bg-gray-500'
-          }`}></div>
-          <div className="flex-1">
-            <div className="text-sm">{activity.label}</div>
-          </div>
-        </div>
-      ))}
     </div>
   );
 }

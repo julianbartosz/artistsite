@@ -1,9 +1,7 @@
 'use client';
 
 import React, { FormEvent, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { isSiteCustomizationComplete } from '@/lib/setup-readiness';
-import { SITE_CONTENT_KEYS, type SiteContentByPage } from '@/lib/site-content-shared';
+import useSWR from 'swr';
 
 type SettingRecord = {
   key: string;
@@ -21,6 +19,14 @@ type SettingField = {
   help?: string;
   options?: SettingFieldOption[];
   defaultValue?: string;
+  visibleWhen?: (draft: Record<string, string>) => boolean;
+};
+
+type SettingsGroup = {
+  id: string;
+  title: string;
+  description: string;
+  keys: SettingField[];
 };
 
 const BOOL_OPTIONS: SettingFieldOption[] = [
@@ -28,8 +34,16 @@ const BOOL_OPTIONS: SettingFieldOption[] = [
   { value: 'true', label: 'Yes' },
 ];
 
-const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: SettingField[] }> = [
+const isSmtpMode = (draft: Record<string, string>) => (draft.EMAIL_DELIVERY_MODE || 'log') === 'smtp';
+const isMailchimpMode = (draft: Record<string, string>) => (draft.NEWSLETTER_DELIVERY_MODE || 'log') === 'mailchimp';
+const isEasyPostMode = (draft: Record<string, string>) => (draft.SHIPPING_PROVIDER || 'manual') === 'easypost';
+const isMetaSocial = (draft: Record<string, string>) => (draft.SOCIAL_PROVIDER || 'assist') === 'meta';
+const isAyrshareSocial = (draft: Record<string, string>) => (draft.SOCIAL_PROVIDER || 'assist') === 'ayrshare';
+const isAutoSocialCapable = (draft: Record<string, string>) => (draft.SOCIAL_PROVIDER || 'assist') !== 'assist';
+
+const SETTINGS_GROUPS: SettingsGroup[] = [
   {
+    id: 'access',
     title: 'Access',
     description: 'Control who can manage the site. Keep at least one working admin email here or in ADMIN_EMAILS.',
     keys: [
@@ -37,17 +51,19 @@ const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: Setting
     ],
   },
   {
+    id: 'site-identity',
     title: 'Site Identity',
     description: 'Public URLs and artist contact routing used across the site.',
     keys: [
       { key: 'NEXT_PUBLIC_SITE_URL', label: 'Public site URL', help: 'The address collectors use, such as https://yourstudio.com' },
       { key: 'NEXT_PUBLIC_BASE_URL', label: 'Application base URL', help: 'Usually the same as your public site URL.' },
-      { key: 'CONTACT_EMAIL', label: 'Contact recipient email' },
-      { key: 'ARTIST_EMAIL', label: 'Artist email' },
-      { key: 'SUPPORT_EMAIL', label: 'Support email' },
+      { key: 'CONTACT_EMAIL', label: 'Contact recipient email', help: 'Receives contact form submissions and studio inquiries.' },
+      { key: 'ARTIST_EMAIL', label: 'Artist email', help: 'Receives internal studio notifications and new order alerts.' },
+      { key: 'SUPPORT_EMAIL', label: 'Support email', help: 'Shown to collectors on receipts and shipping updates for help.' },
     ],
   },
   {
+    id: 'payments',
     title: 'Payments',
     description: 'Stripe powers checkout. Secret fields stay encrypted and are never shown after saving.',
     keys: [
@@ -63,6 +79,7 @@ const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: Setting
     ],
   },
   {
+    id: 'email-delivery',
     title: 'Email Delivery',
     description: 'SMTP sends contact and order-status emails. Use log mode until SMTP is ready.',
     keys: [
@@ -81,14 +98,15 @@ const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: Setting
         options: BOOL_OPTIONS,
         defaultValue: 'false',
       },
-      { key: 'SMTP_HOST', label: 'SMTP host' },
-      { key: 'SMTP_PORT', label: 'SMTP port' },
-      { key: 'SMTP_USER', label: 'SMTP user' },
-      { key: 'SMTP_PASSWORD', label: 'SMTP password', type: 'password' },
-      { key: 'SMTP_FROM', label: 'From email' },
+      { key: 'SMTP_HOST', label: 'SMTP host', visibleWhen: isSmtpMode },
+      { key: 'SMTP_PORT', label: 'SMTP port', visibleWhen: isSmtpMode },
+      { key: 'SMTP_USER', label: 'SMTP user', visibleWhen: isSmtpMode },
+      { key: 'SMTP_PASSWORD', label: 'SMTP password', type: 'password', visibleWhen: isSmtpMode },
+      { key: 'SMTP_FROM', label: 'From email', visibleWhen: isSmtpMode },
     ],
   },
   {
+    id: 'newsletter',
     title: 'Newsletter',
     description: 'Newsletters you write in the Newsletter tab send through Email Delivery above. Signups can also be copied to Mailchimp.',
     keys: [
@@ -106,21 +124,51 @@ const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: Setting
         ],
         defaultValue: 'log',
       },
-      { key: 'MAILCHIMP_API_KEY', label: 'Mailchimp API key', type: 'password' },
-      { key: 'MAILCHIMP_LIST_ID', label: 'Mailchimp list ID' },
-      { key: 'MAILCHIMP_SERVER_PREFIX', label: 'Mailchimp server prefix' },
+      { key: 'MAILCHIMP_API_KEY', label: 'Mailchimp API key', type: 'password', visibleWhen: isMailchimpMode },
+      { key: 'MAILCHIMP_LIST_ID', label: 'Mailchimp list ID', visibleWhen: isMailchimpMode },
+      { key: 'MAILCHIMP_SERVER_PREFIX', label: 'Mailchimp server prefix', visibleWhen: isMailchimpMode },
     ],
   },
   {
+    id: 'shipping',
+    title: 'Shipping',
+    description: 'Manual carrier tracking always works. Switch to EasyPost only when you want in-site rates and labels.',
+    keys: [
+      {
+        key: 'SHIPPING_PROVIDER',
+        label: 'Shipping provider',
+        options: [
+          { value: 'manual', label: 'Manual tracking' },
+          { value: 'easypost', label: 'EasyPost labels & rates' },
+        ],
+        defaultValue: 'manual',
+        help: 'Manual remains the fallback if EasyPost is unavailable.',
+      },
+      { key: 'EASYPOST_API_KEY', label: 'EasyPost API key', type: 'password', visibleWhen: isEasyPostMode },
+      { key: 'SHIP_FROM_NAME', label: 'Ship-from name', visibleWhen: isEasyPostMode },
+      { key: 'SHIP_FROM_COMPANY', label: 'Ship-from company', visibleWhen: isEasyPostMode },
+      { key: 'SHIP_FROM_STREET1', label: 'Ship-from street', visibleWhen: isEasyPostMode },
+      { key: 'SHIP_FROM_STREET2', label: 'Ship-from apartment/suite', visibleWhen: isEasyPostMode },
+      { key: 'SHIP_FROM_CITY', label: 'Ship-from city', visibleWhen: isEasyPostMode },
+      { key: 'SHIP_FROM_STATE', label: 'Ship-from state/region', visibleWhen: isEasyPostMode },
+      { key: 'SHIP_FROM_POSTAL_CODE', label: 'Ship-from postal code', visibleWhen: isEasyPostMode },
+      { key: 'SHIP_FROM_COUNTRY', label: 'Ship-from country', help: 'Use a two-letter country code such as US.', visibleWhen: isEasyPostMode },
+      { key: 'SHIP_FROM_PHONE', label: 'Ship-from phone', visibleWhen: isEasyPostMode },
+      { key: 'SHIPPING_DEFAULT_PACKAGE_WEIGHT_OZ', label: 'Default package weight (oz)', visibleWhen: isEasyPostMode },
+      { key: 'SHIPPING_DEFAULT_PACKAGE_LENGTH_IN', label: 'Default package length (in)', visibleWhen: isEasyPostMode },
+      { key: 'SHIPPING_DEFAULT_PACKAGE_WIDTH_IN', label: 'Default package width (in)', visibleWhen: isEasyPostMode },
+      { key: 'SHIPPING_DEFAULT_PACKAGE_HEIGHT_IN', label: 'Default package height (in)', visibleWhen: isEasyPostMode },
+    ],
+  },
+  {
+    id: 'marketing-signals',
     title: 'Marketing Signals',
     description: 'Optional measurement and social publishing credentials.',
     keys: [
       { key: 'NEXT_PUBLIC_GA4_MEASUREMENT_ID', label: 'GA4 measurement ID' },
       { key: 'GA_API_SECRET', label: 'GA4 API secret', type: 'password' },
       { key: 'GOOGLE_ADS_CUSTOMER_ID', label: 'Google Ads customer ID' },
-      { key: 'FACEBOOK_PIXEL_ID', label: 'Facebook pixel ID', help: 'Used for site analytics. Instagram Business posts use the Facebook token below.' },
-      { key: 'FACEBOOK_ACCESS_TOKEN', label: 'Facebook access token', type: 'password' },
-      { key: 'FACEBOOK_PAGE_ID', label: 'Facebook page ID' },
+      { key: 'FACEBOOK_PIXEL_ID', label: 'Facebook pixel ID', help: 'Used for site analytics. Instagram Business posts use the Meta provider below.' },
       { key: 'FACEBOOK_CONVERSION_API_TOKEN', label: 'Facebook conversion API token', type: 'password' },
       { key: 'PINTEREST_ACCESS_TOKEN', label: 'Pinterest access token', type: 'password' },
       { key: 'PINTEREST_BOARD_ID', label: 'Pinterest board ID' },
@@ -135,7 +183,9 @@ const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: Setting
         defaultValue: 'assist',
         help: 'Ayrshare is recommended when you publish to several networks.',
       },
-      { key: 'AYRSHARE_API_KEY', label: 'Ayrshare API key', type: 'password' },
+      { key: 'FACEBOOK_ACCESS_TOKEN', label: 'Facebook access token', type: 'password', visibleWhen: isMetaSocial },
+      { key: 'FACEBOOK_PAGE_ID', label: 'Facebook page ID', visibleWhen: isMetaSocial },
+      { key: 'AYRSHARE_API_KEY', label: 'Ayrshare API key', type: 'password', visibleWhen: isAyrshareSocial },
       {
         key: 'SOCIAL_PUBLISH_MODE',
         label: 'Social publish mode',
@@ -145,6 +195,7 @@ const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: Setting
         ],
         defaultValue: 'assist',
         help: 'Assist is safest and works without platform credentials.',
+        visibleWhen: isAutoSocialCapable,
       },
       { key: 'MARKETING_EMAIL_UNIT_COST', label: 'Estimated cost per email', help: 'Optional dollar amount used for ROI estimates. Leave blank or 0 for actual spend only.' },
       { key: 'MARKETING_SOCIAL_POST_COST', label: 'Estimated cost per social post', help: 'Optional dollar amount used for ROI estimates. Leave blank or 0 for actual spend only.' },
@@ -155,36 +206,7 @@ const SETTINGS_GROUPS: Array<{ title: string; description: string; keys: Setting
     ],
   },
   {
-    title: 'Shipping',
-    description: 'Manual carrier tracking always works. Add a provider key only when you want in-site rates and labels.',
-    keys: [
-      {
-        key: 'SHIPPING_PROVIDER',
-        label: 'Shipping provider',
-        options: [
-          { value: 'manual', label: 'Manual tracking' },
-          { value: 'easypost', label: 'EasyPost labels & rates' },
-        ],
-        defaultValue: 'manual',
-        help: 'Manual remains the fallback if EasyPost is unavailable.',
-      },
-      { key: 'EASYPOST_API_KEY', label: 'EasyPost API key', type: 'password' },
-      { key: 'SHIP_FROM_NAME', label: 'Ship-from name' },
-      { key: 'SHIP_FROM_COMPANY', label: 'Ship-from company' },
-      { key: 'SHIP_FROM_STREET1', label: 'Ship-from street' },
-      { key: 'SHIP_FROM_STREET2', label: 'Ship-from apartment/suite' },
-      { key: 'SHIP_FROM_CITY', label: 'Ship-from city' },
-      { key: 'SHIP_FROM_STATE', label: 'Ship-from state/region' },
-      { key: 'SHIP_FROM_POSTAL_CODE', label: 'Ship-from postal code' },
-      { key: 'SHIP_FROM_COUNTRY', label: 'Ship-from country', help: 'Use a two-letter country code such as US.' },
-      { key: 'SHIP_FROM_PHONE', label: 'Ship-from phone' },
-      { key: 'SHIPPING_DEFAULT_PACKAGE_WEIGHT_OZ', label: 'Default package weight (oz)' },
-      { key: 'SHIPPING_DEFAULT_PACKAGE_LENGTH_IN', label: 'Default package length (in)' },
-      { key: 'SHIPPING_DEFAULT_PACKAGE_WIDTH_IN', label: 'Default package width (in)' },
-      { key: 'SHIPPING_DEFAULT_PACKAGE_HEIGHT_IN', label: 'Default package height (in)' },
-    ],
-  },
-  {
+    id: 'automation',
     title: 'Automation',
     description: 'Cart recovery and scheduled marketing jobs. Optional until you want hands-off follow-up.',
     keys: [
@@ -204,6 +226,44 @@ const ADVANCED_GROUP_TITLES = new Set(['Marketing Signals', 'Automation']);
 const EDITABLE_SETTING_KEYS = new Set<string>(
   SETTINGS_GROUPS.flatMap((group) => group.keys.map((field) => field.key)),
 );
+const GROUP_ID_BY_KEY = new Map<string, string>(
+  SETTINGS_GROUPS.flatMap((group) => group.keys.map((field) => [field.key, group.id])),
+);
+
+const settingsFetcher = async (url: string): Promise<{ settings: SettingRecord[] }> => {
+  const response = await fetch(url);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Failed to load settings');
+  return data;
+};
+
+function scrollToSettingsElement(elementId: string): void {
+  if (typeof window === 'undefined') return;
+  let el = document.getElementById(elementId);
+  if (!el && elementId.startsWith('setting-')) {
+    const key = elementId.slice('setting-'.length);
+    const groupId = GROUP_ID_BY_KEY.get(key);
+    if (groupId) el = document.getElementById(`settings-group-${groupId}`);
+  }
+  if (!el) return;
+
+  if (el instanceof HTMLDetailsElement) {
+    el.open = true;
+  }
+  let parent: HTMLElement | null = el.parentElement;
+  while (parent) {
+    if (parent.tagName === 'DETAILS') {
+      (parent as HTMLDetailsElement).open = true;
+    }
+    parent = parent.parentElement;
+  }
+
+  requestAnimationFrame(() => {
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const input = el?.querySelector('input, textarea, select') as HTMLElement | null;
+    input?.focus({ preventScroll: true });
+  });
+}
 
 function buildEditableDraft(records: SettingRecord[]): Record<string, string> {
   const raw: Record<string, string> = {};
@@ -226,23 +286,8 @@ export function adminSettingFieldHref(key: string): string {
 function focusSettingFieldFromHash(): void {
   if (typeof window === 'undefined') return;
   const raw = window.location.hash.replace(/^#/, '');
-  if (!raw.startsWith('setting-')) return;
-  const el = document.getElementById(raw);
-  if (!el) return;
-
-  let parent: HTMLElement | null = el.parentElement;
-  while (parent) {
-    if (parent.tagName === 'DETAILS') {
-      (parent as HTMLDetailsElement).open = true;
-    }
-    parent = parent.parentElement;
-  }
-
-  requestAnimationFrame(() => {
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    const input = el.querySelector('input, textarea, select') as HTMLElement | null;
-    input?.focus({ preventScroll: true });
-  });
+  if (!raw.startsWith('setting-') && !raw.startsWith('settings-group-')) return;
+  scrollToSettingsElement(raw);
 }
 
 function fieldDraftValue(field: SettingField, draft: Record<string, string>): string {
@@ -275,46 +320,66 @@ function integrationStatuses(settings: Record<string, SettingRecord>, draft: Rec
   const newsletterOk = newsletterAddressOk && (newsletterMode === 'log' || settings.MAILCHIMP_API_KEY?.status === 'configured');
 
   return [
-    { label: 'Stripe payments', ok: stripeOk, detail: stripeOk ? 'Connected' : 'Add Stripe keys to accept payments' },
+    {
+      label: 'Stripe payments',
+      ok: stripeOk,
+      detail: stripeOk ? 'Connected' : 'Add Stripe keys to accept payments',
+      targetId: adminSettingFieldId('STRIPE_SECRET_KEY'),
+    },
     {
       label: 'Email delivery',
       ok: emailOk,
       detail: emailMode === 'smtp'
         ? (emailOk ? 'SMTP configured' : 'Add SMTP host to send emails')
         : 'Log mode — emails are not sent',
+      targetId: adminSettingFieldId('EMAIL_DELIVERY_MODE'),
     },
-    { label: 'Shipping labels', ok: shippingOk, detail: shippingProvider === 'easypost' ? 'EasyPost ready' : 'Manual tracking only' },
+    {
+      label: 'Shipping labels',
+      ok: shippingOk,
+      detail: shippingProvider === 'easypost' ? 'EasyPost ready' : 'Manual tracking only',
+      targetId: adminSettingFieldId('SHIPPING_PROVIDER'),
+    },
     {
       label: 'Newsletter',
       ok: newsletterOk,
       detail: !newsletterAddressOk
         ? 'Add a footer mailing address'
         : newsletterMode === 'mailchimp' ? 'Signups copied to Mailchimp' : 'Ready — sends with Email delivery',
+      targetId: adminSettingFieldId('NEWSLETTER_FOOTER_ADDRESS'),
     },
   ];
 }
 
 export default function AdminSettings() {
+  const {
+    data: settingsResponse,
+    error: swrError,
+    isLoading,
+    mutate: mutateSettings,
+  } = useSWR<{ settings: SettingRecord[] }>('/api/admin/settings', settingsFetcher, {
+    revalidateOnFocus: false,
+    dedupingInterval: 10_000,
+  });
   const [settings, setSettings] = useState<Record<string, SettingRecord>>({});
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [savedDraft, setSavedDraft] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState(false);
   const [saving, setSaving] = useState(false);
   const [runningAutomation, setRunningAutomation] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [siteContent, setSiteContent] = useState<SiteContentByPage | null>(null);
 
   useEffect(() => {
-    loadSettings();
-    fetch('/api/admin/site-content', { cache: 'no-store' })
-      .then((response) => response.json())
-      .then((data) => {
-        if (data && typeof data === 'object') {
-          setSiteContent(data as SiteContentByPage);
-        }
-      })
-      .catch(() => undefined);
-  }, []);
+    if (!settingsResponse?.settings) return;
+    const records = Object.fromEntries(settingsResponse.settings.map((item) => [item.key, item]));
+    const nextDraft = buildEditableDraft(settingsResponse.settings);
+    setSettings(records);
+    setSavedDraft(nextDraft);
+    setDraft((current) => (initialized ? current : nextDraft));
+    setInitialized(true);
+  }, [settingsResponse, initialized]);
+
+  const loading = isLoading && !initialized;
 
   useEffect(() => {
     if (loading) return;
@@ -322,24 +387,6 @@ export default function AdminSettings() {
     window.addEventListener('hashchange', focusSettingFieldFromHash);
     return () => window.removeEventListener('hashchange', focusSettingFieldFromHash);
   }, [loading]);
-
-  async function loadSettings() {
-    setLoading(true);
-    try {
-      const response = await fetch('/api/admin/settings');
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to load settings');
-      const records = Object.fromEntries((data.settings || []).map((item: SettingRecord) => [item.key, item]));
-      const nextDraft = buildEditableDraft(data.settings || []);
-      setSettings(records);
-      setDraft(nextDraft);
-      setSavedDraft(nextDraft);
-    } catch (error) {
-      setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Failed to load settings' });
-    } finally {
-      setLoading(false);
-    }
-  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -363,6 +410,7 @@ export default function AdminSettings() {
       setSettings(records);
       setDraft(nextDraft);
       setSavedDraft(nextDraft);
+      await mutateSettings(data, { revalidate: false });
       setMessage({ type: 'success', text: 'Settings saved. Secret values are hidden after saving.' });
     } catch (error) {
       setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Failed to save settings' });
@@ -385,7 +433,7 @@ export default function AdminSettings() {
           CRON_LAST_RUN_AT: { key: 'CRON_LAST_RUN_AT', value: data.lastRunAt, status: 'configured', secret: false },
         }));
       }
-      await loadSettings();
+      await mutateSettings();
     } catch (error) {
       setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Automation run failed' });
     } finally {
@@ -394,36 +442,11 @@ export default function AdminSettings() {
   }
 
   const statuses = useMemo(() => integrationStatuses(settings, draft), [settings, draft]);
-  const setupSteps = useMemo(() => {
-    const stripeOk = statuses.find((item) => item.label === 'Stripe payments')?.ok ?? false;
-    const emailOk = statuses.find((item) => item.label === 'Email delivery')?.ok ?? false;
-    const shippingOk = statuses.find((item) => item.label === 'Shipping labels')?.ok ?? false;
-    const newsletterOk = statuses.find((item) => item.label === 'Newsletter')?.ok ?? false;
-    const siteUrlOk = Boolean(draft.NEXT_PUBLIC_SITE_URL?.trim() || draft.NEXT_PUBLIC_BASE_URL?.trim());
-    const contactOk = Boolean(draft.CONTACT_EMAIL?.trim() || draft.ARTIST_EMAIL?.trim());
-
-    const siteContentSaved = Object.values(SITE_CONTENT_KEYS).some(
-      (key) => settings[key]?.status === 'configured',
-    );
-    const siteCustomized = siteContentSaved
-      || (siteContent ? isSiteCustomizationComplete(siteContent) : false);
-
-    return [
-      { label: 'Set your public site URL', complete: siteUrlOk, href: adminSettingFieldHref('NEXT_PUBLIC_SITE_URL') },
-      { label: 'Add a contact email for inquiries', complete: contactOk, href: adminSettingFieldHref('CONTACT_EMAIL') },
-      { label: 'Customize look, pages, and legal copy', complete: siteCustomized, href: '/admin?tab=pages' },
-      { label: 'Connect Stripe for checkout', complete: stripeOk, href: adminSettingFieldHref('STRIPE_SECRET_KEY') },
-      { label: 'Configure email delivery', complete: emailOk, href: adminSettingFieldHref('EMAIL_DELIVERY_MODE') },
-      { label: 'Set up shipping (manual or EasyPost)', complete: shippingOk, href: adminSettingFieldHref('SHIPPING_PROVIDER') },
-      { label: 'Set up your newsletter', complete: newsletterOk, href: adminSettingFieldHref(draft.NEWSLETTER_FOOTER_ADDRESS?.trim() ? 'NEWSLETTER_DELIVERY_MODE' : 'NEWSLETTER_FOOTER_ADDRESS') },
-    ];
-  }, [statuses, draft, siteContent, settings]);
-  const setupCompleteCount = setupSteps.filter((step) => step.complete).length;
-  const showSetupWizard = setupCompleteCount < setupSteps.length;
   const isDirty = useMemo(
     () => Object.keys({ ...savedDraft, ...draft }).some((key) => (draft[key] || '') !== (savedDraft[key] || '')),
     [draft, savedDraft],
   );
+  const displayMessage = message || (swrError instanceof Error ? { type: 'error' as const, text: swrError.message } : null);
 
   if (loading) {
     return <div className="rounded-lg border bg-white p-6 text-gray-600">Loading settings...</div>;
@@ -431,100 +454,77 @@ export default function AdminSettings() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {message && (
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">Settings</h2>
+          <p className="mt-0.5 text-sm text-gray-600">
+            Configure access, payments, email, shipping, and optional integrations. Provider fields appear only when selected.
+          </p>
+        </div>
+      </div>
+
+      {/* Quick section jump pills */}
+      <nav aria-label="Settings sections" className="flex flex-wrap gap-1.5">
+        {SETTINGS_GROUPS.map((group) => (
+          <button
+            key={group.id}
+            type="button"
+            onClick={() => scrollToSettingsElement(`settings-group-${group.id}`)}
+            className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-50"
+          >
+            {group.title}
+          </button>
+        ))}
+      </nav>
+
+      {displayMessage && (
         <div
-          role={message.type === 'error' ? 'alert' : 'status'}
+          role={displayMessage.type === 'error' ? 'alert' : 'status'}
           className={`rounded border p-3 text-sm ${
-            message.type === 'error'
+            displayMessage.type === 'error'
               ? 'border-red-200 bg-red-50 text-red-800'
               : 'border-green-200 bg-green-50 text-green-800'
           }`}
         >
-          {message.text}
+          {displayMessage.text}
         </div>
       )}
 
-      {showSetupWizard && (
-        <section className="rounded-lg border border-amber-200 bg-amber-50 p-6">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Studio setup</h2>
-              <p className="text-sm text-gray-700">{setupCompleteCount} of {setupSteps.length} essentials configured.</p>
-            </div>
-            <Link href="/admin?tab=pages" className="text-sm font-medium text-primary hover:opacity-80">
-              Open Pages
-            </Link>
-          </div>
-          <ul className="mt-4 space-y-2">
-            {setupSteps.map((step) => (
-              <li key={step.label} className="flex items-center justify-between gap-3 rounded-md border border-amber-100 bg-white/80 px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <span className={`h-2 w-2 rounded-full ${step.complete ? 'bg-green-500' : 'bg-amber-400'}`} aria-hidden />
-                  <span className="text-sm text-gray-900">{step.label}</span>
-                </div>
-                {!step.complete && (
-                  <Link href={step.href} className="text-xs font-medium text-primary hover:opacity-80">
-                    Configure
-                  </Link>
-                )}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <section className="rounded-lg border bg-white p-6">
-        <h2 className="text-lg font-semibold text-gray-900">Integration status</h2>
-        <p className="mt-1 text-sm text-gray-600">Quick view of what is ready for customers.</p>
+      <section className="rounded-lg border bg-white p-5">
+        <h3 className="text-base font-semibold text-gray-900">Integration status</h3>
+        <p className="mt-0.5 text-sm text-gray-600">Quick view of what is ready for customers.</p>
         <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           {statuses.map((status) => (
-            <li key={status.label} className="flex items-start gap-3 rounded-md border border-gray-200 p-3">
-              <span className={`mt-1 h-2.5 w-2.5 rounded-full ${status.ok ? 'bg-green-500' : 'bg-amber-400'}`} aria-hidden />
-              <div>
-                <p className="text-sm font-medium text-gray-900">{status.label}</p>
-                <p className="text-xs text-gray-600">{status.detail}</p>
+            <li key={status.label} className="flex items-start justify-between gap-3 rounded-md border border-gray-200 p-3">
+              <div className="flex items-start gap-2.5">
+                <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${status.ok ? 'bg-green-500' : 'bg-amber-400'}`} aria-hidden />
+                <div>
+                  <p className="text-sm font-medium text-gray-900">{status.label}</p>
+                  <p className="text-xs text-gray-600">{status.detail}</p>
+                </div>
               </div>
+              {!status.ok && (
+                <button
+                  type="button"
+                  onClick={() => scrollToSettingsElement(status.targetId)}
+                  className="shrink-0 text-xs font-medium text-primary hover:underline"
+                >
+                  Configure
+                </button>
+              )}
             </li>
           ))}
         </ul>
       </section>
 
-      <section className="rounded-lg border bg-white p-6">
-        <h2 className="text-lg font-semibold text-gray-900">Studio automations</h2>
-        <p className="mt-1 text-sm text-gray-600">
-          Cart recovery, scheduled newsletters, and social posts run automatically every 30 minutes once an
-          automation secret is saved. Use the button to run them right away.
-        </p>
-        <p className="mt-2 text-sm text-gray-600">
-          Last run: {settings.CRON_LAST_RUN_AT?.value ? new Date(settings.CRON_LAST_RUN_AT.value).toLocaleString() : 'Not recorded yet'}
-        </p>
-        <button
-          type="button"
-          onClick={runAutomationsNow}
-          disabled={runningAutomation}
-          className="mt-4 rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-50"
-        >
-          {runningAutomation ? 'Running...' : 'Run automations now'}
-        </button>
-        <details className="mt-4 text-sm text-gray-600">
-          <summary className="cursor-pointer font-medium text-gray-800">Advanced scheduling</summary>
-          <p className="mt-2">
-            Your site already runs automations on its own. An external scheduler can also call this URL with your
-            automation secret; overlapping runs are skipped safely.
-          </p>
-          <code className="mt-2 block overflow-x-auto rounded bg-gray-100 px-2 py-1 text-xs">
-            {typeof window !== 'undefined' ? `${window.location.origin}/api/cron/marketing` : '/api/cron/marketing'}
-          </code>
-        </details>
-      </section>
-
       {SETTINGS_GROUPS.map((group) => {
+        const visibleFields = group.keys.filter((field) => !field.visibleWhen || field.visibleWhen(draft));
         const body = (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {group.keys.map((field) => {
+            {visibleFields.map((field) => {
               const record = settings[field.key];
               return (
-                <div key={field.key} id={adminSettingFieldId(field.key)} className="scroll-mt-24">
+                <div key={field.key} id={adminSettingFieldId(field.key)} className="scroll-mt-28">
                   <label className="block text-sm font-medium text-gray-700">
                     <div className="mb-1 flex items-center justify-between gap-3">
                       <span>{field.label}</span>
@@ -572,18 +572,49 @@ export default function AdminSettings() {
 
         if (ADVANCED_GROUP_TITLES.has(group.title)) {
           return (
-            <details key={group.title} className="rounded-lg border bg-white p-6">
-              <summary className="cursor-pointer text-lg font-semibold text-gray-900">{group.title}</summary>
+            <details
+              key={group.id}
+              id={`settings-group-${group.id}`}
+              className="scroll-mt-28 rounded-lg border bg-white p-6"
+            >
+              <summary className="cursor-pointer text-base font-semibold text-gray-900">{group.title}</summary>
               <p className="mt-2 text-sm text-gray-600">{group.description}</p>
               <div className="mt-5">{body}</div>
+              {group.id === 'automation' && (
+                <div className="mt-6 border-t border-gray-100 pt-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm text-gray-600">
+                      Last run: {settings.CRON_LAST_RUN_AT?.value ? new Date(settings.CRON_LAST_RUN_AT.value).toLocaleString() : 'Not recorded yet'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void runAutomationsNow()}
+                      disabled={runningAutomation}
+                      className="rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+                    >
+                      {runningAutomation ? 'Running...' : 'Run automations now'}
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500">
+                    External scheduler endpoint:{' '}
+                    <code className="rounded bg-gray-100 px-1.5 py-0.5">
+                      {typeof window !== 'undefined' ? `${window.location.origin}/api/cron/marketing` : '/api/cron/marketing'}
+                    </code>
+                  </p>
+                </div>
+              )}
             </details>
           );
         }
 
         return (
-          <section key={group.title} className="rounded-lg border bg-white p-6">
+          <section
+            key={group.id}
+            id={`settings-group-${group.id}`}
+            className="scroll-mt-28 rounded-lg border bg-white p-6"
+          >
             <div className="mb-5">
-              <h2 className="text-lg font-semibold text-gray-900">{group.title}</h2>
+              <h3 className="text-base font-semibold text-gray-900">{group.title}</h3>
               <p className="mt-1 text-sm text-gray-600">{group.description}</p>
             </div>
             {body}

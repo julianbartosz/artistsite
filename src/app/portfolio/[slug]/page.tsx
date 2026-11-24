@@ -6,6 +6,7 @@ import { displayFilterLabel } from '@/lib/search-params';
 import ArtworkGallery from '@/components/ArtworkGallery';
 import { MDXContent } from '@/components/MDXContent';
 import { htmlHasVisibleText } from '@/lib/content-sanitize';
+import { splitPlainParagraphs } from '@/lib/site-content-shared';
 import { generatePortfolioMetadata, getSeoBrand } from '@/lib/seo';
 import { getSiteUrl } from '@/lib/config';
 import { StructuredData, generateVisualArtworkSchema, generateBreadcrumbSchema } from '@/components/StructuredData';
@@ -73,7 +74,11 @@ export default async function ArtworkDetail({ params }: ArtworkDetailProps) {
         </h1>
 
         {artwork.description && (
-          <p className="text-lg text-gray-600 leading-relaxed mb-6">{artwork.description}</p>
+          <div className="space-y-3 text-base text-gray-600 leading-relaxed mb-6">
+            {splitPlainParagraphs(artwork.description).map((paragraph, index) => (
+              <p key={index} className="whitespace-pre-line">{paragraph}</p>
+            ))}
+          </div>
         )}
 
         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -103,13 +108,15 @@ export default async function ArtworkDetail({ params }: ArtworkDetailProps) {
           )}
         </dl>
 
-        <div className="mt-4">
-          <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-            artwork.available ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-          }`}>
-            {artwork.available ? 'Available' : 'Sold'}
-          </span>
-        </div>
+        {(artwork.available || portfolioContent.layout.showSoldBadge) && (
+          <div className="mt-4">
+            <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+              artwork.available ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'
+            }`}>
+              {artwork.available ? 'Available' : 'Not available'}
+            </span>
+          </div>
+        )}
       </header>
 
       {artwork.category && artwork.category.length > 0 && (

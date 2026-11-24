@@ -1,16 +1,16 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import {
   Product,
   formatPrice,
+  productGalleryImages,
   productHasPurchaseOptions,
-  productImageSrc,
-  PRODUCT_IMAGE_FALLBACK,
 } from '@/lib/commerce';
-import { shouldUnoptimizeImage } from '@/lib/image-variant-url';
+import { isVideoUrl } from '@/lib/image-variant-url';
+import ImageCarousel from '@/components/ImageCarousel';
+import ProductImage from '@/components/ProductImage';
 import AddToCartButton from '@/components/AddToCartButton';
 import { WishlistButton } from '@/components/WishlistButton';
 
@@ -20,24 +20,18 @@ type ProductQuickLookProps = {
   onClose: () => void;
 };
 
-function productPrimaryImage(product: Product): string {
-  return product.images.thumbnail?.trim()
-    || product.images.gallery.find((image) => image.trim())
-    || PRODUCT_IMAGE_FALLBACK;
-}
-
 export default function ProductQuickLook({ product, open, onClose }: ProductQuickLookProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
-  const originalSrc = useMemo(() => productPrimaryImage(product), [product]);
-  const [imageSrc, setImageSrc] = useState(() => productImageSrc(product, undefined, 'md'));
+  const galleryImages = useMemo(() => productGalleryImages(product), [product]);
+  const [activeIndex, setActiveIndex] = useState(0);
   const hasOptions = productHasPurchaseOptions(product);
   const canConfigure = product.availability === 'available' && hasOptions;
 
   useEffect(() => {
     if (!open) return;
-    setImageSrc(productImageSrc(product, undefined, 'md'));
+    setActiveIndex(0);
     closeRef.current?.focus();
-  }, [open, product]);
+  }, [open, product.id]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -57,16 +51,6 @@ export default function ProductQuickLook({ product, open, onClose }: ProductQuic
   }, [open, onClose]);
 
   if (!open) return null;
-
-  function handleImageError() {
-    if (imageSrc !== originalSrc) {
-      setImageSrc(originalSrc);
-      return;
-    }
-    if (imageSrc !== PRODUCT_IMAGE_FALLBACK) {
-      setImageSrc(PRODUCT_IMAGE_FALLBACK);
-    }
-  }
 
   return (
     <div
@@ -93,24 +77,61 @@ export default function ProductQuickLook({ product, open, onClose }: ProductQuic
         </div>
 
         <div className="grid min-h-0 flex-1 grid-cols-1 items-start overflow-y-auto sm:grid-cols-2 sm:overflow-hidden">
-          <div className="relative aspect-square max-h-[38vh] w-full shrink-0 bg-gray-100 sm:sticky sm:top-0 sm:max-h-none">
-            <Image
-              src={imageSrc}
+          <div className="w-full shrink-0 bg-gray-100 sm:sticky sm:top-0">
+            <ImageCarousel
+              images={galleryImages}
               alt={product.title}
-              fill
-              className="object-contain"
+              variantSize="md"
+              activeIndex={activeIndex}
+              onIndexChange={setActiveIndex}
+              showCounter
+              enableKeyboard
+              className="relative aspect-square max-h-[38vh] w-full bg-gray-100 overflow-hidden sm:max-h-none"
+              imageClassName="object-contain"
               sizes="(max-width: 640px) 100vw, 50vw"
-              onError={handleImageError}
-              unoptimized={imageSrc.startsWith('/uploads/') || shouldUnoptimizeImage(imageSrc)}
-            />
-            <div className="absolute right-3 top-3">
-              <WishlistButton productId={product.id} size="sm" stopNavigation />
-            </div>
+            >
+              <div className="absolute right-3 top-3 z-20">
+                <WishlistButton productId={product.id} size="sm" stopNavigation />
+              </div>
+            </ImageCarousel>
+
+            {galleryImages.length > 1 && (
+              <div className="flex gap-2 overflow-x-auto border-t border-gray-200/80 bg-white px-3 py-2.5">
+                {galleryImages.map((imageUrl, thumbIndex) => {
+                  const selected = thumbIndex === activeIndex;
+                  const itemIsVideo = isVideoUrl(imageUrl);
+                  return (
+                    <button
+                      key={`${imageUrl}-${thumbIndex}`}
+                      type="button"
+                      onClick={() => setActiveIndex(thumbIndex)}
+                      aria-label={itemIsVideo ? `View video ${thumbIndex + 1} of ${product.title}` : `View photo ${thumbIndex + 1} of ${product.title}`}
+                      aria-pressed={selected}
+                      className={`relative h-14 w-14 shrink-0 overflow-hidden rounded bg-gray-100 ring-2 transition-all ${
+                        selected ? 'ring-primary' : 'ring-transparent hover:ring-gray-300'
+                      }`}
+                    >
+                      <ProductImage
+                        product={product}
+                        preferred={imageUrl}
+                        variantSize="thumb"
+                        alt={`${product.title} — ${itemIsVideo ? 'video' : 'photo'} ${thumbIndex + 1}`}
+                        fill
+                        className="object-cover"
+                        sizes="56px"
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div className="space-y-4 overflow-y-auto p-4 pb-8 sm:max-h-[calc(92vh-3.25rem)] sm:p-6">
             <div className="space-y-2">
-              <p className="text-sm text-gray-600">{product.medium} • {product.dimensions}</p>
+              {[product.medium, product.dimensions].filter(Boolean).length > 0 && (
+                <p className="text-sm text-gray-600">{[product.medium, product.dimensions].filter(Boolean).join(' • ')}</p>
+              )}
               {!canConfigure && (
                 <p className="text-2xl font-bold text-gray-900">{formatPrice(product.price, product.currency)}</p>
               )}

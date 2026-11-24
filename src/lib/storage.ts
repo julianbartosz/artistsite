@@ -1,8 +1,9 @@
 import { BlobServiceClient } from '@azure/storage-blob';
 import { existsSync } from 'fs';
-import { mkdir, readdir, stat, writeFile } from 'fs/promises';
+import { mkdir, readdir, readFile, stat, writeFile } from 'fs/promises';
 import { basename, join, resolve } from 'path';
-import { parseVariantFilename, type ImageVariantMap } from '@/lib/image-variant-url';
+import { isGifUrl, parseVariantFilename, type ImageVariantMap, type ImageVariantSize } from '@/lib/image-variant-url';
+import { buildImageVariants } from '@/lib/image-variants';
 
 type MediaFolder = 'images' | 'videos';
 
@@ -238,4 +239,95 @@ export async function listStoredImages(): Promise<MediaLibraryItem[]> {
 export async function listStoredMedia(): Promise<MediaLibraryItem[]> {
   const [images, videos] = await Promise.all([listFolderRaw('images'), listFolderRaw('videos')]);
   return sortLibraryItems([...videos, ...images]);
+}
+
+async function readStoredImageBuffer(filename: string): Promise<Buffer | null> {
+  const safeName = basename(filename);
+  if (!safeName || safeName !== filename || safeName.startsWith('.')) {
+    return null;
+  }
+
+  const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
+  const containerName = getAzureContainerName();
+  if (connectionString && containerName) {
+    const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+    const containerClient = blobServiceClient.getContainerClient(containerName);
+    const blobClient = containerClient.getBlockBlobClient(`images/${safeName}`);
+    if (!(await blobClient.exists())) return null;
+    return blobClient.downloadToBuffer();
+  }
+
+  const directory = resolve(LOCAL_UPLOAD_ROOT, 'images');
+  const filepath = resolve(directory, safeName);
+  if (!filepath.startsWith(`${directory}/`) || !existsSync(filepath)) {
+    return null;
+  }
+  return readFile(filepath);
+}
+
+export interface VariantBackfillSummary {
+  scanned: number;
+  generatedImages: number;
+  generatedVariants: number;
+  skipped: number;
+  failed: string[];
+}
+
+const REQUIRED_VARIANTS: ImageVariantSize[] = ['thumb', 'md', 'lg'];
+
+/**
+ * Idempotently generate missing WebP variants (-thumb, -md, -lg) for existing stored images.
+ * Works for both local public/uploads and Azure Blob Storage without modifying originals.
+ */
+export async function backfillMissingImageVariants(): Promise<VariantBackfillSummary> {
+  const images = await listFolderRaw('images');
+  const summary: VariantBackfillSummary = {
+    scanned: images.length,
+    generatedImages: 0,
+    generatedVariants: 0,
+    skipped: 0,
+    failed: [],
+  };
+
+  for (const item of images) {
+    const missing = REQUIRED_VARIANTS.filter((size) => !item.variants?.[size]);
+    if (missing.length === 0 || isGifUrl(item.filename) || /\.svg$/i.test(item.filename)) {
+      summary.skipped += 1;
+      continue;
+    }
+
+    try {
+      const buffer = await readStoredImageBuffer(item.filename);
+      if (!buffer) {
+        summary.skipped += 1;
+        continue;
+      }
+
+      const generated = await buildImageVariants(buffer, item.filename);
+      if (generated.length === 0) {
+        summary.skipped += 1;
+        continue;
+      }
+
+      let createdForItem = 0;
+      for (const variant of generated) {
+        const size = variant.suffix as ImageVariantSize;
+        if (item.variants?.[size]) continue;
+        await storeImageAsset(variant.buffer, variant.filename, variant.contentType);
+        createdForItem += 1;
+        summary.generatedVariants += 1;
+      }
+
+      if (createdForItem > 0) {
+        summary.generatedImages += 1;
+      } else {
+        summary.skipped += 1;
+      }
+    } catch (error) {
+      console.warn(`Variant backfill skipped for ${item.filename}:`, error);
+      summary.failed.push(item.filename);
+    }
+  }
+
+  return summary;
 }
