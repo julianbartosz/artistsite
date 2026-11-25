@@ -58,6 +58,26 @@ function CheckoutSuccessContent({ initialShopCopy }: CheckoutSuccessClientProps)
       return;
     }
 
+    // #region agent log
+    fetch('http://127.0.0.1:7522/ingest/b298bde5-efc1-49c2-a537-64847b31c81b', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '42a5ad' },
+      body: JSON.stringify({
+        sessionId: '42a5ad',
+        runId: 'post-fix',
+        hypothesisId: 'B',
+        location: 'CheckoutSuccessClient.tsx:mount',
+        message: 'success page landed after Stripe redirect',
+        data: {
+          hasSessionId: Boolean(sessionId),
+          sessionIdPrefix: sessionId.slice(0, 20),
+          hrefHost: typeof window !== 'undefined' ? window.location.host : null,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+
     // Retrieve session details and clear cart
     const fetchOrderDetails = async () => {
       try {

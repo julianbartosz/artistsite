@@ -25,7 +25,7 @@ import {
   verifyOrderAccessToken,
 } from '@/lib/orders';
 import { InventoryService } from '@/lib/inventory';
-import { getConfigBool } from '@/lib/config';
+import { getConfigBool, getSiteUrl } from '@/lib/config';
 import { resolvePromoDiscount, roundPromoMoney } from '@/lib/promo-codes';
 import { getStripe } from '@/lib/stripe';
 
@@ -159,6 +159,36 @@ export async function POST(req: NextRequest) {
     }
 
     const stripe = await getStripe();
+    const checkoutOrigin = await resolveCheckoutOrigin(req);
+    const successUrl = `${checkoutOrigin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = `${checkoutOrigin}/checkout/cancel?${new URLSearchParams({
+      order: persistedOrder.id,
+      t: createOrderAccessToken(persistedOrder.id),
+    })}`;
+
+    // #region agent log
+    const originDebug = {
+      sessionId: '42a5ad',
+      hypothesisId: 'B',
+      location: 'api/checkout/route.ts:resolveCheckoutOrigin',
+      message: 'checkout public origin resolved',
+      data: {
+        requestOrigin: req.nextUrl.origin,
+        forwardedHost: req.headers.get('x-forwarded-host'),
+        host: req.headers.get('host'),
+        checkoutOrigin,
+        successUrlHost: (() => { try { return new URL(successUrl).host; } catch { return 'invalid'; } })(),
+      },
+      timestamp: Date.now(),
+      runId: 'post-fix',
+    };
+    console.log(JSON.stringify(originDebug));
+    fetch('http://127.0.0.1:7522/ingest/b298bde5-efc1-49c2-a537-64847b31c81b', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '42a5ad' },
+      body: JSON.stringify(originDebug),
+    }).catch(() => {});
+    // #endregion
 
     const discountCoupon = promoDiscount.amount > 0
       ? await stripe.coupons.create({
@@ -181,7 +211,7 @@ export async function POST(req: NextRequest) {
             product_data: {
               name: item.product.title,
               ...(itemDescription ? { description: itemDescription } : {}),
-              images: absoluteStripeImageUrls(req.nextUrl.origin, productImageSrc(item.product)),
+              images: absoluteStripeImageUrls(checkoutOrigin, productImageSrc(item.product)),
               metadata: {
                 productId: item.product.id,
                 category: item.product.category,
@@ -222,11 +252,8 @@ export async function POST(req: NextRequest) {
       ...(discountCoupon ? { discounts: [{ coupon: discountCoupon.id }] } : {}),
       mode: 'payment',
       expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_SESSION_MINUTES * 60,
-      success_url: `${req.nextUrl.origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${req.nextUrl.origin}/checkout/cancel?${new URLSearchParams({
-        order: persistedOrder.id,
-        t: createOrderAccessToken(persistedOrder.id),
-      })}`,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
       customer_email: customerInfo.email,
       client_reference_id: persistedOrder.id,
       billing_address_collection: 'required',
@@ -312,6 +339,46 @@ function absoluteStripeImageUrls(origin: string, imageUrl?: string): string[] {
   } catch {
     return [];
   }
+}
+
+function isUsablePublicOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    const host = url.hostname.toLowerCase();
+    if (!host || host === '0.0.0.0' || host === '127.0.0.1') return false;
+    if (host === 'localhost' && process.env.NODE_ENV === 'production') return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Stripe success/cancel URLs must be browser-reachable. On Fly, Next can see
+ * req.nextUrl.origin as https://0.0.0.0:3000 (listen address), which breaks redirect.
+ */
+async function resolveCheckoutOrigin(req: NextRequest): Promise<string> {
+  const configured = (await getSiteUrl()).replace(/\/$/, '');
+  if (configured && isUsablePublicOrigin(configured)) {
+    return configured;
+  }
+
+  const forwardedHost = req.headers.get('x-forwarded-host') || req.headers.get('host');
+  const forwardedProto = (req.headers.get('x-forwarded-proto') || 'https').split(',')[0]?.trim() || 'https';
+  if (forwardedHost) {
+    const host = forwardedHost.split(',')[0]?.trim();
+    if (host) {
+      const candidate = `${forwardedProto}://${host}`;
+      if (isUsablePublicOrigin(candidate)) return candidate;
+    }
+  }
+
+  if (isUsablePublicOrigin(req.nextUrl.origin)) {
+    return req.nextUrl.origin;
+  }
+
+  throw new Error('Checkout origin is not configured. Set NEXT_PUBLIC_SITE_URL to your public site URL.');
 }
 
 function resolveVariant(product: Product, variant?: CartItemVariant): CartItemVariant | undefined {
