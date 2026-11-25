@@ -48,9 +48,9 @@ function isSubscribedProfile(profile: { segments: unknown; preferences: unknown 
     && parseObject(profile.preferences).newsletter !== false;
 }
 
-export async function recordNewsletterSubscriber(email: string, digest = true): Promise<void> {
+export async function recordNewsletterSubscriber(email: string, digest = true): Promise<string | null> {
   const normalizedEmail = email.trim().toLowerCase();
-  if (!normalizedEmail) return;
+  if (!normalizedEmail) return null;
 
   const existing = await db.customerProfile.findUnique({ where: { email: normalizedEmail } }).catch(() => null);
   const existingSegments = parseSegments(existing?.segments);
@@ -61,7 +61,7 @@ export async function recordNewsletterSubscriber(email: string, digest = true): 
     ? existingPreferences.subscribedAt
     : new Date().toISOString();
 
-  await db.customerProfile.upsert({
+  const saved = await db.customerProfile.upsert({
     where: { email: normalizedEmail },
     create: {
       email: normalizedEmail,
@@ -74,9 +74,12 @@ export async function recordNewsletterSubscriber(email: string, digest = true): 
       preferences: JSON.stringify({ ...existingPreferences, newsletter: true, digest, subscribedAt }),
       lastActivity: new Date(),
     },
+    select: { id: true },
   }).catch((error) => {
     console.error('Failed to record newsletter subscriber profile:', error);
+    return null;
   });
+  return saved?.id ?? existing?.id ?? null;
 }
 
 /** Returns true when the address was subscribed before this call. */
@@ -184,6 +187,34 @@ export function verifyUnsubscribeToken(token: string | null | undefined): string
   const expected = Buffer.from(signTokenBody(body, secret));
   if (signature.length !== expected.length || !timingSafeEqual(signature, expected)) return null;
   return normalizeSubscriberEmail(Buffer.from(body, 'base64url').toString('utf8'));
+}
+
+export const COLLECTOR_PROFILE_COOKIE = 'me_collector_profile';
+const PROFILE_TOKEN_PURPOSE = 'collector-profile:';
+
+function signPurposeBody(purpose: string, body: string, secret: string): string {
+  return createHmac('sha256', secret).update(`${purpose}${body}`).digest('base64url');
+}
+
+export function createCollectorProfileToken(profileId: string): string | null {
+  const secret = tokenSecret();
+  const normalized = profileId.trim();
+  if (!secret || !normalized) return null;
+  const body = Buffer.from(normalized).toString('base64url');
+  return `${body}.${signPurposeBody(PROFILE_TOKEN_PURPOSE, body, secret)}`;
+}
+
+export function verifyCollectorProfileToken(token: string | null | undefined): string | null {
+  const secret = tokenSecret();
+  if (!secret || !token) return null;
+  const dot = token.indexOf('.');
+  if (dot < 1) return null;
+  const body = token.slice(0, dot);
+  const signature = Buffer.from(token.slice(dot + 1));
+  const expected = Buffer.from(signPurposeBody(PROFILE_TOKEN_PURPOSE, body, secret));
+  if (signature.length !== expected.length || !timingSafeEqual(signature, expected)) return null;
+  const decoded = Buffer.from(body, 'base64url').toString('utf8').trim();
+  return decoded || null;
 }
 
 export function newsletterUnsubscribeLinks(email: string, siteUrl: string): { pageUrl: string; oneClickUrl: string } {

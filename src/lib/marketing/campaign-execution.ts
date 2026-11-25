@@ -579,6 +579,338 @@ export async function processDueCartRecovery(now = new Date()): Promise<Campaign
   return summary;
 }
 
+export const AUTOMATION_CAMPAIGN_IDS = {
+  newsletterWelcome: 'auto-newsletter-welcome',
+  newsletterWelcomeFollowup: 'auto-newsletter-welcome-followup',
+  collectorWinback: 'auto-collector-winback',
+} as const;
+
+const WELCOME_FOLLOWUP_MIN_DAYS = 3;
+const WELCOME_FOLLOWUP_MAX_DAYS = 30;
+const DEFAULT_WINBACK_INACTIVE_DAYS = 45;
+const AUTOMATION_BATCH_LIMIT = 50;
+
+export function parseWinbackInactiveDays(raw: string | undefined): number {
+  const parsed = Number.parseInt(String(raw ?? '').trim(), 10);
+  if (!Number.isFinite(parsed) || parsed < 14) return DEFAULT_WINBACK_INACTIVE_DAYS;
+  return Math.min(365, parsed);
+}
+
+async function ensureAutomationCampaign(
+  id: string,
+  name: string,
+  templateId: string,
+): Promise<void> {
+  await db.emailCampaign.upsert({
+    where: { id },
+    create: {
+      id,
+      name,
+      type: 'automated',
+      templateId,
+      segments: JSON.stringify(['newsletter_subscriber']),
+      metrics: JSON.stringify({ total: 0, delivered: 0, failed: 0 }),
+      status: 'active',
+    },
+    update: {},
+  });
+}
+
+async function recordAutomationDelivery(
+  campaignId: string,
+  email: string,
+  ok: boolean,
+  automationKey: string,
+  profileId?: string | null,
+): Promise<void> {
+  const now = new Date();
+  await db.emailCampaignDelivery.upsert({
+    where: { campaignId_email: { campaignId, email } },
+    create: {
+      campaignId,
+      email,
+      status: ok ? 'sent' : 'failed',
+      error: ok ? null : 'Delivery failed',
+      attemptedAt: now,
+    },
+    update: {
+      status: ok ? 'sent' : 'failed',
+      error: ok ? null : 'Delivery failed',
+      attemptedAt: now,
+    },
+  }).catch(() => undefined);
+
+  await db.analyticsEvent.create({
+    data: {
+      eventName: ok ? 'email_sent' : 'email_failed',
+      ...(profileId ? { userId: profileId } : {}),
+      properties: JSON.stringify({
+        automation: automationKey,
+        campaign_id: campaignId,
+        recipient_email: email,
+        delivery_success: ok,
+      }),
+      timestamp: now,
+    },
+  }).catch(() => undefined);
+}
+
+function buildNewsletterWelcomeDocument(siteName: string, siteUrl: string): NewsletterDocument {
+  const portfolioUrl = absoluteUrl('/portfolio', siteUrl);
+  const shopUrl = absoluteUrl('/shop', siteUrl);
+  return {
+    subject: `Welcome to ${siteName}`,
+    preheader: 'You are on the studio list for new artwork, prints, and studio notes.',
+    fromName: siteName,
+    blocks: [
+      {
+        id: 'welcome-body',
+        type: 'text',
+        html: '<h2>Welcome to the studio list</h2><p>Hi {{first_name}},</p><p>Thank you for joining the list. You will hear directly from the studio when new originals, limited prints, exhibitions, and quiet studio notes arrive — never spam, and you can unsubscribe anytime below.</p>',
+      },
+      {
+        id: 'welcome-cta',
+        type: 'button',
+        label: 'Explore the shop',
+        href: shopUrl,
+      },
+      {
+        id: 'welcome-portfolio',
+        type: 'text',
+        html: `<p>Or browse recent work in the <a href="${escapeHtml(portfolioUrl)}">portfolio</a>.</p>`,
+      },
+    ],
+  };
+}
+
+function buildWelcomeFollowupDocument(siteName: string, siteUrl: string): NewsletterDocument {
+  const portfolioUrl = absoluteUrl('/portfolio', siteUrl);
+  const updatesUrl = absoluteUrl('/updates', siteUrl);
+  const contactUrl = absoluteUrl('/contact', siteUrl);
+  return {
+    subject: `Inside the studio — ${siteName}`,
+    preheader: 'A quick look at recent pieces, works in progress, and custom commissions.',
+    fromName: siteName,
+    blocks: [
+      {
+        id: 'followup-body',
+        type: 'text',
+        html: `<h2>A closer look inside the studio</h2><p>Hi {{first_name}},</p><p>Thanks again for following along. If you have not had a chance yet, you can browse <a href="${escapeHtml(portfolioUrl)}">recent portfolio pieces</a>, read <a href="${escapeHtml(updatesUrl)}">studio updates</a>, or reply directly to this email anytime with questions about framing, prints, or commissions.</p>`,
+      },
+      {
+        id: 'followup-cta',
+        type: 'button',
+        label: 'Browse the portfolio',
+        href: portfolioUrl,
+      },
+      {
+        id: 'followup-contact',
+        type: 'text',
+        html: `<p>Looking for something specific? <a href="${escapeHtml(contactUrl)}">Send a note to the studio</a>.</p>`,
+      },
+    ],
+  };
+}
+
+function buildCollectorWinbackDocument(siteName: string, siteUrl: string): NewsletterDocument {
+  const shopUrl = absoluteUrl('/shop', siteUrl);
+  const updatesUrl = absoluteUrl('/updates', siteUrl);
+  return {
+    subject: `Fresh from the studio — ${siteName}`,
+    preheader: 'New artwork and studio notes waiting whenever you want a look.',
+    fromName: siteName,
+    blocks: [
+      {
+        id: 'winback-body',
+        type: 'text',
+        html: `<h2>A quiet note from the studio</h2><p>Hi {{first_name}},</p><p>It has been a little while since we last crossed paths. Whenever you feel like taking a slow look, there are fresh pieces in the shop and recent notes over in <a href="${escapeHtml(updatesUrl)}">Studio Updates</a>.</p>`,
+      },
+      {
+        id: 'winback-cta',
+        type: 'button',
+        label: 'See what is new',
+        href: shopUrl,
+      },
+    ],
+  };
+}
+
+/**
+ * Sends the immediate welcome/confirmation email when a visitor joins the newsletter.
+ * Uses the DB delivery ledger (`EmailCampaignDelivery`) so retries/re-subscribes never double-send,
+ * and returns `delivered: true` ONLY when real SMTP delivery succeeded.
+ */
+export async function sendNewsletterWelcomeEmail(
+  email: string,
+  profileId?: string | null,
+): Promise<{ attempted: boolean; delivered: boolean }> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) return { attempted: false, delivered: false };
+
+  if (!isEnabled(await getConfig('NEWSLETTER_WELCOME_ENABLED'), true)) {
+    return { attempted: false, delivered: false };
+  }
+
+  const delivery = await getEmailDeliveryStatus();
+  if (delivery.mode !== 'smtp') {
+    return { attempted: false, delivered: false };
+  }
+
+  const campaignId = AUTOMATION_CAMPAIGN_IDS.newsletterWelcome;
+  await ensureAutomationCampaign(campaignId, 'Newsletter welcome', 'automated-welcome');
+
+  const alreadySent = await db.emailCampaignDelivery.findUnique({
+    where: { campaignId_email: { campaignId, email: normalizedEmail } },
+    select: { status: true },
+  }).catch(() => null);
+  if (alreadySent?.status === 'sent') {
+    return { attempted: false, delivered: false };
+  }
+
+  const [brand, user] = await Promise.all([
+    getEmailBrand(),
+    db.user.findUnique({
+      where: { email: normalizedEmail },
+      select: { firstName: true, name: true },
+    }).catch(() => null),
+  ]);
+  const firstName = user?.firstName?.trim() || user?.name?.trim().split(' ')[0] || null;
+
+  const doc = buildNewsletterWelcomeDocument(brand.siteName, brand.siteUrl);
+  const result = await sendNewsletterEmails(doc, [{
+    email: normalizedEmail,
+    firstName,
+    profileId: profileId ?? undefined,
+  }]);
+  const ok = result.delivered > 0;
+  await recordAutomationDelivery(campaignId, normalizedEmail, ok, 'newsletter_welcome', profileId);
+  return { attempted: true, delivered: ok };
+}
+
+/**
+ * Runs built-in in-site subscriber automations (Welcome Series Step 2 + Quiet Collector Win-Back)
+ * using Resend SMTP and the idempotent `EmailCampaignDelivery` ledger.
+ */
+export async function processDueSubscriberAutomations(now = new Date()): Promise<{
+  welcomeFollowup: CampaignProcessSummary;
+  winback: CampaignProcessSummary;
+}> {
+  const empty = (): CampaignProcessSummary => ({ attempted: 0, completed: 0, needsAttention: 0, failed: 0 });
+  const welcomeFollowup = empty();
+  const winback = empty();
+
+  const [welcomeSeriesEnabled, winbackEnabled, winbackDaysRaw, delivery] = await Promise.all([
+    getConfig('NEWSLETTER_WELCOME_SERIES_ENABLED'),
+    getConfig('WINBACK_EMAIL_ENABLED'),
+    getConfig('WINBACK_INACTIVE_DAYS'),
+    getEmailDeliveryStatus(),
+  ]);
+
+  const runFollowup = isEnabled(welcomeSeriesEnabled, false);
+  const runWinback = isEnabled(winbackEnabled, false);
+  if ((!runFollowup && !runWinback) || delivery.mode !== 'smtp') {
+    return { welcomeFollowup, winback };
+  }
+
+  const [subscribers, brand] = await Promise.all([listNewsletterSubscribers(), getEmailBrand()]);
+  if (subscribers.length === 0) return { welcomeFollowup, winback };
+
+  const nowMs = now.getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  if (runFollowup) {
+    const campaignId = AUTOMATION_CAMPAIGN_IDS.newsletterWelcomeFollowup;
+    await ensureAutomationCampaign(campaignId, 'Welcome series follow-up', 'automated-welcome-followup');
+    const sentRows = await db.emailCampaignDelivery.findMany({
+      where: { campaignId, status: 'sent' },
+      select: { email: true },
+    }).catch(() => []);
+    const alreadySent = new Set(sentRows.map((row) => row.email.toLowerCase()));
+
+    const eligible = subscribers
+      .filter((subscriber) => {
+        if (alreadySent.has(subscriber.email)) return false;
+        const ageMs = nowMs - new Date(subscriber.subscribedAt).getTime();
+        return ageMs >= WELCOME_FOLLOWUP_MIN_DAYS * dayMs && ageMs <= WELCOME_FOLLOWUP_MAX_DAYS * dayMs;
+      })
+      .slice(0, AUTOMATION_BATCH_LIMIT);
+
+    if (eligible.length > 0) {
+      const doc = buildWelcomeFollowupDocument(brand.siteName, brand.siteUrl);
+      await sendNewsletterEmails(
+        doc,
+        eligible.map((s) => ({ email: s.email, firstName: s.firstName, profileId: s.profileId })),
+        async (recipient, ok) => {
+          welcomeFollowup.attempted += 1;
+          if (ok) welcomeFollowup.completed += 1;
+          else welcomeFollowup.failed += 1;
+          await recordAutomationDelivery(campaignId, recipient.email, ok, 'newsletter_welcome_followup', recipient.profileId);
+        },
+      );
+    }
+  }
+
+  if (runWinback) {
+    const inactiveDays = parseWinbackInactiveDays(winbackDaysRaw);
+    const cutoff = new Date(nowMs - inactiveDays * dayMs);
+    const campaignId = AUTOMATION_CAMPAIGN_IDS.collectorWinback;
+    await ensureAutomationCampaign(campaignId, 'Collector win-back', 'automated-winback');
+
+    const [sentRows, profiles, recentOrders] = await Promise.all([
+      db.emailCampaignDelivery.findMany({
+        where: { campaignId, status: 'sent' },
+        select: { email: true },
+      }).catch(() => []),
+      db.customerProfile.findMany({
+        where: { id: { in: subscribers.map((s) => s.profileId) } },
+        select: { id: true, lastActivity: true },
+      }).catch(() => []),
+      db.order.findMany({
+        where: {
+          createdAt: { gte: cutoff },
+          status: { notIn: ['cancelled', 'refunded'] },
+        },
+        select: { userEmail: true },
+      }).catch(() => []),
+    ]);
+
+    const alreadySent = new Set(sentRows.map((row) => row.email.toLowerCase()));
+    const activityByProfile = new Map(profiles.map((p) => [p.id, p.lastActivity]));
+    const recentBuyerEmails = new Set(
+      recentOrders
+        .map((order) => order.userEmail?.trim().toLowerCase())
+        .filter((value): value is string => Boolean(value)),
+    );
+
+    const eligible = subscribers
+      .filter((subscriber) => {
+        if (alreadySent.has(subscriber.email)) return false;
+        if (recentBuyerEmails.has(subscriber.email)) return false;
+        const subscribedAt = new Date(subscriber.subscribedAt);
+        if (subscribedAt > cutoff) return false;
+        const lastActivity = activityByProfile.get(subscriber.profileId) ?? subscribedAt;
+        return lastActivity <= cutoff;
+      })
+      .slice(0, AUTOMATION_BATCH_LIMIT);
+
+    if (eligible.length > 0) {
+      const doc = buildCollectorWinbackDocument(brand.siteName, brand.siteUrl);
+      await sendNewsletterEmails(
+        doc,
+        eligible.map((s) => ({ email: s.email, firstName: s.firstName, profileId: s.profileId })),
+        async (recipient, ok) => {
+          winback.attempted += 1;
+          if (ok) winback.completed += 1;
+          else winback.failed += 1;
+          await recordAutomationDelivery(campaignId, recipient.email, ok, 'collector_winback', recipient.profileId);
+        },
+      );
+    }
+  }
+
+  return { welcomeFollowup, winback };
+}
+
 export async function publishRecordedCampaign(kind: 'social' | 'ad', id: string) {
   if (kind === 'social') {
     const post = await dbWithMarketing.socialMediaPost.findUnique({ where: { id } });

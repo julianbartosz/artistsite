@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNewsletterTracking } from '@/components/AnalyticsProvider';
+import { ConversionFunnels } from '@/lib/analytics/funnels';
 
 interface NewsletterSignupProps {
   className?: string;
@@ -66,17 +67,23 @@ export function NewsletterSignup({
     setStatus('loading');
     
     try {
+      const sessionId = ConversionFunnels.getSessionId() || undefined;
       const response = await fetch('/api/newsletter', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, ...(sessionId ? { sessionId } : {}) }),
       });
 
       if (response.ok) {
+        const data = await response.json().catch(() => ({} as { emailSent?: boolean }));
         setStatus('success');
-        setMessage('Thank you for subscribing! Check your email for confirmation.');
+        setMessage(
+          data?.emailSent === true
+            ? 'Thank you for subscribing! Check your inbox for a welcome note from the studio.'
+            : "You're on the list! We'll write when new artwork and studio updates arrive.",
+        );
         setEmail('');
         
         // Track successful newsletter signup with error handling

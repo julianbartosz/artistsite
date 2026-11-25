@@ -50,28 +50,37 @@ describe('NewsletterSignup Component', () => {
     });
   });
 
-  it('submits form successfully', async () => {
+  it.each([
+    {
+      name: 'reports welcome email when SMTP delivered it',
+      emailSent: true,
+      expectedText: 'Thank you for subscribing! Check your inbox for a welcome note from the studio.',
+    },
+    {
+      name: 'does not promise an email when delivery is off or unavailable',
+      emailSent: false,
+      expectedText: "You're on the list! We'll write when new artwork and studio updates arrive.",
+    },
+  ])('submits form successfully and $name', async ({ emailSent, expectedText }) => {
     const user = userEvent.setup();
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ message: 'Success!' }),
+      json: async () => ({ message: 'Success!', emailSent }),
     });
-    
+
     render(<NewsletterSignup />);
-    
+
     const emailInput = screen.getByPlaceholderText('Enter your email');
     const submitButton = screen.getByRole('button', { name: 'Subscribe' });
-    
-    // Enter valid email and submit
+
     await user.type(emailInput, 'test@example.com');
     await user.click(submitButton);
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith('/api/newsletter', expect.objectContaining({ method: 'POST' }));
-      expect(screen.getByText('Thank you for subscribing! Check your email for confirmation.')).toBeInTheDocument();
+      expect(screen.getByText(expectedText)).toBeInTheDocument();
     });
-    
-    // Email input should be cleared
+
     expect(emailInput).toHaveValue('');
   });
 

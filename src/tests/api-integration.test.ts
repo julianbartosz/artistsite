@@ -37,6 +37,7 @@ jest.mock('@/lib/db', () => {
       findFirst: jest.fn().mockResolvedValue(null),
       findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockResolvedValue({ id: '1' }),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]),
     contactSubmission: {
@@ -50,7 +51,17 @@ jest.mock('@/lib/db', () => {
     customerProfile: {
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue({ id: '1', email: 'subscriber@example.com' }),
+      update: jest.fn().mockResolvedValue({ id: '1', email: 'subscriber@example.com' }),
       upsert: jest.fn().mockResolvedValue({ id: '1', email: 'subscriber@example.com' }),
+    },
+    emailCampaign: {
+      upsert: jest.fn().mockResolvedValue({ id: 'auto-newsletter-welcome' }),
+    },
+    emailCampaignDelivery: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+      upsert: jest.fn().mockResolvedValue({ id: 'del-1' }),
     },
     order: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -612,5 +623,168 @@ describe('sanitizeBlogPostPayload (server-side)', () => {
     const sanitized = sanitizeBlogPostPayload(parsed);
     expect(sanitized.title).toBe('Thank you for visiting <3 & enjoying the new work!');
     expect(sanitized.content).toBe('<p>Thank you for visiting &lt;3 &amp; enjoying the new work!</p>');
+  });
+});
+
+describe('Newsletter welcome, collector profile cookie, and built-in automations', () => {
+  const originalSecret = process.env.NEXTAUTH_SECRET;
+
+  beforeEach(() => {
+    process.env.NEXTAUTH_SECRET = 'test-secret-for-automation-suite';
+    jest.clearAllMocks();
+    (getServerSession as jest.Mock).mockResolvedValue(null);
+    (db.customerProfile.findUnique as jest.Mock).mockResolvedValue(null);
+    (db.customerProfile.upsert as jest.Mock).mockResolvedValue({ id: 'prof-new', email: 'eliyah@example.com' });
+    (db.analyticsEvent.findMany as jest.Mock).mockResolvedValue([]);
+    (db.emailCampaignDelivery.findUnique as jest.Mock).mockResolvedValue(null);
+    (db.emailCampaignDelivery.findMany as jest.Mock).mockResolvedValue([]);
+    (sendTemplateEmail as jest.Mock).mockResolvedValue(true);
+  });
+
+  afterAll(() => {
+    process.env.NEXTAUTH_SECRET = originalSecret;
+  });
+
+  it('sets signed collector profile cookie, backfills session events, and reports honest emailSent', async () => {
+    const configMap: Record<string, string> = {
+      EMAIL_DELIVERY_MODE: 'smtp',
+      SMTP_HOST: 'smtp.resend.com',
+      SMTP_USER: 'resend',
+      SMTP_PASSWORD: 're_test_password',
+      SMTP_FROM: 'Michal Elena <hello@michalelena.art>',
+      NEWSLETTER_WELCOME_ENABLED: 'true',
+      NEWSLETTER_DELIVERY_MODE: 'log',
+    };
+    (getConfig as jest.Mock).mockImplementation(async (key: string) => configMap[key] ?? null);
+    (db.analyticsEvent.findMany as jest.Mock).mockResolvedValueOnce([
+      { id: 'ev-1', eventName: 'page_view', properties: '{}' },
+    ]);
+    (db.customerProfile.findUnique as jest.Mock)
+      .mockResolvedValueOnce(null) // isNewsletterSubscriber
+      .mockResolvedValueOnce(null) // recordNewsletterSubscriber existing
+      .mockResolvedValueOnce({ id: 'prof-new', engagementScore: 0, segments: '["newsletter_subscriber"]' }); // backfill
+
+    const request = new NextRequest('http://localhost:3000/api/newsletter', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'eliyah@example.com', sessionId: 'sess-123' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const response = await newsletterPost(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.emailSent).toBe(true);
+    expect(sendTemplateEmail).toHaveBeenCalledTimes(1);
+    expect(db.analyticsEvent.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: { in: ['ev-1'] }, userId: null },
+        data: { userId: 'prof-new' },
+      }),
+    );
+
+    const cookieHeader = response.headers.get('set-cookie') || '';
+    expect(cookieHeader).toContain('me_collector_profile=');
+    expect(cookieHeader.toLowerCase()).toContain('httponly');
+
+    // Subsequent browsing event with the signed cookie links to prof-new
+    const cookieToken = cookieHeader.match(/me_collector_profile=([^;]+)/)?.[1];
+    expect(cookieToken).toBeTruthy();
+    (db.customerProfile.findUnique as jest.Mock).mockResolvedValueOnce({ id: 'prof-new', email: 'eliyah@example.com' });
+    (db.customerProfile.findUnique as jest.Mock).mockResolvedValueOnce({
+      id: 'prof-new',
+      engagementScore: 1,
+      lifetimeValue: 0,
+      segments: '["newsletter_subscriber"]',
+    });
+
+    const eventReq = new NextRequest('http://localhost:3000/api/events', {
+      method: 'POST',
+      body: JSON.stringify({
+        event_name: 'view_item',
+        session_id: 'sess-next-day',
+        page_url: 'http://localhost:3000/shop/bouquet-postcard',
+      }),
+      headers: {
+        'Content-Type': 'application/json',
+        cookie: `me_collector_profile=${cookieToken}`,
+      },
+    });
+    const eventRes = await eventsPost(eventReq);
+    expect(eventRes.status).toBe(201);
+    expect(db.analyticsEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ userId: 'prof-new', eventName: 'view_item' }),
+      }),
+    );
+  });
+
+  it('runs Day-3 welcome follow-up and quiet win-back with recent-order and ledger suppression', async () => {
+    const { processDueSubscriberAutomations } = await import('@/lib/marketing/campaign-execution');
+    const now = new Date('2026-11-25T12:00:00.000Z');
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    const configMap: Record<string, string> = {
+      EMAIL_DELIVERY_MODE: 'smtp',
+      SMTP_HOST: 'smtp.resend.com',
+      SMTP_USER: 'resend',
+      SMTP_PASSWORD: 're_test_password',
+      SMTP_FROM: 'Michal Elena <hello@michalelena.art>',
+      NEWSLETTER_WELCOME_SERIES_ENABLED: 'true',
+      WINBACK_EMAIL_ENABLED: 'true',
+      WINBACK_INACTIVE_DAYS: '45',
+    };
+    (getConfig as jest.Mock).mockImplementation(async (key: string) => configMap[key] ?? null);
+
+    // 4 subscribers:
+    // - fresh@example.com (1 day ago -> too young for Day-3 followup and winback)
+    // - day5@example.com (5 days ago -> eligible for Day-3 followup only)
+    // - quiet@example.com (60 days ago, inactive -> eligible for winback only)
+    // - buyer@example.com (60 days ago, recent order -> suppressed from winback)
+    const profiles = [
+      {
+        id: 'p-fresh',
+        email: 'fresh@example.com',
+        segments: JSON.stringify(['newsletter_subscriber']),
+        preferences: JSON.stringify({ newsletter: true, subscribedAt: new Date(now.getTime() - 1 * dayMs).toISOString() }),
+        createdAt: new Date(now.getTime() - 1 * dayMs),
+        lastActivity: new Date(now.getTime() - 1 * dayMs),
+      },
+      {
+        id: 'p-day5',
+        email: 'day5@example.com',
+        segments: JSON.stringify(['newsletter_subscriber']),
+        preferences: JSON.stringify({ newsletter: true, subscribedAt: new Date(now.getTime() - 5 * dayMs).toISOString() }),
+        createdAt: new Date(now.getTime() - 5 * dayMs),
+        lastActivity: new Date(now.getTime() - 2 * dayMs),
+      },
+      {
+        id: 'p-quiet',
+        email: 'quiet@example.com',
+        segments: JSON.stringify(['newsletter_subscriber']),
+        preferences: JSON.stringify({ newsletter: true, subscribedAt: new Date(now.getTime() - 60 * dayMs).toISOString() }),
+        createdAt: new Date(now.getTime() - 60 * dayMs),
+        lastActivity: new Date(now.getTime() - 50 * dayMs),
+      },
+      {
+        id: 'p-buyer',
+        email: 'buyer@example.com',
+        segments: JSON.stringify(['newsletter_subscriber']),
+        preferences: JSON.stringify({ newsletter: true, subscribedAt: new Date(now.getTime() - 60 * dayMs).toISOString() }),
+        createdAt: new Date(now.getTime() - 60 * dayMs),
+        lastActivity: new Date(now.getTime() - 50 * dayMs),
+      },
+    ];
+    (db.customerProfile.findMany as jest.Mock)
+      .mockResolvedValueOnce(profiles) // listNewsletterSubscribers
+      .mockResolvedValueOnce(profiles.map((p) => ({ id: p.id, lastActivity: p.lastActivity }))); // winback activity lookup
+    (db.user.findMany as jest.Mock) = jest.fn().mockResolvedValue([]);
+    (db.order.findMany as jest.Mock).mockResolvedValueOnce([{ userEmail: 'buyer@example.com' }]);
+
+    const summary = await processDueSubscriberAutomations(now);
+    expect(summary.welcomeFollowup).toEqual({ attempted: 1, completed: 1, needsAttention: 0, failed: 0 });
+    expect(summary.winback).toEqual({ attempted: 1, completed: 1, needsAttention: 0, failed: 0 });
+    expect(sendTemplateEmail).toHaveBeenCalledTimes(2);
+    expect((sendTemplateEmail as jest.Mock).mock.calls[0][0]).toBe('day5@example.com');
+    expect((sendTemplateEmail as jest.Mock).mock.calls[1][0]).toBe('quiet@example.com');
   });
 });

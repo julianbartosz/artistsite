@@ -36,7 +36,13 @@ import {
   type NewsletterBlock,
   type NewsletterDocument,
 } from '@/lib/newsletter';
-import { createUnsubscribeToken, verifyUnsubscribeToken } from '@/lib/newsletter-subscribers';
+import {
+  createCollectorProfileToken,
+  createUnsubscribeToken,
+  verifyCollectorProfileToken,
+  verifyUnsubscribeToken,
+} from '@/lib/newsletter-subscribers';
+import { extractEmailAddress, isResendSandboxSender } from '@/lib/email-shell';
 
 // Mock localStorage for rate limiting tests
 const localStorageMock = {
@@ -537,9 +543,59 @@ describe('launch readiness checklist', () => {
       ]),
       complete: true,
     },
-  ])('marks email readiness $name', ({ settings, complete }) => {
-    const items = buildLaunchReadinessItems({ settings });
+    {
+      name: 'incomplete when SMTP_FROM uses Resend sandbox domain in smtp mode',
+      settings: new Map([
+        ['CONTACT_EMAIL', 'configured' as const],
+        ['EMAIL_DELIVERY_MODE', 'configured' as const],
+        ['SMTP_FROM', 'configured' as const],
+        ['SMTP_USER', 'configured' as const],
+      ]),
+      settingValues: new Map([
+        ['EMAIL_DELIVERY_MODE', 'smtp'],
+        ['SMTP_FROM', 'Michal Elena <onboarding@resend.dev>'],
+      ]),
+      complete: false,
+    },
+    {
+      name: 'complete when SMTP_FROM uses Resend sandbox domain in log mode',
+      settings: new Map([
+        ['CONTACT_EMAIL', 'configured' as const],
+        ['EMAIL_DELIVERY_MODE', 'configured' as const],
+      ]),
+      settingValues: new Map([
+        ['EMAIL_DELIVERY_MODE', 'log'],
+        ['SMTP_FROM', 'Michal Elena <onboarding@resend.dev>'],
+      ]),
+      complete: true,
+    },
+  ])('marks email readiness $name', ({ settings, settingValues, complete }) => {
+    const items = buildLaunchReadinessItems({ settings, settingValues });
     expect(items.find((item) => item.key === 'email')?.complete).toBe(complete);
+  });
+
+  it.each([
+    ['onboarding@resend.dev', 'onboarding@resend.dev', true],
+    ['Michal Elena <onboarding@resend.dev>', 'onboarding@resend.dev', true],
+    ['Michal Elena <hello@michalelena.art>', 'hello@michalelena.art', false],
+    ['', '', false],
+  ])('extractEmailAddress & isResendSandboxSender(%p)', (raw, address, sandbox) => {
+    expect(extractEmailAddress(raw)).toBe(address);
+    expect(isResendSandboxSender(raw)).toBe(sandbox);
+  });
+
+  it('signs and verifies collector profile cookies without accepting unsubscribe tokens', () => {
+    const prev = process.env.NEXTAUTH_SECRET;
+    process.env.NEXTAUTH_SECRET = 'test-signing-secret-for-profile-cookies';
+    try {
+      const token = createCollectorProfileToken('prof_123');
+      expect(token).toBeTruthy();
+      expect(verifyCollectorProfileToken(token)).toBe('prof_123');
+      expect(verifyCollectorProfileToken(`${token}tampered`)).toBeNull();
+      expect(verifyCollectorProfileToken(createUnsubscribeToken('a@example.com'))).toBeNull();
+    } finally {
+      process.env.NEXTAUTH_SECRET = prev;
+    }
   });
 
   it('requires both Stripe keys before payments are ready', () => {

@@ -1,11 +1,65 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiErrorHandler, ApiError } from '@/lib/api-error-handler';
 import { getConfig } from '@/lib/config';
-import { isNewsletterSubscriber, normalizeSubscriberEmail, recordNewsletterSubscriber } from '@/lib/newsletter-subscribers';
+import { linkSessionEventsToProfile } from '@/lib/analytics/customer-insights';
+import { sendNewsletterWelcomeEmail } from '@/lib/marketing/campaign-execution';
+import {
+  COLLECTOR_PROFILE_COOKIE,
+  createCollectorProfileToken,
+  isNewsletterSubscriber,
+  normalizeSubscriberEmail,
+  recordNewsletterSubscriber,
+} from '@/lib/newsletter-subscribers';
+
+const PROFILE_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 90;
+
+async function finalizeSubscription(
+  email: string,
+  digest: boolean,
+  sessionId: string | undefined,
+  mode: 'site' | 'development' | 'production',
+): Promise<NextResponse> {
+  const profileId = await recordNewsletterSubscriber(email, digest);
+
+  if (profileId && sessionId) {
+    await linkSessionEventsToProfile(sessionId, profileId).catch(() => undefined);
+  }
+
+  const welcome = await sendNewsletterWelcomeEmail(email, profileId).catch((error) => {
+    console.error('Newsletter welcome email failed:', error);
+    return { attempted: false, delivered: false };
+  });
+
+  const response = NextResponse.json({
+    message: 'Successfully subscribed to newsletter!',
+    email,
+    mode,
+    emailSent: welcome.delivered,
+  });
+
+  if (profileId) {
+    const token = createCollectorProfileToken(profileId);
+    if (token) {
+      response.cookies.set(COLLECTOR_PROFILE_COOKIE, token, {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+        maxAge: PROFILE_COOKIE_MAX_AGE_SECONDS,
+      });
+    }
+  }
+
+  return response;
+}
 
 export const POST = withApiErrorHandler(async (request: NextRequest) => {
-  const payload = await request.json() as { email?: string; digest?: boolean };
+  const payload = await request.json() as { email?: string; digest?: boolean; sessionId?: string };
   const email = normalizeSubscriberEmail(payload.email);
+  const sessionId = typeof payload.sessionId === 'string' && payload.sessionId.trim()
+    ? payload.sessionId.trim().slice(0, 128)
+    : undefined;
+  const digest = payload.digest !== false;
 
   if (!email) {
     throw new ApiError(400, 'Valid email address is required', 'INVALID_EMAIL');
@@ -22,12 +76,12 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
     if (await isNewsletterSubscriber(email)) {
       throw new ApiError(409, 'This email is already subscribed to our newsletter', 'ALREADY_SUBSCRIBED');
     }
-    await recordNewsletterSubscriber(email, payload.digest !== false);
-    return NextResponse.json({
-      message: 'Successfully subscribed to newsletter!',
+    return finalizeSubscription(
       email,
-      mode: process.env.NODE_ENV === 'production' ? 'site' : 'development',
-    });
+      digest,
+      sessionId,
+      process.env.NODE_ENV === 'production' ? 'site' : 'development',
+    );
   }
 
   if (!apiKey || !listId || !serverPrefix) {
@@ -36,20 +90,15 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
     }
 
     console.warn('Mailchimp environment variables not configured, logging email instead:', email);
-    
+
     // Fallback: just log the subscription for development
-    await recordNewsletterSubscriber(email, payload.digest !== false);
-    return NextResponse.json({ 
-      message: 'Successfully subscribed to newsletter!',
-      email,
-      mode: 'development'
-    });
+    return finalizeSubscription(email, digest, sessionId, 'development');
   }
 
   try {
     // Mailchimp API integration
     const url = `https://${serverPrefix}.api.mailchimp.com/3.0/lists/${listId}/members`;
-    
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -71,28 +120,20 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
         if (await isNewsletterSubscriber(email)) {
           throw new ApiError(409, 'This email is already subscribed to our newsletter', 'ALREADY_SUBSCRIBED');
         }
-        await recordNewsletterSubscriber(email, payload.digest !== false);
-        return NextResponse.json({ message: 'Successfully subscribed to newsletter!', email, mode: 'production' });
+        return finalizeSubscription(email, digest, sessionId, 'production');
       }
-      
+
       console.error('Mailchimp API error:', data);
       throw new ApiError(500, 'Failed to subscribe to newsletter', 'ESP_ERROR');
     }
 
     console.log(`Newsletter subscription successful: ${email}`);
-    await recordNewsletterSubscriber(email, payload.digest !== false);
-    
-    return NextResponse.json({ 
-      message: 'Successfully subscribed to newsletter!',
-      email,
-      mode: 'production'
-    });
-
+    return finalizeSubscription(email, digest, sessionId, 'production');
   } catch (error) {
     if (error instanceof ApiError) {
       throw error;
     }
-    
+
     console.error('Newsletter subscription error:', error);
     throw new ApiError(500, 'Failed to subscribe to newsletter', 'NETWORK_ERROR');
   }

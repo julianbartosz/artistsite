@@ -1,5 +1,6 @@
 import type { SiteContentByPage } from '@/lib/site-content-shared';
 import { SITE_CONTENT_DEFAULTS, SITE_CONTENT_KEYS } from '@/lib/site-content-shared';
+import { isResendSandboxSender } from '@/lib/email-shell';
 
 export type LaunchReadinessTab =
   | 'overview'
@@ -68,8 +69,18 @@ function hasAnyConfigured(settings: Map<string, 'configured' | 'not_set'> | unde
   return keys.some((key) => settings.get(key) === 'configured');
 }
 
-function isEmailDeliveryReady(settings: Map<string, 'configured' | 'not_set'> | undefined): boolean {
+function isUsingResendSandbox(values: Map<string, string> | undefined): boolean {
+  if (!values) return false;
+  if (values.get('EMAIL_DELIVERY_MODE') === 'log') return false;
+  return isResendSandboxSender(values.get('SMTP_FROM'));
+}
+
+function isEmailDeliveryReady(
+  settings: Map<string, 'configured' | 'not_set'> | undefined,
+  values?: Map<string, string>,
+): boolean {
   if (!isConfigured(settings, 'CONTACT_EMAIL')) return false;
+  if (isUsingResendSandbox(values)) return false;
   if (isConfigured(settings, 'EMAIL_DELIVERY_MODE')) return true;
   return hasAllConfigured(settings, ['SMTP_FROM', 'SMTP_USER']);
 }
@@ -138,12 +149,16 @@ export function buildLaunchReadinessItems(input: LaunchReadinessInput): LaunchRe
     },
     {
       key: 'email',
-      label: 'Configure contact and email delivery',
-      complete: isEmailDeliveryReady(settings),
+      label: isUsingResendSandbox(values)
+        ? 'Verify your sending domain in Resend'
+        : 'Configure contact and email delivery',
+      complete: isEmailDeliveryReady(settings, values),
       tab: 'settings',
       action: 'Open email settings',
-      helpText: 'Add your studio contact email and delivery settings under Settings → Email so inquiries and order confirmations reach you.',
-      settingKey: 'CONTACT_EMAIL',
+      helpText: isUsingResendSandbox(values)
+        ? 'From email is still using onboarding@resend.dev, which only delivers to your own Resend account email. Verify your domain at resend.com/domains and update From email so collectors receive emails.'
+        : 'Add your studio contact email and delivery settings under Settings → Email so inquiries and order confirmations reach you.',
+      settingKey: isUsingResendSandbox(values) ? 'SMTP_FROM' : 'CONTACT_EMAIL',
     },
     {
       key: 'storage',

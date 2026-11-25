@@ -27,7 +27,20 @@ interface MarketingOverview {
     conversions: number;
   }>;
   automation?: {
-    email: { active: number; total: number; sent: number; cartAbandonment: number; postPurchase: number };
+    email: {
+      active: number;
+      total: number;
+      sent: number;
+      cartAbandonment: number;
+      postPurchase: number;
+      welcomeEnabled?: boolean;
+      welcomeSeriesEnabled?: boolean;
+      welcomeSent?: number;
+      winbackEnabled?: boolean;
+      winbackInactiveDays?: number;
+      winbackSent?: number;
+      cartEnabled?: boolean;
+    };
     social: { active: number; total: number; posts: number };
   };
   analytics?: {
@@ -848,14 +861,21 @@ function PerformanceInsightsRow({
 
   const automationRows = [
     {
-      name: 'Welcome & follow-up emails',
-      detail: `${automation?.email.sent || 0} sent · ${automation?.email.postPurchase || 0} post-purchase signals`,
-      active: (automation?.email.sent || 0) > 0 || (automation?.email.postPurchase || 0) > 0,
+      name: 'Newsletter welcome & follow-up',
+      detail: `${automation?.email.welcomeSent || 0} sent · ${
+        automation?.email.welcomeSeriesEnabled ? 'Welcome + Day-3 follow-up on' : 'Instant welcome on signup'
+      }`,
+      active: automation?.email.welcomeEnabled !== false,
+    },
+    {
+      name: 'Collector win-back',
+      detail: `${automation?.email.winbackSent || 0} sent · ${automation?.email.winbackInactiveDays || 45}-day quiet window`,
+      active: Boolean(automation?.email.winbackEnabled),
     },
     {
       name: 'Cart recovery',
       detail: `${automation?.email.cartAbandonment || 0} abandoned cart signals captured`,
-      active: (automation?.email.cartAbandonment || 0) > 0,
+      active: Boolean(automation?.email.cartEnabled),
     },
     {
       name: 'Social auto-publish',
@@ -926,7 +946,7 @@ function PerformanceInsightsRow({
                   row.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'
                 }`}
               >
-                {row.active ? 'Active' : 'Ready'}
+                {row.active ? 'On' : 'Off'}
               </span>
             </div>
           ))}

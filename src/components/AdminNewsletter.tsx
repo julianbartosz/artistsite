@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { adminSettingFieldHref } from '@/components/AdminSettings';
+import { isResendSandboxSender } from '@/lib/email-shell';
 import NewsletterSubscribers from '@/components/admin/NewsletterSubscribers';
 import {
   NewsletterEditor,
@@ -43,7 +44,16 @@ function summaryLine(newsletter: NewsletterSummary): string {
 }
 
 function DeliveryBanner({ context }: { context: NewsletterAdminContext }) {
-  if (context.deliveryMode === 'smtp') return null;
+  if (context.deliveryMode === 'smtp') {
+    if (!isResendSandboxSender(context.fromAddress)) return null;
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        Your From email is still <strong>{context.fromAddress}</strong> (Resend sandbox), which only delivers to your own Resend account email. Verify your domain in Resend and{' '}
+        <a href={adminSettingFieldHref('SMTP_FROM')} className="font-medium underline">update your From email</a>{' '}
+        before sending to collectors.
+      </div>
+    );
+  }
   return (
     <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
       {context.deliveryMode === 'log'

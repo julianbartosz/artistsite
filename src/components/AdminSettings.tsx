@@ -2,6 +2,7 @@
 
 import React, { FormEvent, useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
+import { isResendSandboxSender } from '@/lib/email-shell';
 
 type SettingRecord = {
   key: string;
@@ -36,6 +37,7 @@ const BOOL_OPTIONS: SettingFieldOption[] = [
 
 const isSmtpMode = (draft: Record<string, string>) => (draft.EMAIL_DELIVERY_MODE || 'log') === 'smtp';
 const isMailchimpMode = (draft: Record<string, string>) => (draft.NEWSLETTER_DELIVERY_MODE || 'log') === 'mailchimp';
+const isWinbackEnabled = (draft: Record<string, string>) => (draft.WINBACK_EMAIL_ENABLED || 'false') === 'true';
 const isEasyPostMode = (draft: Record<string, string>) => (draft.SHIPPING_PROVIDER || 'manual') === 'easypost';
 const isMetaSocial = (draft: Record<string, string>) => (draft.SOCIAL_PROVIDER || 'assist') === 'meta';
 const isAyrshareSocial = (draft: Record<string, string>) => (draft.SOCIAL_PROVIDER || 'assist') === 'ayrshare';
@@ -208,9 +210,37 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     id: 'automation',
     title: 'Automation',
-    description: 'Cart recovery and scheduled marketing jobs. Optional until you want hands-off follow-up.',
+    description: 'Built-in email automations (welcome series, win-back, cart recovery) and scheduled marketing jobs — all sent through Resend without Mailchimp.',
     keys: [
       { key: 'CRON_SECRET', label: 'Automation secret', type: 'password', help: 'Turns on automatic runs every 30 minutes and protects the scheduling URL.' },
+      {
+        key: 'NEWSLETTER_WELCOME_ENABLED',
+        label: 'Send welcome email on newsletter signup',
+        options: BOOL_OPTIONS,
+        defaultValue: 'true',
+        help: 'Sends a studio-branded welcome email immediately when someone subscribes via Resend SMTP.',
+      },
+      {
+        key: 'NEWSLETTER_WELCOME_SERIES_ENABLED',
+        label: 'Send Day-3 studio follow-up email',
+        options: BOOL_OPTIONS,
+        defaultValue: 'false',
+        help: 'Sends one follow-up note 3 days after newsletter signup introducing your portfolio and studio updates.',
+      },
+      {
+        key: 'WINBACK_EMAIL_ENABLED',
+        label: 'Send quiet win-back email to inactive subscribers',
+        options: BOOL_OPTIONS,
+        defaultValue: 'false',
+        help: 'Sends one gentle check-in note to opted-in subscribers who have not visited or ordered recently.',
+      },
+      {
+        key: 'WINBACK_INACTIVE_DAYS',
+        label: 'Win-back inactivity window (days)',
+        defaultValue: '45',
+        help: 'Minimum days since last visit, order, or signup before sending a win-back note (14–365).',
+        visibleWhen: isWinbackEnabled,
+      },
       {
         key: 'CART_ABANDONMENT_ENABLED',
         label: 'Send cart recovery emails',
@@ -312,7 +342,8 @@ function applySettingFieldDefaults(values: Record<string, string>): Record<strin
 function integrationStatuses(settings: Record<string, SettingRecord>, draft: Record<string, string>) {
   const stripeOk = settings.STRIPE_SECRET_KEY?.status === 'configured' || Boolean(draft.STRIPE_SECRET_KEY?.trim());
   const emailMode = draft.EMAIL_DELIVERY_MODE || 'log';
-  const emailOk = emailMode === 'smtp' && Boolean(draft.SMTP_HOST?.trim());
+  const emailSandboxSender = emailMode === 'smtp' && isResendSandboxSender(draft.SMTP_FROM);
+  const emailOk = emailMode === 'smtp' && Boolean(draft.SMTP_HOST?.trim()) && !emailSandboxSender;
   const shippingProvider = draft.SHIPPING_PROVIDER || 'manual';
   const shippingOk = shippingProvider === 'manual' || settings.EASYPOST_API_KEY?.status === 'configured' || Boolean(draft.EASYPOST_API_KEY?.trim());
   const newsletterMode = draft.NEWSLETTER_DELIVERY_MODE || 'log';
@@ -330,9 +361,13 @@ function integrationStatuses(settings: Record<string, SettingRecord>, draft: Rec
       label: 'Email delivery',
       ok: emailOk,
       detail: emailMode === 'smtp'
-        ? (emailOk ? 'SMTP configured' : 'Add SMTP host to send emails')
+        ? emailSandboxSender
+          ? 'Sandbox sender (resend.dev) — verify your domain'
+          : emailOk
+            ? 'SMTP configured'
+            : 'Add SMTP host to send emails'
         : 'Log mode — emails are not sent',
-      targetId: adminSettingFieldId('EMAIL_DELIVERY_MODE'),
+      targetId: adminSettingFieldId(emailSandboxSender ? 'SMTP_FROM' : 'EMAIL_DELIVERY_MODE'),
     },
     {
       label: 'Shipping labels',
@@ -563,6 +598,13 @@ export default function AdminSettings() {
                       />
                     )}
                     {field.help && <p className="mt-1 text-xs text-gray-500">{field.help}</p>}
+                    {field.key === 'SMTP_FROM'
+                      && draft.EMAIL_DELIVERY_MODE !== 'log'
+                      && isResendSandboxSender(draft.SMTP_FROM) && (
+                        <p className="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
+                          Resend&apos;s sandbox sender (<code>onboarding@resend.dev</code>) only delivers to your own Resend account email. Verify your domain at resend.com/domains and update this address (for example <code>hello@michalelena.art</code>) before emailing collectors.
+                        </p>
+                      )}
                   </label>
                 </div>
               );

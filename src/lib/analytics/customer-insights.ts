@@ -66,6 +66,7 @@ export interface EngagementTrends {
 export interface TrackableAnalyticsEvent {
   eventName: string
   userId?: string
+  email?: string
   sessionId?: string
   properties: Record<string, unknown>
   pageUrl?: string
@@ -99,17 +100,140 @@ async function createAnalyticsEvent(input: TrackableAnalyticsEvent, userId?: str
   })
 }
 
+async function resolveOrCreateCustomerProfile(
+  userId?: string,
+  email?: string,
+): Promise<string | undefined> {
+  const normalizedEmail = typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : undefined
+  const normalizedId = typeof userId === 'string' && userId.trim() ? userId.trim() : undefined
+
+  if (normalizedEmail) {
+    const byEmail = await prisma.customerProfile.findUnique({
+      where: { email: normalizedEmail },
+      select: { id: true },
+    }).catch(() => null)
+    if (byEmail?.id) return byEmail.id
+  }
+
+  if (normalizedId) {
+    const byId = await prisma.customerProfile.findUnique({
+      where: { id: normalizedId },
+      select: { id: true, email: true },
+    }).catch(() => null)
+    if (byId?.id) {
+      if (normalizedEmail && !byId.email) {
+        await prisma.customerProfile.update({
+          where: { id: byId.id },
+          data: { email: normalizedEmail },
+        }).catch(() => undefined)
+      }
+      return byId.id
+    }
+  }
+
+  if (!normalizedId && !normalizedEmail) return undefined
+
+  try {
+    const created = await prisma.customerProfile.create({
+      data: {
+        ...(normalizedId ? { id: normalizedId } : {}),
+        ...(normalizedEmail ? { email: normalizedEmail } : {}),
+        segments: JSON.stringify([]),
+        behaviorScore: 0,
+        preferences: JSON.stringify({}),
+        lifetimeValue: 0,
+        engagementScore: 0,
+        lastActivity: new Date(),
+      },
+      select: { id: true },
+    })
+    return created.id
+  } catch {
+    if (normalizedEmail) {
+      const existing = await prisma.customerProfile.findUnique({
+        where: { email: normalizedEmail },
+        select: { id: true },
+      }).catch(() => null)
+      if (existing?.id) return existing.id
+    }
+    if (normalizedId) {
+      const existing = await prisma.customerProfile.findUnique({
+        where: { id: normalizedId },
+        select: { id: true },
+      }).catch(() => null)
+      if (existing?.id) return existing.id
+    }
+    return undefined
+  }
+}
+
+export async function linkSessionEventsToProfile(sessionId: string, profileId: string): Promise<number> {
+  const cleanSession = sessionId.trim()
+  const cleanProfile = profileId.trim()
+  if (!cleanSession || !cleanProfile) return 0
+
+  try {
+    const unlinked = await prisma.analyticsEvent.findMany({
+      where: { sessionId: cleanSession, userId: null },
+      select: { id: true, eventName: true, properties: true },
+      take: 200,
+    })
+    if (unlinked.length === 0) return 0
+
+    await prisma.analyticsEvent.updateMany({
+      where: { id: { in: unlinked.map((entry) => entry.id) }, userId: null },
+      data: { userId: cleanProfile },
+    })
+
+    const profile = await prisma.customerProfile.findUnique({ where: { id: cleanProfile } })
+    if (profile) {
+      let engagementScore = profile.engagementScore
+      let segments = parseJsonArray(profile.segments)
+      for (const entry of unlinked) {
+        engagementScore = Math.min(engagementScore + calculateEngagementBonus(entry.eventName), 1000)
+        let parsedProps: Record<string, unknown> = {}
+        try {
+          const parsed = JSON.parse(entry.properties || '{}')
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) parsedProps = parsed
+        } catch {
+          parsedProps = {}
+        }
+        segments = updateUserSegments(segments, entry.eventName, parsedProps)
+      }
+      await prisma.customerProfile.update({
+        where: { id: cleanProfile },
+        data: {
+          engagementScore,
+          segments: JSON.stringify(segments),
+          lastActivity: new Date(),
+        },
+      })
+    }
+
+    return unlinked.length
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Session event backfill skipped:', error)
+    }
+    return 0
+  }
+}
+
 export async function recordAnalyticsEvent(input: TrackableAnalyticsEvent): Promise<AnalyticsEventRecordResult> {
   if (shouldIgnoreAnalyticsPageUrl(input.pageUrl)) {
     return { stored: false, ignored: true }
   }
 
   try {
-    const event = await createAnalyticsEvent(input, input.userId)
+    const resolvedProfileId =
+      input.userId || input.email
+        ? await resolveOrCreateCustomerProfile(input.userId, input.email)
+        : undefined
+    const event = await createAnalyticsEvent(input, resolvedProfileId)
 
-    if (input.userId) {
+    if (resolvedProfileId) {
       try {
-        await updateCustomerProfile(input.userId, input.eventName, input.properties)
+        await updateCustomerProfile(resolvedProfileId, input.eventName, input.properties)
       } catch (error) {
         if (!isForeignKeyConstraintError(error)) throw error
       }

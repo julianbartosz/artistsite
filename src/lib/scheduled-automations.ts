@@ -1,4 +1,9 @@
-import { processDueCartRecovery, processDueEmailCampaigns, processDueSocialPosts } from '@/lib/marketing/campaign-execution';
+import {
+  processDueCartRecovery,
+  processDueEmailCampaigns,
+  processDueSocialPosts,
+  processDueSubscriberAutomations,
+} from '@/lib/marketing/campaign-execution';
 import { InventoryService } from '@/lib/inventory';
 import { getConfig, setConfig } from '@/lib/config';
 import { db } from '@/lib/db';
@@ -54,10 +59,11 @@ export async function runScheduledAutomations() {
   if (!lease) return null;
 
   try {
-    const [email, social, cartRecovery, expiredReservationsReleased, updatesDigest] = await Promise.all([
+    const [email, social, cartRecovery, subscriberAutomations, expiredReservationsReleased, updatesDigest] = await Promise.all([
       processDueEmailCampaigns(),
       processDueSocialPosts(),
       processDueCartRecovery(),
+      processDueSubscriberAutomations(),
       InventoryService.releaseExpiredReservations(),
       import('@/lib/updates-digest').then((mod) => mod.processUpdatesDigests()),
     ]);
@@ -66,9 +72,21 @@ export async function runScheduledAutomations() {
     await setConfig('CRON_LAST_RUN_AT', lastRunAt, { encrypt: false });
 
     return {
-      processed: email.length + social.attempted + cartRecovery.attempted,
+      processed:
+        email.length
+        + social.attempted
+        + cartRecovery.attempted
+        + subscriberAutomations.welcomeFollowup.attempted
+        + subscriberAutomations.winback.attempted,
       lastRunAt,
-      results: { email, social, cartRecovery, inventory: { expiredReservationsReleased }, updatesDigest },
+      results: {
+        email,
+        social,
+        cartRecovery,
+        subscriberAutomations,
+        inventory: { expiredReservationsReleased },
+        updatesDigest,
+      },
     };
   } finally {
     await releaseLease(lease).catch((error) => console.error('Failed to release automation lease:', error));

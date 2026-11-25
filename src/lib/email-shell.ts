@@ -10,6 +10,21 @@ export type EmailBrand = {
 
 export const EMAIL_FONT_STACK = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
 
+/** Extracts the bare email address from either `user@domain` or `Name <user@domain>`. */
+export function extractEmailAddress(from: string | null | undefined): string {
+  const value = (from || '').trim();
+  if (!value) return '';
+  const open = value.lastIndexOf('<');
+  const close = value.lastIndexOf('>');
+  return open !== -1 && close > open ? value.slice(open + 1, close).trim() : value;
+}
+
+/** True when the sender uses Resend's sandbox domain (`@resend.dev`), which only delivers to the account owner. */
+export function isResendSandboxSender(from: string | null | undefined): boolean {
+  const address = extractEmailAddress(from).toLowerCase();
+  return address.endsWith('@resend.dev');
+}
+
 export function escapeHtml(value: string): string {
   return value
     .split('&').join('&amp;')

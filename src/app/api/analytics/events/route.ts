@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { prisma } from '@/lib/db'
 import { recordAnalyticsEvent, shouldIgnoreAnalyticsPageUrl } from '@/lib/analytics/customer-insights'
+import { COLLECTOR_PROFILE_COOKIE, verifyCollectorProfileToken } from '@/lib/newsletter-subscribers'
 import { z } from 'zod'
 import { authOptions, isAdminEmailResolved, requireAdmin } from '@/lib/auth'
 import { ApiError } from '@/lib/api-error-handler'
@@ -53,9 +54,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const cookieProfileId = verifyCollectorProfileToken(request.cookies.get(COLLECTOR_PROFILE_COOKIE)?.value)
     const result = await recordAnalyticsEvent({
       eventName: validatedData.event_name,
-      userId: session?.user?.id ?? validatedData.user_id,
+      userId: session?.user?.id ?? cookieProfileId ?? validatedData.user_id,
+      email: session?.user?.email ?? undefined,
       sessionId: validatedData.session_id,
       properties: validatedData.properties,
       pageUrl: validatedData.page_url,

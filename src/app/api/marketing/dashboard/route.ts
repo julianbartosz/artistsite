@@ -4,6 +4,7 @@ import { requireAdmin, resolvedAdminEmails } from '@/lib/auth';
 import { ApiError } from '@/lib/api-error-handler';
 import { getConfig } from '@/lib/config';
 import { CustomerInsights } from '@/lib/analytics/customer-insights';
+import { AUTOMATION_CAMPAIGN_IDS, parseWinbackInactiveDays } from '@/lib/marketing/campaign-execution';
 
 // Type assertion to access marketing models until TypeScript recognizes them
 const dbWithMarketing = db as any;
@@ -394,27 +395,71 @@ async function countEvents(eventNames: string[], startDate: Date): Promise<numbe
   });
 }
 
+function isConfigEnabled(value: string | undefined, defaultValue: boolean): boolean {
+  if (value === undefined) return defaultValue;
+  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
+
 async function getAutomationSummary(startDate: Date) {
-  const [emailSent, cartAbandonment, postPurchase, socialPosts] = await Promise.all([
+  const [
+    emailSent,
+    cartAbandonment,
+    postPurchase,
+    socialPosts,
+    welcomeSent,
+    welcomeFollowupSent,
+    winbackSent,
+    welcomeEnabledRaw,
+    welcomeSeriesEnabledRaw,
+    winbackEnabledRaw,
+    winbackDaysRaw,
+    cartEnabledRaw,
+  ] = await Promise.all([
     countEvents(['email_sent'], startDate),
     countEvents(['cart_abandoned'], startDate),
     countEvents(['post_purchase_sequence_triggered'], startDate),
-    dbWithMarketing.socialMediaPost.count({ where: { createdAt: { gte: startDate } } })
+    dbWithMarketing.socialMediaPost.count({ where: { createdAt: { gte: startDate } } }),
+    db.emailCampaignDelivery.count({
+      where: { campaignId: AUTOMATION_CAMPAIGN_IDS.newsletterWelcome, status: 'sent', attemptedAt: { gte: startDate } },
+    }).catch(() => 0),
+    db.emailCampaignDelivery.count({
+      where: { campaignId: AUTOMATION_CAMPAIGN_IDS.newsletterWelcomeFollowup, status: 'sent', attemptedAt: { gte: startDate } },
+    }).catch(() => 0),
+    db.emailCampaignDelivery.count({
+      where: { campaignId: AUTOMATION_CAMPAIGN_IDS.collectorWinback, status: 'sent', attemptedAt: { gte: startDate } },
+    }).catch(() => 0),
+    getConfig('NEWSLETTER_WELCOME_ENABLED'),
+    getConfig('NEWSLETTER_WELCOME_SERIES_ENABLED'),
+    getConfig('WINBACK_EMAIL_ENABLED'),
+    getConfig('WINBACK_INACTIVE_DAYS'),
+    getConfig('CART_ABANDONMENT_ENABLED'),
   ]);
+
+  const welcomeEnabled = isConfigEnabled(welcomeEnabledRaw, true);
+  const welcomeSeriesEnabled = isConfigEnabled(welcomeSeriesEnabledRaw, false);
+  const winbackEnabled = isConfigEnabled(winbackEnabledRaw, false);
+  const cartEnabled = isConfigEnabled(cartEnabledRaw, false);
 
   return {
     email: {
-      active: emailSent > 0 ? 1 : 0,
-      total: 3,
+      active: [welcomeEnabled, welcomeSeriesEnabled, winbackEnabled, cartEnabled].filter(Boolean).length,
+      total: 4,
       sent: emailSent,
       cartAbandonment,
-      postPurchase
+      postPurchase,
+      welcomeEnabled,
+      welcomeSeriesEnabled,
+      welcomeSent: welcomeSent + welcomeFollowupSent,
+      winbackEnabled,
+      winbackInactiveDays: parseWinbackInactiveDays(winbackDaysRaw),
+      winbackSent,
+      cartEnabled,
     },
     social: {
       active: socialPosts > 0 ? 1 : 0,
       total: 1,
-      posts: socialPosts
-    }
+      posts: socialPosts,
+    },
   };
 }
 

@@ -5,7 +5,7 @@ import nodemailer from 'nodemailer';
 import { getConfig, getSiteUrl } from '@/lib/config';
 import { trackingUrl } from '@/lib/shipping';
 import { getPublishedSiteContent } from '@/lib/site-content';
-import { emailButtonHtml, emailShellHtml, escapeHtml, normalizeEmailColor, type EmailBrand } from '@/lib/email-shell';
+import { emailButtonHtml, emailShellHtml, escapeHtml, extractEmailAddress, normalizeEmailColor, type EmailBrand } from '@/lib/email-shell';
 import { absoluteUrl } from '@/lib/utils';
 
 export interface EmailTemplate {
@@ -49,13 +49,6 @@ async function resolveDeliveryMode(): Promise<string> {
   return await getConfig('EMAIL_DELIVERY_MODE') || (process.env.NODE_ENV === 'production' ? 'smtp' : 'log');
 }
 
-/** Bare address from SMTP_FROM, which may be written as `Name <address>`. */
-function senderAddress(from: string): string {
-  const open = from.lastIndexOf('<');
-  const close = from.lastIndexOf('>');
-  return open !== -1 && close > open ? from.slice(open + 1, close).trim() : from.trim();
-}
-
 export async function getEmailDeliveryStatus(): Promise<EmailDeliveryStatus> {
   const [mode, host, user, pass, from] = await Promise.all([
     resolveDeliveryMode(),
@@ -64,7 +57,7 @@ export async function getEmailDeliveryStatus(): Promise<EmailDeliveryStatus> {
     getConfig('SMTP_PASSWORD'),
     getConfig('SMTP_FROM'),
   ]);
-  const fromAddress = senderAddress(from || user || '');
+  const fromAddress = extractEmailAddress(from || user || '');
   if (mode === 'log') return { mode: 'log', fromAddress };
   return { mode: host && user && pass ? 'smtp' : 'unconfigured', fromAddress };
 }
@@ -107,7 +100,7 @@ export async function sendTemplateEmail(to: string, template: EmailTemplate, opt
     const from = await getConfig('SMTP_FROM') || user;
     const fromName = options.fromName?.trim();
     await transporter.sendMail({
-      from: fromName ? { name: fromName, address: senderAddress(from) } : from,
+      from: fromName ? { name: fromName, address: extractEmailAddress(from) } : from,
       to,
       subject: template.subject,
       html: template.html,

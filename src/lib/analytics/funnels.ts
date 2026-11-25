@@ -431,7 +431,7 @@ export class ConversionFunnels {
   /**
    * Get or create session ID
    */
-  private static getSessionId(): string {
+  static getSessionId(): string {
     if (typeof window === 'undefined' || typeof sessionStorage === 'undefined') return ''
     
     let sessionId = sessionStorage.getItem('analytics_session_id')
