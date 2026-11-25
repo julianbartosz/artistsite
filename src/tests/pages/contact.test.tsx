@@ -1,7 +1,14 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useSession } from 'next-auth/react';
 import ContactPageClient from '@/app/contact/ContactPageClient';
 import { DEFAULT_CONTACT_INQUIRY_TYPES, DEFAULT_CONTACT_PAGE } from '@/lib/site-content-shared';
+
+jest.mock('next-auth/react', () => ({
+  useSession: jest.fn(() => ({ data: null, status: 'unauthenticated', update: jest.fn() })),
+}));
+
+const mockUseSession = useSession as jest.MockedFunction<typeof useSession>;
 
 function renderContactPage(props?: { initialSubject?: string; initialInquiryType?: string }) {
   return render(
@@ -38,6 +45,7 @@ Object.defineProperty(window, 'localStorage', {
 describe('Contact Page', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated', update: jest.fn() });
     localStorageMock.getItem.mockReturnValue(null);
   });
 
@@ -57,6 +65,20 @@ describe('Contact Page', () => {
     it('prefills subject from shop inquiry links', () => {
       renderContactPage({ initialSubject: 'Inquiry about Urban Twilight' });
       expect(screen.getByLabelText(/subject/i)).toHaveValue('Inquiry about Urban Twilight');
+    });
+
+    it('prefills name and email for signed-in users', () => {
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { id: 'user-1', name: 'Clara Collector', email: 'clara@example.com', isAdmin: false },
+          expires: '2099-01-01',
+        },
+        status: 'authenticated',
+        update: jest.fn(),
+      });
+      renderContactPage();
+      expect(screen.getByLabelText(/^name \*$/i)).toHaveValue('Clara Collector');
+      expect(screen.getByLabelText(/^email \*$/i)).toHaveValue('clara@example.com');
     });
 
     it('displays contact information and artist details', () => {

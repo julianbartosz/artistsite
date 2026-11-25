@@ -199,6 +199,21 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
     return <p className="text-sm text-gray-500">Loading messages...</p>;
   }
 
+  if (mode === 'account' && threads.length === 0) {
+    return (
+      <div className="py-10 text-center">
+        <h2 className="text-base font-medium text-gray-900 mb-2">No messages yet</h2>
+        <p className="mx-auto max-w-md text-sm text-gray-500 mb-5">
+          Have a question about an artwork, shipping, or a custom commission? Send a note to the studio and replies will appear right here.
+        </p>
+        <Link href="/contact" className="btn-primary px-5 py-2 inline-block text-sm">
+          Message the studio
+        </Link>
+        {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+      </div>
+    );
+  }
+
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start">
       <div className="flex flex-col space-y-2 lg:col-span-1 lg:h-[calc(100vh-14rem)] lg:min-h-[32rem] lg:max-h-[46rem]">

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { readGuestWishlist, toggleGuestWishlist, writeGuestWishlist } from '@/lib/wishlist-storage';
+import { readGuestWishlist, writeGuestWishlist } from '@/lib/wishlist-storage';
 
 type WishlistButtonProps = {
   productId: string;
@@ -37,6 +37,13 @@ function resetWishlistCache(nextUserId: string | null) {
   wishlistState.items = new Set();
   wishlistState.loadedAt = 0;
   wishlistState.inFlight = null;
+}
+
+export function evictWishlistCacheItem(productId: string): void {
+  if (!wishlistState.items.has(productId)) return;
+  wishlistState.items.delete(productId);
+  wishlistState.loadedAt = Date.now();
+  notifyWishlistListeners();
 }
 
 /** Deduplicate GET /api/wishlist across all mounted cards, quick-looks, and recommendations. */
@@ -83,69 +90,63 @@ function loadAccountWishlist(userId: string): Promise<Set<string>> {
 export function WishlistButton({ productId, className = '', size = 'md', stopNavigation = false }: WishlistButtonProps) {
   const { data: session, status } = useSession();
   const userId = session?.user?.id ?? null;
+  const isCollector = status === 'authenticated' && Boolean(userId) && !session?.user?.isAdmin;
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (status === 'loading') return undefined;
+    if (!isCollector || !userId) {
+      setSaved(false);
+      return undefined;
+    }
 
     const sync = () => {
-      if (userId) {
-        setSaved(wishlistState.userId === userId && wishlistState.items.has(productId));
-      } else {
-        setSaved(readGuestWishlist().includes(productId));
-      }
+      setSaved(wishlistState.userId === userId && wishlistState.items.has(productId));
     };
 
     wishlistListeners.add(sync);
     sync();
-
-    if (userId) {
-      void loadAccountWishlist(userId).then(sync);
-    }
+    void loadAccountWishlist(userId).then(sync);
 
     return () => {
       wishlistListeners.delete(sync);
     };
-  }, [productId, status, userId]);
+  }, [isCollector, productId, userId]);
+
+  if (!isCollector || !userId) {
+    return null;
+  }
 
   async function handleToggle(event: React.MouseEvent<HTMLButtonElement>) {
     if (stopNavigation) {
       event.preventDefault();
       event.stopPropagation();
     }
-    if (busy) return;
+    if (busy || !userId) return;
     setBusy(true);
 
     try {
-      if (userId) {
-        if (saved) {
-          const response = await fetch(`/api/wishlist/${encodeURIComponent(productId)}`, { method: 'DELETE' });
-          if (response.ok) {
-            if (wishlistState.userId !== userId) resetWishlistCache(userId);
-            wishlistState.items.delete(productId);
-            wishlistState.loadedAt = Date.now();
-            notifyWishlistListeners();
-          }
-        } else {
-          const response = await fetch('/api/wishlist', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ productId }),
-          });
-          if (response.ok) {
-            if (wishlistState.userId !== userId) resetWishlistCache(userId);
-            wishlistState.items.add(productId);
-            wishlistState.loadedAt = Date.now();
-            notifyWishlistListeners();
-          }
+      if (saved) {
+        const response = await fetch(`/api/wishlist/${encodeURIComponent(productId)}`, { method: 'DELETE' });
+        if (response.ok) {
+          if (wishlistState.userId !== userId) resetWishlistCache(userId);
+          wishlistState.items.delete(productId);
+          wishlistState.loadedAt = Date.now();
+          notifyWishlistListeners();
         }
-        return;
+      } else {
+        const response = await fetch('/api/wishlist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ productId }),
+        });
+        if (response.ok) {
+          if (wishlistState.userId !== userId) resetWishlistCache(userId);
+          wishlistState.items.add(productId);
+          wishlistState.loadedAt = Date.now();
+          notifyWishlistListeners();
+        }
       }
-
-      const nextSaved = toggleGuestWishlist(productId);
-      setSaved(nextSaved);
-      notifyWishlistListeners();
     } finally {
       setBusy(false);
     }
@@ -165,7 +166,7 @@ export function WishlistButton({ productId, className = '', size = 'md', stopNav
       aria-label={saved ? 'Remove from wishlist' : 'Save to wishlist'}
       aria-pressed={saved}
       data-testid={`wishlist-${productId}`}
-      disabled={busy || status === 'loading'}
+      disabled={busy}
       onPointerDown={stopCardNavigation}
       onClick={(event) => void handleToggle(event)}
       className={`inline-flex items-center justify-center rounded-full border transition-colors disabled:opacity-50 ${

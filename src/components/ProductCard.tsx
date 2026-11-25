@@ -42,7 +42,7 @@ export function ShopProductCard({ product, inventory, priority = false }: Produc
         sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
       >
         <div
-          className="absolute top-3 right-3 z-20 opacity-0 transition-opacity duration-200 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-hover:pointer-events-auto [@media(hover:none)]:opacity-100 focus-within:opacity-100 pointer-events-none focus-within:pointer-events-auto"
+          className="absolute top-3 right-3 z-20 opacity-0 transition-opacity duration-200 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-hover:pointer-events-auto [@media(hover:none)]:opacity-100 focus-within:opacity-100 has-[button[aria-pressed='true']]:opacity-100 has-[button[aria-pressed='true']]:pointer-events-auto pointer-events-none focus-within:pointer-events-auto"
           onMouseDown={(event) => event.stopPropagation()}
           onClick={(event) => event.stopPropagation()}
         >

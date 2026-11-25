@@ -1,5 +1,10 @@
+import type { Metadata } from 'next';
 import SignInForm from './SignInForm';
 import { isGoogleAuthEnabled } from '@/lib/auth';
+
+export const metadata: Metadata = {
+  title: 'Sign In',
+};
 
 function firstQueryValue(value: string | string[] | undefined): string | null {
   if (Array.isArray(value)) return value[0] ?? null;

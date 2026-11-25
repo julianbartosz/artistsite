@@ -1,8 +1,13 @@
 import { Suspense } from 'react';
+import type { Metadata } from 'next';
 import { getServerSession } from 'next-auth';
 import { redirect } from 'next/navigation';
 import { authOptions } from '@/lib/auth';
 import AccountDashboard from './AccountDashboard';
+
+export const metadata: Metadata = {
+  title: 'My Account',
+};
 
 export default async function AccountPage({
   searchParams,

@@ -153,7 +153,14 @@ export default function SignInForm({
           Sign in to your account
         </h2>
         <p className="mt-2 text-center text-sm text-gray-600">
-          New here? Enter your email below and we’ll take you straight to account setup.
+          New here?{' '}
+          <Link
+            href={`/auth/signup?callbackUrl=${encodeURIComponent(requestedCallbackUrl)}`}
+            className="form-link"
+          >
+            Create an account
+          </Link>
+          {' '}or enter your email below to get started.
         </p>
       </div>
 

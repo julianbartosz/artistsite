@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSession } from 'next-auth/react';
 import {
   validateContactForm,
   sanitizeFormData,
@@ -45,6 +46,7 @@ export default function ContactPageClient({
     ? (initialInquiryType as string)
     : fallbackInquiryType;
   const form = pageContent.form;
+  const { data: session } = useSession();
   const [contactEmail, setContactEmail] = useState(initialContactEmail);
   const [formData, setFormData] = useState<ContactFormData>({
     ...EMPTY_CONTACT_FORM(resolvedInquiryType),
@@ -59,6 +61,17 @@ export default function ContactPageClient({
   useEffect(() => {
     setContactEmail(initialContactEmail);
   }, [initialContactEmail]);
+
+  useEffect(() => {
+    const userName = session?.user?.name?.trim() || '';
+    const userEmail = session?.user?.email?.trim() || '';
+    if (!userName && !userEmail) return;
+    setFormData((current) => ({
+      ...current,
+      name: current.name || userName,
+      email: current.email || userEmail,
+    }));
+  }, [session?.user?.email, session?.user?.name]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,7 +116,11 @@ export default function ContactPageClient({
       if (response.ok) {
         setStatus('success');
         setResponseMessage(pageContent.form.successMessage);
-        setFormData(EMPTY_CONTACT_FORM(fallbackInquiryType));
+        setFormData({
+          ...EMPTY_CONTACT_FORM(fallbackInquiryType),
+          name: session?.user?.name?.trim() || '',
+          email: session?.user?.email?.trim() || '',
+        });
         setTouched({});
       } else {
         throw new Error(result.message || result.error || 'Failed to send message');

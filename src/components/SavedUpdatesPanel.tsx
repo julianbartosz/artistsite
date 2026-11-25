@@ -20,12 +20,14 @@ type SavedUpdatesPanelProps = {
   journalLabel?: string;
   studioLabel?: string;
   quickLookLabel?: string;
+  onCountChange?: (count: number) => void;
 };
 
 export default function SavedUpdatesPanel({
   journalLabel = 'Journal',
   studioLabel = 'Studio',
   quickLookLabel = 'Quick look',
+  onCountChange,
 }: SavedUpdatesPanelProps) {
   const [items, setItems] = useState<SavedItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,14 +41,16 @@ export default function SavedUpdatesPanel({
       const response = await fetch('/api/account/saved-updates', { cache: 'no-store' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to load saved updates');
-      setItems(Array.isArray(data.items) ? data.items : []);
+      const nextItems = Array.isArray(data.items) ? data.items : [];
+      setItems(nextItems);
+      onCountChange?.(nextItems.length);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Failed to load saved updates');
       setItems([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onCountChange]);
 
   useEffect(() => {
     void loadSaved();
@@ -55,7 +59,11 @@ export default function SavedUpdatesPanel({
   async function removeSaved(slug: string) {
     const response = await fetch(`/api/account/saved-updates/${encodeURIComponent(slug)}`, { method: 'DELETE' });
     if (!response.ok) return;
-    setItems((current) => current.filter((item) => item.postSlug !== slug));
+    setItems((current) => {
+      const next = current.filter((item) => item.postSlug !== slug);
+      onCountChange?.(next.length);
+      return next;
+    });
     if (activePost?.slug === slug) setActivePost(null);
   }
 

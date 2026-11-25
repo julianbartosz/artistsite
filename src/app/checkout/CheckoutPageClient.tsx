@@ -3,6 +3,7 @@
 import { Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
 import { useCart } from '@/components/CartContext';
 import { useAnalytics } from '@/components/AnalyticsProvider';
 import {
@@ -55,6 +56,7 @@ export default function CheckoutPageClient({ initialShopCopy }: CheckoutPageClie
 function CheckoutPageContent({ initialShopCopy }: CheckoutPageClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data: session, status: sessionStatus } = useSession();
   const analytics = useAnalytics();
   const { state, getItemKey, closeCart, restoreCart } = useCart();
   const [formData, setFormData] = useState<CheckoutFormData>({
@@ -86,6 +88,7 @@ function CheckoutPageContent({ initialShopCopy }: CheckoutPageClientProps) {
   const [step, setStep] = useState<CheckoutStep>('contact');
   const recoveryHandled = useRef(false);
   const checkoutTracked = useRef(false);
+  const profilePrefilled = useRef(false);
   const [reviewSubmitReady, setReviewSubmitReady] = useState(false);
   const [recoveryLoading, setRecoveryLoading] = useState(() => Boolean(searchParams.get('recover')));
   const [promoDiscount, setPromoDiscount] = useState<{ code: string; amount: number } | null>(null);
@@ -118,6 +121,42 @@ function CheckoutPageContent({ initialShopCopy }: CheckoutPageClientProps) {
   useEffect(() => {
     closeCart();
   }, [closeCart]);
+
+  // Prefill signed-in collector details into empty fields without overwriting edits or cart recovery.
+  useEffect(() => {
+    if (sessionStatus !== 'authenticated' || !session?.user?.id || profilePrefilled.current) return;
+    profilePrefilled.current = true;
+
+    const sessionEmail = session.user.email?.trim() || '';
+    if (sessionEmail) {
+      setFormData((current) => (current.email ? current : { ...current, email: sessionEmail }));
+    }
+
+    let cancelled = false;
+    fetch('/api/account/profile', { cache: 'no-store' })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.profile) return;
+        const { email, firstName, lastName, phone } = data.profile as {
+          email?: string | null;
+          firstName?: string | null;
+          lastName?: string | null;
+          phone?: string | null;
+        };
+        setFormData((current) => ({
+          ...current,
+          email: current.email || email?.trim() || '',
+          firstName: current.firstName || firstName?.trim() || '',
+          lastName: current.lastName || lastName?.trim() || '',
+          phone: current.phone || phone?.trim() || '',
+        }));
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.email, session?.user?.id, sessionStatus]);
 
   useEffect(() => {
     if (step !== 'review') {
