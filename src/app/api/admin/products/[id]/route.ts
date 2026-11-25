@@ -5,13 +5,18 @@ import { ApiError } from '@/lib/api-error-handler';
 import { normalizeProductPayload, productPayloadSchema } from '@/lib/admin-content';
 import { requireAdmin } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { InventoryService } from '@/lib/inventory';
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     await requireAdmin();
     const { id } = await params;
     const payload = normalizeProductPayload(productPayloadSchema.parse(await request.json()));
+    const existing = await db.product.findUnique({ where: { id }, select: { category: true } });
     const product = await db.product.update({ where: { id }, data: payload as any });
+    if (existing && existing.category !== product.category) {
+      await InventoryService.syncProductCategoryThreshold(product.id, product.category);
+    }
     revalidateTag('products');
     revalidatePath('/');
     revalidatePath('/shop');

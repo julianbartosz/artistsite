@@ -269,29 +269,48 @@ export const promoCodePayloadSchema = z.object({
   expiresAt: z.coerce.date().optional().nullable(),
 });
 
+function hasArtworkMedia(images: {
+  main?: string | null;
+  thumbnail?: string | null;
+  gallery?: readonly string[] | null;
+}): boolean {
+  const candidates = [
+    images.main,
+    images.thumbnail,
+    ...(Array.isArray(images.gallery) ? images.gallery : []),
+  ];
+  return candidates.some((entry) => {
+    if (typeof entry !== 'string') return false;
+    const trimmed = entry.trim();
+    return Boolean(trimmed) && trimmed !== ARTWORK_IMAGE_FALLBACK;
+  });
+}
+
 export const artworkPayloadSchema = z.object({
   slug: z.string().min(1).optional(),
-  title: z.string().min(1),
+  title: z.string().trim().default(''),
   description: z.string().default(''),
   medium: z.string().default(''),
   dimensions: z.string().default(''),
   year: z.coerce.string().default(String(new Date().getFullYear())),
-  category: stringArray.default(['uncategorized']),
+  category: stringArray.default([]),
   featured: z.coerce.boolean().default(false),
   available: z.coerce.boolean().default(false),
   price: z.string().optional().nullable(),
   images: z.object({
-    main: z.string().default(ARTWORK_IMAGE_FALLBACK),
+    main: z.string().default(''),
     gallery: stringArray.default([]),
-    thumbnail: z.string().default(ARTWORK_IMAGE_FALLBACK),
+    thumbnail: z.string().default(''),
   }),
   content: z.string().default(''),
 }).superRefine((payload, ctx) => {
-  if (payload.available && !isPublishableContentTitle(payload.title)) {
+  const hasTitle = payload.title.trim().length > 0;
+  const hasMedia = hasArtworkMedia(payload.images);
+  if (!hasTitle && !hasMedia) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['title'],
-      message: 'Available portfolio works need a descriptive title (at least 3 characters, not "Untitled").',
+      message: 'Add a photo or enter a title.',
     });
   }
 });
@@ -440,27 +459,59 @@ export function normalizeAdCampaignPayload(payload: z.infer<typeof adCampaignPay
 }
 
 export function sanitizeArtworkPayload(payload: z.infer<typeof artworkPayloadSchema>) {
-  const main = resolvePublicAssetUrl(
-    payload.images.main || payload.images.thumbnail,
-    ARTWORK_IMAGE_FALLBACK,
-  );
+  const trimmedTitle = payload.title.trim();
+  const title = trimmedTitle || 'Untitled';
+  const rawGallery = (payload.images.gallery || [])
+    .map((image) => image.trim())
+    .filter((image) => Boolean(image) && image !== ARTWORK_IMAGE_FALLBACK)
+    .map((image) => resolvePublicAssetUrl(image, ARTWORK_IMAGE_FALLBACK))
+    .filter((image, index, list) => Boolean(image) && list.indexOf(image) === index);
+
+  const rawMain = payload.images.main.trim();
+  const rawThumb = payload.images.thumbnail.trim();
+  const resolvedMain = rawMain && rawMain !== ARTWORK_IMAGE_FALLBACK
+    ? resolvePublicAssetUrl(rawMain, ARTWORK_IMAGE_FALLBACK)
+    : '';
+  const resolvedThumb = rawThumb && rawThumb !== ARTWORK_IMAGE_FALLBACK
+    ? resolvePublicAssetUrl(rawThumb, ARTWORK_IMAGE_FALLBACK)
+    : '';
+
+  const preferredStill =
+    (resolvedMain && resolvedMain !== ARTWORK_IMAGE_FALLBACK && !isVideoUrl(resolvedMain) ? resolvedMain : '')
+    || (resolvedThumb && resolvedThumb !== ARTWORK_IMAGE_FALLBACK && !isVideoUrl(resolvedThumb) ? resolvedThumb : '')
+    || rawGallery.find((image) => image !== ARTWORK_IMAGE_FALLBACK && !isVideoUrl(image))
+    || rawGallery[0]
+    || resolvedMain
+    || resolvedThumb;
+
+  const main = resolvePublicAssetUrl(preferredStill, ARTWORK_IMAGE_FALLBACK);
   const thumbnail = resolvePublicAssetUrl(
-    payload.images.thumbnail || payload.images.main,
+    (resolvedThumb && resolvedThumb !== ARTWORK_IMAGE_FALLBACK && !isVideoUrl(resolvedThumb) ? resolvedThumb : '')
+      || main,
     main,
   );
-  const gallery = (payload.images.gallery || [])
-    .map((image) => resolvePublicAssetUrl(image, main))
-    .filter((image, index, list) => Boolean(image) && list.indexOf(image) === index);
+  const gallery = rawGallery.length > 0 ? rawGallery : [main];
+  const explicitSlug = payload.slug?.trim();
+  const slug = explicitSlug
+    ? slugify(explicitSlug)
+    : trimmedTitle && trimmedTitle.toLowerCase() !== 'untitled'
+      ? slugify(trimmedTitle)
+      : `untitled-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const category = (payload.category || []).filter(
+    (entry) => entry.trim().length > 0 && entry.trim().toLowerCase() !== 'uncategorized',
+  );
 
   return {
     ...payload,
-    slug: slugify(payload.slug || payload.title),
+    title,
+    slug,
+    category,
     content: sanitizeRichHtml(payload.content),
     price: payload.price || null,
     images: {
       main,
       thumbnail,
-      gallery: gallery.length > 0 ? gallery : [main],
+      gallery,
     },
   };
 }

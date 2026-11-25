@@ -172,18 +172,3 @@ select:not([multiple]):not([size]) {
     scroll-behavior: auto !important;
   }
 }
-
-@media (min-width: 1024px) {
-  details.desktop-open > *:not(summary) {
-    display: block !important;
-  }
-
-  details.desktop-open > summary {
-    list-style: none;
-    cursor: default;
-  }
-
-  details.desktop-open > summary::-webkit-details-marker {
-    display: none;
-  }
-}

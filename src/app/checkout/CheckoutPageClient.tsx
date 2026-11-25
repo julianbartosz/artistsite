@@ -363,27 +363,6 @@ function CheckoutPageContent({ initialShopCopy }: CheckoutPageClientProps) {
         throw new Error(error || 'Failed to create checkout session');
       }
 
-      // #region agent log
-      fetch('http://127.0.0.1:7522/ingest/b298bde5-efc1-49c2-a537-64847b31c81b', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '42a5ad' },
-        body: JSON.stringify({
-          sessionId: '42a5ad',
-          runId: 'post-fix',
-          hypothesisId: 'B',
-          location: 'CheckoutPageClient.tsx:handleSubmit',
-          message: 'checkout session created; redirecting to Stripe',
-          data: {
-            ok: response.ok,
-            sessionIdPrefix: typeof sessionId === 'string' ? sessionId.slice(0, 20) : null,
-            e2e: Boolean(e2e),
-            pageHost: typeof window !== 'undefined' ? window.location.host : null,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
-
       if (e2e || (typeof sessionId === 'string' && sessionId.startsWith(E2E_CHECKOUT_SESSION_PREFIX))) {
         router.push(`/checkout/success?session_id=${encodeURIComponent(sessionId)}`);
         return;

@@ -11,6 +11,8 @@ import { generatePortfolioMetadata, getSeoBrand } from '@/lib/seo';
 import { getSiteUrl } from '@/lib/config';
 import { StructuredData, generateVisualArtworkSchema, generateBreadcrumbSchema } from '@/components/StructuredData';
 import { findShopProductForArtwork } from '@/lib/commerce-server';
+import { artworkGalleryImages } from '@/lib/commerce';
+import { isVideoUrl } from '@/lib/image-variant-url';
 
 interface ArtworkDetailProps {
   params: Promise<{ slug: string }>;
@@ -33,6 +35,11 @@ export default async function ArtworkDetail({ params }: ArtworkDetailProps) {
 
   const shopProduct = await findShopProductForArtwork(artwork);
   const galleryFocus = portfolioContent.artworkDetailLayout === 'gallery-focus';
+  const galleryMedia = artworkGalleryImages(artwork.images);
+  const stillImage =
+    [artwork.images.main, artwork.images.thumbnail, ...galleryMedia].find(
+      (entry) => Boolean(entry && !isVideoUrl(entry)),
+    ) || '';
 
   const artworkSchema = generateVisualArtworkSchema({
     title: artwork.title,
@@ -41,7 +48,7 @@ export default async function ArtworkDetail({ params }: ArtworkDetailProps) {
     dateCreated: artwork.year,
     medium: artwork.medium,
     dimensions: artwork.dimensions,
-    image: artwork.images.main,
+    image: stillImage,
     url: `/portfolio/${slug}`,
     siteUrl,
   });
@@ -60,11 +67,13 @@ export default async function ArtworkDetail({ params }: ArtworkDetailProps) {
   const gallery = (
     <ArtworkGallery
       title={artwork.title}
-      mainImage={artwork.images.main}
-      galleryImages={artwork.images.gallery}
+      mainImage={galleryMedia[0] ?? artwork.images.main}
+      galleryImages={galleryMedia}
       galleryFocus={galleryFocus}
     />
   );
+
+  const hasDetailSpecs = Boolean(artwork.medium || artwork.dimensions || artwork.year || artwork.price);
 
   const details = (
     <div className="space-y-6">
@@ -81,32 +90,34 @@ export default async function ArtworkDetail({ params }: ArtworkDetailProps) {
           </div>
         )}
 
-        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-          {artwork.medium && (
-            <div className="bg-surface border border-gray-200 rounded-lg px-4 py-3">
-              <dt className="text-gray-500 mb-1">Medium</dt>
-              <dd className="font-medium text-gray-900">{artwork.medium}</dd>
-            </div>
-          )}
-          {artwork.dimensions && (
-            <div className="bg-surface border border-gray-200 rounded-lg px-4 py-3">
-              <dt className="text-gray-500 mb-1">Dimensions</dt>
-              <dd className="font-medium text-gray-900">{artwork.dimensions}</dd>
-            </div>
-          )}
-          {artwork.year && (
-            <div className="bg-surface border border-gray-200 rounded-lg px-4 py-3">
-              <dt className="text-gray-500 mb-1">Year</dt>
-              <dd className="font-medium text-gray-900">{artwork.year}</dd>
-            </div>
-          )}
-          {artwork.price && (
-            <div className="bg-surface border border-gray-200 rounded-lg px-4 py-3">
-              <dt className="text-gray-500 mb-1">Price</dt>
-              <dd className="font-medium text-gray-900">{artwork.price}</dd>
-            </div>
-          )}
-        </dl>
+        {hasDetailSpecs && (
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+            {artwork.medium && (
+              <div className="bg-surface border border-gray-200 rounded-lg px-4 py-3">
+                <dt className="text-gray-500 mb-1">Medium</dt>
+                <dd className="font-medium text-gray-900">{artwork.medium}</dd>
+              </div>
+            )}
+            {artwork.dimensions && (
+              <div className="bg-surface border border-gray-200 rounded-lg px-4 py-3">
+                <dt className="text-gray-500 mb-1">Dimensions</dt>
+                <dd className="font-medium text-gray-900">{artwork.dimensions}</dd>
+              </div>
+            )}
+            {artwork.year && (
+              <div className="bg-surface border border-gray-200 rounded-lg px-4 py-3">
+                <dt className="text-gray-500 mb-1">Year</dt>
+                <dd className="font-medium text-gray-900">{artwork.year}</dd>
+              </div>
+            )}
+            {artwork.price && (
+              <div className="bg-surface border border-gray-200 rounded-lg px-4 py-3">
+                <dt className="text-gray-500 mb-1">Price</dt>
+                <dd className="font-medium text-gray-900">{artwork.price}</dd>
+              </div>
+            )}
+          </dl>
+        )}
 
         {(artwork.available || portfolioContent.layout.showSoldBadge) && (
           <div className="mt-4">
@@ -180,8 +191,8 @@ export default async function ArtworkDetail({ params }: ArtworkDetailProps) {
 
       <div className="min-h-screen bg-surface-muted">
         <section className="bg-surface shadow-sm border-b border-gray-200">
-          <div className="max-w-6xl mx-auto page-x py-6 md:py-8">
-            <nav className="mb-6" aria-label="Breadcrumb">
+          <div className="max-w-6xl mx-auto page-x py-4">
+            <nav aria-label="Breadcrumb">
               <ol className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
                 <li><Link href="/" className="hover:text-gray-700">Home</Link></li>
                 <li aria-hidden="true">/</li>

@@ -20,7 +20,7 @@ import type { PostMediaItem } from '@/lib/admin-content';
 import { POST_PROCESS_STAGES } from '@/lib/admin-content';
 import { formatPrice, normalizeShipping, PRODUCT_IMAGE_FALLBACK } from '@/lib/commerce';
 import { isVideoUrl } from '@/lib/image-variant-url';
-import type { PortfolioCategory } from '@/lib/site-content-shared';
+import { htmlHasVisibleText, type PortfolioCategory } from '@/lib/site-content-shared';
 
 const DEFAULT_PRODUCT_CATEGORIES = [
   'Originals',
@@ -77,7 +77,7 @@ const blankPost = {
 };
 
 const blankArtwork = {
-  title: '', description: '', medium: '', dimensions: '', year: String(new Date().getFullYear()), category: [] as string[], featured: false, available: true, price: '', images: { main: '', thumbnail: '', gallery: [] as string[] }, content: '<p></p>',
+  title: '', description: '', medium: '', dimensions: '', year: String(new Date().getFullYear()), category: [] as string[], featured: false, available: false, price: '', images: { main: '', thumbnail: '', gallery: [] as string[] }, content: '<p></p>',
 };
 
 function hydrateProductForm(item: any) {
@@ -481,7 +481,7 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
       year: Number.isFinite(parsedYear) && parsedYear >= 1900 && parsedYear <= 2100 ? parsedYear : new Date().getFullYear(),
       price: Number.isFinite(parsedPrice) && parsedPrice > 0 ? parsedPrice : '',
       images: {
-        thumbnail: photos[0] || '',
+        thumbnail: preferredStillUrl(photos),
         gallery: photos,
       },
       tags,
@@ -1455,6 +1455,29 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
 
   const selectedArtwork = artworks.find((artwork) => artwork.slug === selectedId);
   const showArtworkEditor = Boolean(selectedArtwork) || isCreating;
+  const artworkMediaItems: PostMediaItem[] = orderedPhotos(
+    artworkForm.images?.main || artworkForm.images?.thumbnail,
+    artworkForm.images?.gallery,
+  ).map((url) => ({
+    url,
+    type: isVideoUrl(url) ? 'video' : 'image',
+  }));
+  const portfolioCategoryKeys = new Set(portfolioCategories.map((cat) => cat.key));
+  const artworkExtraCategories = (Array.isArray(artworkForm.category) ? artworkForm.category : []).filter(
+    (entry: string) => !portfolioCategoryKeys.has(entry),
+  );
+  const artworkHasMoreDetails = Boolean(
+    selectedArtwork && (
+      artworkForm.description?.trim()
+      || artworkForm.medium?.trim()
+      || artworkForm.dimensions?.trim()
+      || artworkForm.price?.trim()
+      || artworkForm.featured
+      || artworkForm.available
+      || artworkExtraCategories.length > 0
+      || htmlHasVisibleText(artworkForm.content || '')
+    ),
+  );
   return (
     <div className="space-y-4">
       <SectionIntro title={intro.title} body={intro.body} collapsedOnSmall={showArtworkEditor} />
@@ -1468,7 +1491,7 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
         hiddenOnSmall={showArtworkEditor}
         selectedKey={selectedId}
         labelKey="title"
-        getThumb={(item) => orderedPhotos(item.images?.thumbnail, [item.images?.main])[0] || ''}
+        getThumb={(item) => preferredStillUrl(orderedPhotos(item.images?.thumbnail || item.images?.main, item.images?.gallery))}
         getMeta={(item) => [item.medium, item.year].filter(Boolean).join(' · ')}
         searchable
         searchPlaceholder="Search title, medium, category…"
@@ -1521,8 +1544,8 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
         ) : undefined}
         onDelete={selectedArtwork ? () => remove(`/api/admin/artworks/${selectedArtwork.slug}`) : undefined}
         onSubmit={() => {
-          if (!artworkForm.title.trim()) {
-            setMessage({ type: 'error', text: 'Enter a title before saving.' });
+          if (!artworkForm.title.trim() && artworkMediaItems.length === 0) {
+            setMessage({ type: 'error', text: 'Add a photo or enter a title before saving.' });
             return;
           }
           void save(
@@ -1533,83 +1556,98 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
         }}
       >
         <div className="space-y-4">
-          <TextField label="Title" value={artworkForm.title} onChange={(value) => setArtworkForm({ ...artworkForm, title: value })} placeholder="e.g. Autumn Study No. 4" />
           <GalleryField
-            label="Photos"
-            firstItemLabel="Main"
-            value={orderedPhotos(artworkForm.images?.main, artworkForm.images?.gallery)}
-            onChange={(photos) => {
-              const main = photos[0] || '';
-              const mainChanged = main !== (artworkForm.images?.main || '');
+            accept="media"
+            label="Photos & video"
+            firstItemLabel="Cover"
+            value={artworkMediaItems}
+            onChange={(media) => {
+              const urls = media.map((entry) => entry.url);
+              const still = preferredStillUrl(urls);
               setArtworkForm({
                 ...artworkForm,
                 images: {
                   ...artworkForm.images,
-                  main,
-                  // Grids show the thumbnail, so it must follow the main photo whenever that changes.
-                  thumbnail: mainChanged ? main : artworkForm.images?.thumbnail || main,
-                  gallery: photos,
+                  main: still,
+                  thumbnail: still,
+                  gallery: urls,
                 },
               });
             }}
-            help="The first photo is the main image. Add detail shots, framed views, or studio angles after it."
+            help="Upload photos, GIFs, or short videos. The first item shows first in your portfolio; use the arrows to reorder."
           />
-          <TextArea
-            label="Summary"
-            value={artworkForm.description}
-            onChange={(value) => setArtworkForm({ ...artworkForm, description: value })}
-            placeholder="Short description shown on portfolio details. Blank lines create paragraphs."
+
+          <TextField
+            label="Title"
+            value={artworkForm.title}
+            onChange={(value) => setArtworkForm({ ...artworkForm, title: value })}
+            placeholder="e.g. Autumn Study No. 4 (optional)"
+            help="Leave blank to post quickly as Untitled."
           />
+
+          {portfolioCategories.length > 0 && (
+            <div className="space-y-1.5">
+              <span className="block text-sm font-medium text-gray-700">Categories</span>
+              <div className="flex flex-wrap gap-1.5">
+                {portfolioCategories.map((cat) => {
+                  const current: string[] = Array.isArray(artworkForm.category) ? artworkForm.category : [];
+                  const active = current.includes(cat.key);
+                  return (
+                    <button
+                      key={cat.key}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => {
+                        const next = active
+                          ? current.filter((item) => item !== cat.key)
+                          : [...current, cat.key];
+                        setArtworkForm({ ...artworkForm, category: next });
+                      }}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                        active
+                          ? 'border-gray-900 bg-gray-900 text-white'
+                          : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      {cat.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="space-y-4 border-t border-gray-100 pt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Details</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <CategorySelectField
-              label="Medium"
-              value={artworkForm.medium || ''}
-              options={existingMediums}
-              onChange={(value) => setArtworkForm({ ...artworkForm, medium: value })}
-              emptyLabel="Select medium…"
-              addOptionLabel="+ Add new medium…"
-              customPlaceholder="e.g. Acrylic on canvas"
-              customInputAriaLabel="New medium name"
+        <details
+          className="rounded-lg border border-gray-200 bg-gray-50/60 p-4"
+          open={artworkHasMoreDetails}
+        >
+          <summary className="cursor-pointer select-none text-sm font-medium text-gray-800">
+            More details <span className="font-normal text-gray-500">(medium, dimensions, year, summary, availability, story)</span>
+          </summary>
+          <div className="mt-4 space-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <CategorySelectField
+                label="Medium"
+                value={artworkForm.medium || ''}
+                options={existingMediums}
+                onChange={(value) => setArtworkForm({ ...artworkForm, medium: value })}
+                emptyLabel="Select medium…"
+                addOptionLabel="+ Add new medium…"
+                customPlaceholder="e.g. Acrylic on canvas"
+                customInputAriaLabel="New medium name"
+              />
+              <TextField label="Dimensions" value={artworkForm.dimensions} onChange={(value) => setArtworkForm({ ...artworkForm, dimensions: value })} placeholder='e.g. 11" × 14"' />
+              <TextField label="Year" value={artworkForm.year} onChange={(value) => setArtworkForm({ ...artworkForm, year: value })} placeholder="e.g. 2026" />
+            </div>
+
+            <TextArea
+              label="Summary"
+              value={artworkForm.description}
+              onChange={(value) => setArtworkForm({ ...artworkForm, description: value })}
+              placeholder="Short description shown on portfolio details. Blank lines create paragraphs."
             />
-            <TextField label="Dimensions" value={artworkForm.dimensions} onChange={(value) => setArtworkForm({ ...artworkForm, dimensions: value })} placeholder='e.g. 11" × 14"' />
-            <TextField label="Year" value={artworkForm.year} onChange={(value) => setArtworkForm({ ...artworkForm, year: value })} placeholder="e.g. 2026" />
-          </div>
-          <div className="space-y-2">
-            {portfolioCategories.length > 0 && (
-              <div className="space-y-1.5">
-                <span className="block text-sm font-medium text-gray-700">Portfolio categories</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {portfolioCategories.map((cat) => {
-                    const current: string[] = Array.isArray(artworkForm.category) ? artworkForm.category : [];
-                    const active = current.includes(cat.key);
-                    return (
-                      <button
-                        key={cat.key}
-                        type="button"
-                        aria-pressed={active}
-                        onClick={() => {
-                          const next = active
-                            ? current.filter((item) => item !== cat.key)
-                            : [...current, cat.key];
-                          setArtworkForm({ ...artworkForm, category: next });
-                        }}
-                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                          active
-                            ? 'border-gray-900 bg-gray-900 text-white'
-                            : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-                        }`}
-                      >
-                        {cat.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+
             <TagInput
               label={portfolioCategories.length > 0 ? 'Additional categories (optional)' : 'Categories'}
               value={Array.isArray(artworkForm.category) ? artworkForm.category : []}
@@ -1622,44 +1660,43 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
                   : 'Type a category and press Enter. These become filter tabs on your Portfolio page.'
               }
             />
-          </div>
-        </div>
 
-        <div className="space-y-4 border-t border-gray-100 pt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Availability &amp; display</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <SelectField
-              label="Status"
-              value={artworkForm.available ? 'available' : 'not_available'}
-              options={['available', 'not_available']}
-              optionLabels={{
-                available: 'Available — collectors can inquire',
-                not_available: 'Showcase only — archive or private collection',
-              }}
-              onChange={(value) => setArtworkForm({ ...artworkForm, available: value === 'available' })}
-            />
-            {artworkForm.available && (
-              <TextField
-                label="Price (display only)"
-                value={artworkForm.price || ''}
-                onChange={(value) => setArtworkForm({ ...artworkForm, price: value })}
-                placeholder="e.g. $450 or Upon request"
-                help={selectedArtwork
-                  ? 'Shown on the portfolio page. Use “List in shop” below for online checkout.'
-                  : 'Optional display price. Save first to list in your shop.'}
-              />
-            )}
-          </div>
-          <div className="space-y-1">
-            <CheckboxField label="Featured on homepage" checked={Boolean(artworkForm.featured)} onChange={(checked) => setArtworkForm({ ...artworkForm, featured: checked })} />
-            <p className="text-xs text-gray-500">Show this piece in your homepage Featured Works section.</p>
-          </div>
-        </div>
+            <div className="space-y-4 border-t border-gray-200/80 pt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <SelectField
+                  label="Status"
+                  value={artworkForm.available ? 'available' : 'not_available'}
+                  options={['not_available', 'available']}
+                  optionLabels={{
+                    not_available: 'Showcase only — archive or private collection',
+                    available: 'Available — collectors can inquire',
+                  }}
+                  onChange={(value) => setArtworkForm({ ...artworkForm, available: value === 'available' })}
+                />
+                {artworkForm.available && (
+                  <TextField
+                    label="Price (display only)"
+                    value={artworkForm.price || ''}
+                    onChange={(value) => setArtworkForm({ ...artworkForm, price: value })}
+                    placeholder="e.g. $450 or Upon request"
+                    help={selectedArtwork
+                      ? 'Shown on the portfolio page. Use “List in shop” above for online checkout.'
+                      : 'Optional display price. Save first to list in your shop.'}
+                  />
+                )}
+              </div>
+              <div className="space-y-1">
+                <CheckboxField label="Featured on homepage" checked={Boolean(artworkForm.featured)} onChange={(checked) => setArtworkForm({ ...artworkForm, featured: checked })} />
+                <p className="text-xs text-gray-500">Show this piece in your homepage Featured Works section.</p>
+              </div>
+            </div>
 
-        <div className="space-y-1.5 border-t border-gray-100 pt-4">
-          <span className="block text-sm font-medium text-gray-700">Story &amp; exhibition notes (optional)</span>
-          <RichTextEditor value={artworkForm.content || '<p></p>'} onChange={(content) => setArtworkForm({ ...artworkForm, content })} />
-        </div>
+            <div className="space-y-1.5 border-t border-gray-200/80 pt-4">
+              <span className="block text-sm font-medium text-gray-700">Story &amp; exhibition notes (optional)</span>
+              <RichTextEditor value={artworkForm.content || '<p></p>'} onChange={(content) => setArtworkForm({ ...artworkForm, content })} />
+            </div>
+          </div>
+        </details>
       </EditorShell>
       ) : (
         <EditorPlaceholder

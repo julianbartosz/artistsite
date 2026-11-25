@@ -418,14 +418,26 @@ export function productGalleryImages(product: Pick<Product, 'images'>): string[]
   return collectImageGallery(thumb, cleanedGallery);
 }
 
-/** Ordered, deduplicated gallery images for a portfolio artwork without duplicating legacy thumb/main pairs. */
+/**
+ * Ordered, deduplicated gallery media for a portfolio artwork.
+ * Preserves `gallery`'s explicit order when `main`/`thumbnail` is already present (e.g. a video-first
+ * piece whose `main`/`thumbnail` points to the first still photo for OG/schema previews), while avoiding
+ * duplicate slides for legacy thumbnail + main pairs.
+ */
 export function artworkGalleryImages(images: {
   main?: string | null;
   thumbnail?: string | null;
   gallery?: readonly string[] | null;
 }): string[] {
   const primary = images.main?.trim() || images.thumbnail?.trim() || '';
-  return collectImageGallery(primary, images.gallery);
+  const cleanedGallery = (images.gallery ?? [])
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter(Boolean);
+
+  if (!primary || primary === PRODUCT_IMAGE_FALLBACK || cleanedGallery.includes(primary)) {
+    return collectImageGallery(cleanedGallery, primary);
+  }
+  return collectImageGallery(primary, cleanedGallery);
 }
 
 export function productImageSrc(
@@ -572,4 +584,75 @@ export function validateCustomizations(
     isValid: errors.length === 0,
     errors
   };
+}
+
+export const DEFAULT_LOW_STOCK_THRESHOLD = 5;
+export const MAX_LOW_STOCK_THRESHOLD = 9999;
+
+export interface LowStockThresholdConfig {
+  /** Fallback threshold (0 = never flag low stock, only out of stock at 0). */
+  defaultThreshold: number;
+  /** Per-category thresholds keyed by normalized category key. */
+  categories: Record<string, number>;
+}
+
+/** Canonical lookup key for a product category name/slug (e.g. "Mixed Media" -> "mixed-media"). */
+export function normalizeCategoryThresholdKey(category: string | null | undefined): string {
+  if (!category) return '';
+  return category
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function clampThreshold(value: unknown, fallback: number): number {
+  const numeric = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : Number.NaN;
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(0, Math.min(MAX_LOW_STOCK_THRESHOLD, Math.floor(numeric)));
+}
+
+export function sanitizeLowStockThresholds(
+  input: Partial<LowStockThresholdConfig> | null | undefined,
+): LowStockThresholdConfig {
+  const defaultThreshold = clampThreshold(input?.defaultThreshold, DEFAULT_LOW_STOCK_THRESHOLD);
+  const categories: Record<string, number> = {};
+  if (input?.categories && typeof input.categories === 'object' && !Array.isArray(input.categories)) {
+    for (const [rawKey, rawValue] of Object.entries(input.categories)) {
+      const key = normalizeCategoryThresholdKey(rawKey);
+      if (!key) continue;
+      if (rawValue === null || rawValue === undefined || (rawValue as unknown) === '') continue;
+      categories[key] = clampThreshold(rawValue, defaultThreshold);
+    }
+  }
+  return { defaultThreshold, categories };
+}
+
+export function parseLowStockThresholds(raw: string | null | undefined): LowStockThresholdConfig {
+  if (!raw || !raw.trim()) {
+    return { defaultThreshold: DEFAULT_LOW_STOCK_THRESHOLD, categories: {} };
+  }
+  try {
+    return sanitizeLowStockThresholds(JSON.parse(raw) as Partial<LowStockThresholdConfig>);
+  } catch {
+    return { defaultThreshold: DEFAULT_LOW_STOCK_THRESHOLD, categories: {} };
+  }
+}
+
+export function resolveLowStockThreshold(
+  category: string | null | undefined,
+  config: LowStockThresholdConfig,
+): number {
+  const key = normalizeCategoryThresholdKey(category);
+  if (key && Object.prototype.hasOwnProperty.call(config.categories, key)) {
+    return config.categories[key];
+  }
+  return config.defaultThreshold;
+}
+
+export function formatLowStockRangeLabel(threshold: number): string {
+  if (threshold <= 0) return 'Off (only at 0)';
+  if (threshold === 1) return 'At 1 left';
+  return `1–${threshold} left`;
 }

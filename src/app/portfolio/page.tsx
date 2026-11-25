@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { getAllArtworks, getUniqueCategories } from '@/lib/portfolio';
 import { getSiteContent, listingHeroPaddingClass } from '@/lib/site-content';
 import { resolvePortfolioFilterCategories } from '@/lib/site-content-shared';
@@ -5,6 +6,20 @@ import PortfolioGallery from '@/components/PortfolioGallery';
 import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
 
 export const dynamic = 'force-dynamic';
+
+export async function generateMetadata(): Promise<Metadata> {
+  const portfolio = await getSiteContent('portfolio');
+  return {
+    title: portfolio.title || 'Portfolio',
+    description: portfolio.subtitle || undefined,
+    openGraph: {
+      title: portfolio.title || 'Portfolio',
+      description: portfolio.subtitle || undefined,
+      type: 'website',
+    },
+    alternates: { canonical: '/portfolio' },
+  };
+}
 
 type PortfolioSearch = {
   category?: string | string[];

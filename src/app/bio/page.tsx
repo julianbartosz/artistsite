@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getSiteContent } from '@/lib/site-content';
 import {
@@ -11,6 +12,21 @@ import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
 import OptimizedImage from '@/components/OptimizedImage';
 
 export const dynamic = 'force-dynamic';
+
+export async function generateMetadata(): Promise<Metadata> {
+  const bio = await getSiteContent('bio');
+  const description = splitPlainParagraphs(bio.hero.subtitle)[0] || undefined;
+  return {
+    title: bio.hero.title || 'Bio',
+    description,
+    openGraph: {
+      title: bio.hero.title || 'Bio',
+      description,
+      type: 'website',
+    },
+    alternates: { canonical: '/bio' },
+  };
+}
 
 function BioHero({ bio }: { bio: BioPageContent }) {
   const hasPortrait = Boolean(bio.hero.portraitImage);

@@ -91,7 +91,7 @@ export function StockIndicator({
         };
       case 'low_stock':
         return {
-          color: 'text-yellow-600 bg-yellow-50 border-yellow-200',
+          color: 'text-amber-800 bg-amber-50 border-amber-200',
           label: 'Low Stock',
           icon: '◐'
         };

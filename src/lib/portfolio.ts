@@ -50,7 +50,23 @@ type ArtworkRecord = {
 };
 
 function categoryFromJson(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((category): category is string => typeof category === 'string') : ['uncategorized'];
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (category): category is string =>
+      typeof category === 'string' &&
+      category.trim().length > 0 &&
+      category.trim().toLowerCase() !== 'uncategorized',
+  );
+}
+
+function hasRealArtworkMedia(images: ArtworkPiece['images']): boolean {
+  const candidates = [images.main, images.thumbnail, ...(images.gallery ?? [])];
+  return candidates.some((entry) => Boolean(entry && entry.trim() && entry.trim() !== ARTWORK_IMAGE_FALLBACK));
+}
+
+function isPublishableArtwork(title: string, rawImages: unknown): boolean {
+  if (isPublishableContentTitle(title)) return true;
+  return hasRealArtworkMedia(imagesFromJson(rawImages));
 }
 
 function imagesFromJson(value: unknown): ArtworkPiece['images'] {
@@ -67,8 +83,10 @@ function imagesFromJson(value: unknown): ArtworkPiece['images'] {
   const thumbnail = resolvePublicAssetUrl(images.thumbnail || images.main, main);
   const gallery = Array.isArray(images.gallery)
     ? images.gallery
-        .map((image) => resolvePublicAssetUrl(typeof image === 'string' ? image : '', main))
-        .filter((image, index, list) => list.indexOf(image) === index)
+        .map((image) => (typeof image === 'string' ? image.trim() : ''))
+        .filter(Boolean)
+        .map((image) => resolvePublicAssetUrl(image, main))
+        .filter((image, index, list) => Boolean(image) && list.indexOf(image) === index)
     : [];
 
   return {
@@ -112,7 +130,7 @@ const getCachedArtworks = unstable_cache(
       orderBy: [{ featured: 'desc' }, { createdAt: 'desc' }],
     });
     return artworks
-      .filter((artwork) => isPublishableContentTitle(artwork.title))
+      .filter((artwork) => isPublishableArtwork(artwork.title, artwork.images))
       .map((artwork) => toArtwork(artwork as ArtworkRecord));
   },
   ['artworks'],
@@ -132,7 +150,7 @@ export async function getArtworkBySlug(slug: string): Promise<ArtworkPieceWithCo
     return null;
   }
 
-  if (!isPublishableContentTitle(artwork.title)) {
+  if (!isPublishableArtwork(artwork.title, artwork.images)) {
     return null;
   }
 
@@ -146,10 +164,10 @@ export async function getArtworkBySlug(slug: string): Promise<ArtworkPieceWithCo
 
 export async function getArtworkSlugs(): Promise<string[]> {
   const artworks = await db.artwork.findMany({
-    select: { slug: true, title: true },
+    select: { slug: true, title: true, images: true },
   });
   return artworks
-    .filter((artwork) => isPublishableContentTitle(artwork.title))
+    .filter((artwork) => isPublishableArtwork(artwork.title, artwork.images))
     .map((artwork) => artwork.slug);
 }
 

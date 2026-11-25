@@ -77,17 +77,14 @@ describe('heic-decode & non-sharp raster fallbacks', () => {
     expect(decodeNonSharpRaster(Buffer.from('not an image'))).toBeNull();
   });
 
-  it('emits first-frame WebP posters for GIFs so listings stay light while originals stay animated', async () => {
+  it('emits only a first-frame thumb WebP poster for GIFs so cards/details stay animated while thumbs stay light', async () => {
     const gif = await sharp({
       create: { width: 8, height: 8, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 1 } },
     }).gif().toBuffer();
     const variants = await buildImageVariants(gif, 'sample.gif');
-    expect(variants).toHaveLength(3);
-    expect(variants.map((v) => v.filename)).toEqual([
-      'sample-thumb.webp',
-      'sample-md.webp',
-      'sample-lg.webp',
-    ]);
-    expect(variants.every((v) => v.contentType === 'image/webp' && v.buffer.length > 0)).toBe(true);
+    expect(variants).toHaveLength(1);
+    expect(variants.map((v) => v.filename)).toEqual(['sample-thumb.webp']);
+    expect(variants[0].contentType).toBe('image/webp');
+    expect(variants[0].buffer.length).toBeGreaterThan(0);
   });
 });

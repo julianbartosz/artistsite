@@ -1,10 +1,25 @@
 import { Suspense } from 'react';
+import type { Metadata } from 'next';
 import { getSiteContent } from '@/lib/site-content';
 import { SearchService } from '@/lib/search-recommendations';
 import { parseProductSearchParams, stableSearchParamsKey } from '@/lib/search-params';
 import ShopPageClient from './ShopPageClient';
 
 export const dynamic = 'force-dynamic';
+
+export async function generateMetadata(): Promise<Metadata> {
+  const shop = await getSiteContent('shop');
+  return {
+    title: shop.title || 'Shop',
+    description: shop.subtitle || undefined,
+    openGraph: {
+      title: shop.title || 'Shop',
+      description: shop.subtitle || undefined,
+      type: 'website',
+    },
+    alternates: { canonical: '/shop' },
+  };
+}
 
 type RawSearchParams = Record<string, string | string[] | undefined>;
 

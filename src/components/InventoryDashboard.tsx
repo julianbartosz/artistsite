@@ -3,9 +3,16 @@
 import React, { useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import useSWR, { useSWRConfig } from 'swr';
-import { AlertTriangle, Check, ExternalLink, Search } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ExternalLink, Search, SlidersHorizontal } from 'lucide-react';
 import { StockAlert, type InventoryStatus } from '@/lib/inventory';
-import { Product, formatPrice } from '@/lib/commerce';
+import {
+  DEFAULT_LOW_STOCK_THRESHOLD,
+  type LowStockThresholdConfig,
+  Product,
+  formatLowStockRangeLabel,
+  formatPrice,
+  normalizeCategoryThresholdKey,
+} from '@/lib/commerce';
 import ProductImage from '@/components/ProductImage';
 import { IntegerField } from '@/components/admin/StudioFormFields';
 import StockIndicator from './StockIndicator';
@@ -18,6 +25,13 @@ interface DashboardData {
   totalValue: number;
   activeAlerts: number;
   recentMovements: unknown[];
+  lowStockThresholds?: LowStockThresholdConfig;
+}
+
+function formatCategoryDisplayName(raw: string): string {
+  const cleaned = raw.replace(/[-_]+/g, ' ').trim();
+  if (!cleaned) return 'Uncategorized';
+  return cleaned.replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 type StatusFilter = 'all' | 'in_stock' | 'low_stock' | 'out_of_stock';
@@ -62,8 +76,13 @@ export function InventoryDashboard({ onOpenProduct }: InventoryDashboardProps = 
   const [savingProductId, setSavingProductId] = useState<string | null>(null);
   const [savedProductId, setSavedProductId] = useState<string | null>(null);
   const [dismissingAlertId, setDismissingAlertId] = useState<string | null>(null);
+  const [dismissingAllAlerts, setDismissingAllAlerts] = useState(false);
+  const [alertsOpen, setAlertsOpen] = useState(false);
   const [highlightedProductId, setHighlightedProductId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [defaultThresholdDraft, setDefaultThresholdDraft] = useState<number | '' | null>(null);
+  const [categoryThresholdDrafts, setCategoryThresholdDrafts] = useState<Record<string, number | ''>>({});
+  const [savingThresholds, setSavingThresholds] = useState(false);
   const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
 
   const {
@@ -100,6 +119,59 @@ export function InventoryDashboard({ onOpenProduct }: InventoryDashboardProps = 
 
   const inventories = useMemo(() => inventoriesPayload?.inventories ?? {}, [inventoriesPayload]);
   const alerts = useMemo(() => alertsPayload?.alerts ?? [], [alertsPayload]);
+
+  const savedThresholds: LowStockThresholdConfig = useMemo(
+    () => dashboardData?.lowStockThresholds ?? { defaultThreshold: DEFAULT_LOW_STOCK_THRESHOLD, categories: {} },
+    [dashboardData],
+  );
+
+  const categoryEntries = useMemo(() => {
+    const map = new Map<string, { key: string; label: string; count: number }>();
+    for (const product of products) {
+      const key = normalizeCategoryThresholdKey(product.category);
+      if (!key) continue;
+      const existing = map.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        map.set(key, { key, label: formatCategoryDisplayName(product.category), count: 1 });
+      }
+    }
+    for (const key of Object.keys(savedThresholds.categories)) {
+      if (!map.has(key)) {
+        map.set(key, { key, label: formatCategoryDisplayName(key), count: 0 });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [products, savedThresholds]);
+
+  const effectiveDefaultDraft = defaultThresholdDraft === null ? savedThresholds.defaultThreshold : defaultThresholdDraft;
+
+  const thresholdsDirty = useMemo(() => {
+    const nextDefault = effectiveDefaultDraft === '' ? savedThresholds.defaultThreshold : Number(effectiveDefaultDraft);
+    if (nextDefault !== savedThresholds.defaultThreshold) return true;
+    for (const key of Object.keys(categoryThresholdDrafts)) {
+      const draftVal = categoryThresholdDrafts[key];
+      const savedVal = savedThresholds.categories[key];
+      if (draftVal === '') {
+        if (savedVal !== undefined) return true;
+      } else if (Number(draftVal) !== savedVal) {
+        return true;
+      }
+    }
+    return false;
+  }, [effectiveDefaultDraft, categoryThresholdDrafts, savedThresholds]);
+
+  const thresholdSummaryText = useMemo(() => {
+    const parts = [`Default: ${formatLowStockRangeLabel(savedThresholds.defaultThreshold)}`];
+    for (const entry of categoryEntries) {
+      const custom = savedThresholds.categories[entry.key];
+      if (custom !== undefined) {
+        parts.push(`${entry.label}: ${formatLowStockRangeLabel(custom)}`);
+      }
+    }
+    return parts.join(' · ');
+  }, [categoryEntries, savedThresholds]);
 
   const counts = useMemo(() => {
     if (dashboardData && typeof dashboardData.totalProducts === 'number') {
@@ -223,6 +295,90 @@ export function InventoryDashboard({ onOpenProduct }: InventoryDashboardProps = 
     }
   }
 
+  async function handleDismissAllAlerts(type?: 'low_stock' | 'out_of_stock') {
+    setDismissingAllAlerts(true);
+    setFeedback(null);
+    try {
+      const response = await fetch('/api/inventory/alerts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'resolve_all', ...(type ? { type } : {}) }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error || 'Failed to dismiss alerts');
+      }
+      await Promise.all([mutateAlerts(), mutateDashboard(), globalMutate('/api/admin/stats')]);
+      setAlertsOpen(false);
+      const count = typeof data.dismissedCount === 'number' ? data.dismissedCount : alerts.length;
+      setFeedback({
+        type: 'success',
+        message:
+          type === 'low_stock'
+            ? `Dismissed ${count} low-stock ${count === 1 ? 'alert' : 'alerts'}.`
+            : `Dismissed ${count} stock ${count === 1 ? 'alert' : 'alerts'}.`,
+      });
+    } catch (error) {
+      setFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to dismiss alerts',
+      });
+    } finally {
+      setDismissingAllAlerts(false);
+    }
+  }
+
+  async function handleSaveThresholds() {
+    const nextDefault = effectiveDefaultDraft === '' ? DEFAULT_LOW_STOCK_THRESHOLD : Number(effectiveDefaultDraft);
+    if (!Number.isFinite(nextDefault) || nextDefault < 0) {
+      setFeedback({ type: 'error', message: 'Default low-stock threshold must be 0 or more.' });
+      return;
+    }
+
+    const nextCategories: Record<string, number> = { ...savedThresholds.categories };
+    for (const [key, value] of Object.entries(categoryThresholdDrafts)) {
+      if (value === '') {
+        delete nextCategories[key];
+      } else {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric) || numeric < 0) {
+          setFeedback({ type: 'error', message: 'Category thresholds must be 0 or more.' });
+          return;
+        }
+        nextCategories[key] = Math.floor(numeric);
+      }
+    }
+
+    setSavingThresholds(true);
+    setFeedback(null);
+    try {
+      const response = await fetch('/api/inventory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save_thresholds',
+          defaultThreshold: Math.floor(nextDefault),
+          categories: nextCategories,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error || 'Failed to save low-stock ranges');
+      }
+      setDefaultThresholdDraft(null);
+      setCategoryThresholdDrafts({});
+      await refreshAll();
+      setFeedback({ type: 'success', message: 'Low-stock ranges saved and applied across your shop.' });
+    } catch (error) {
+      setFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to save low-stock ranges',
+      });
+    } finally {
+      setSavingThresholds(false);
+    }
+  }
+
   function focusProductRow(productId: string) {
     setStatusFilter('all');
     setSearchQuery('');
@@ -334,64 +490,225 @@ export function InventoryDashboard({ onOpenProduct }: InventoryDashboardProps = 
         })}
       </div>
 
-      {/* Inline active stock alerts strip (only when alerts exist) */}
-      {alerts.length > 0 && (
-        <section
-          aria-label="Stock alerts"
-          className="rounded-lg border border-amber-200 bg-amber-50/70"
-        >
-          <div className="flex items-center justify-between gap-3 border-b border-amber-200/80 px-4 py-2.5">
-            <div className="flex items-center gap-2 text-sm font-semibold text-amber-950">
-              <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />
-              <span>
-                {alerts.length} stock {alerts.length === 1 ? 'alert' : 'alerts'}
-              </span>
-            </div>
-            <span className="text-xs text-amber-800">Restock below to clear automatically</span>
-          </div>
-          <ul className="divide-y divide-amber-200/60">
-            {alerts.map((alert) => {
-              const product = products.find((p) => p.id === alert.productId);
-              const title = product?.title || alert.productId;
-              const isOut = alert.type === 'out_of_stock' || alert.severity === 'critical';
-              return (
-                <li
-                  key={alert.id}
-                  className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm"
+      {/* Collapsible inline active stock alerts strip (only when alerts exist) */}
+      {alerts.length > 0 && (() => {
+        const hasLowStockAlerts = alerts.some((alert) => alert.type === 'low_stock');
+        const hasOutOfStockAlerts = alerts.some(
+          (alert) => alert.type === 'out_of_stock' || alert.severity === 'critical',
+        );
+        return (
+          <section
+            aria-label="Stock alerts"
+            className="overflow-hidden rounded-lg border border-amber-200 bg-amber-50/70"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+              <button
+                type="button"
+                aria-expanded={alertsOpen}
+                onClick={() => setAlertsOpen((open) => !open)}
+                className="flex min-w-0 flex-1 items-center gap-2 rounded text-left text-sm font-medium text-amber-950 transition-colors hover:text-amber-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+              >
+                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
+                <span>
+                  {alerts.length} stock {alerts.length === 1 ? 'alert' : 'alerts'}
+                </span>
+                <ChevronDown
+                  className={`h-4 w-4 shrink-0 text-amber-700/70 transition-transform duration-200 ${
+                    alertsOpen ? 'rotate-180' : ''
+                  }`}
+                  aria-hidden="true"
+                />
+              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                {hasLowStockAlerts && hasOutOfStockAlerts && (
+                  <button
+                    type="button"
+                    disabled={dismissingAllAlerts}
+                    onClick={() => void handleDismissAllAlerts('low_stock')}
+                    className="rounded-md border border-amber-300/80 bg-white/80 px-2.5 py-1 text-xs font-medium text-amber-950 transition-colors hover:bg-amber-100 disabled:opacity-50"
+                  >
+                    {dismissingAllAlerts ? 'Dismissing…' : 'Dismiss low stock'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={dismissingAllAlerts}
+                  onClick={() => void handleDismissAllAlerts()}
+                  className="rounded-md border border-amber-300/80 bg-white px-2.5 py-1 text-xs font-medium text-amber-950 transition-colors hover:bg-amber-100 disabled:opacity-50"
                 >
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <span
-                      className={`inline-block h-2 w-2 shrink-0 rounded-full ${
-                        isOut ? 'bg-red-500' : 'bg-amber-500'
-                      }`}
-                      aria-hidden="true"
-                    />
-                    <span className="truncate font-medium text-gray-900">{title}</span>
-                    <span className="text-xs text-gray-600">{alert.message}</span>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => focusProductRow(alert.productId)}
-                      className="rounded border border-amber-300 bg-white px-2.5 py-1 text-xs font-medium text-amber-950 hover:bg-amber-100"
+                  {dismissingAllAlerts ? 'Dismissing…' : 'Dismiss all'}
+                </button>
+              </div>
+            </div>
+            {alertsOpen && (
+              <ul className="divide-y divide-amber-200/60 border-t border-amber-200/80">
+                {alerts.map((alert) => {
+                  const product = products.find((p) => p.id === alert.productId);
+                  const title = product?.title || alert.productId;
+                  const isOut = alert.type === 'out_of_stock' || alert.severity === 'critical';
+                  return (
+                    <li
+                      key={alert.id}
+                      className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm"
                     >
-                      Restock
-                    </button>
-                    <button
-                      type="button"
-                      disabled={dismissingAlertId === alert.id}
-                      onClick={() => void handleDismissAlert(alert.id)}
-                      className="rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-amber-100/80 hover:text-gray-900 disabled:opacity-50"
-                    >
-                      {dismissingAlertId === alert.id ? 'Dismissing…' : 'Dismiss'}
-                    </button>
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <span
+                          className={`inline-block h-2 w-2 shrink-0 rounded-full ${
+                            isOut ? 'bg-red-500' : 'bg-amber-500'
+                          }`}
+                          aria-hidden="true"
+                        />
+                        <span className="truncate font-medium text-gray-900">{title}</span>
+                        <span className="text-xs text-gray-600">{alert.message}</span>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => focusProductRow(alert.productId)}
+                          className="rounded border border-amber-300 bg-white px-2.5 py-1 text-xs font-medium text-amber-950 hover:bg-amber-100"
+                        >
+                          Restock
+                        </button>
+                        <button
+                          type="button"
+                          disabled={dismissingAlertId === alert.id || dismissingAllAlerts}
+                          onClick={() => void handleDismissAlert(alert.id)}
+                          className="rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-amber-100/80 hover:text-gray-900 disabled:opacity-50"
+                        >
+                          {dismissingAlertId === alert.id ? 'Dismissing…' : 'Dismiss'}
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        );
+      })()}
+
+      {/* Per-category low-stock ranges */}
+      <details className="group/thresholds overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm select-none transition-colors hover:bg-gray-50/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-400 [&::-webkit-details-marker]:hidden">
+          <span className="inline-flex shrink-0 items-center gap-2 font-medium text-gray-900">
+            <SlidersHorizontal className="h-4 w-4 text-gray-500" aria-hidden="true" />
+            Low-stock ranges by category
+          </span>
+          <span className="inline-flex min-w-0 items-center gap-2 text-xs text-gray-500">
+            <span className="truncate">{thresholdSummaryText}</span>
+            <ChevronDown
+              className="h-4 w-4 shrink-0 text-gray-400 transition-transform duration-200 group-open/thresholds:rotate-180"
+              aria-hidden="true"
+            />
+          </span>
+        </summary>
+        <div className="border-t border-gray-200 px-4 py-4 space-y-4">
+          <p className="text-xs text-gray-600">
+            Choose the quantity at which each category is flagged as low stock. Enter <span className="font-medium text-gray-900">0</span> to disable low-stock warnings (ideal for 1-of-1 originals), or leave a category blank to use the default.
+          </p>
+
+          <div className="divide-y divide-gray-100 rounded-md border border-gray-200">
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-50/70 px-3.5 py-2.5">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-900">Default (all other categories)</p>
+                <p className="text-xs text-gray-500">Applies to categories without a custom range</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="w-24">
+                  <IntegerField
+                    label="Default low-stock threshold"
+                    labelHidden
+                    compact
+                    min={0}
+                    max={9999}
+                    value={effectiveDefaultDraft}
+                    onChange={(next) => setDefaultThresholdDraft(next)}
+                  />
+                </div>
+                <span className="w-28 text-right text-xs font-medium text-gray-600">
+                  {formatLowStockRangeLabel(
+                    effectiveDefaultDraft === '' ? DEFAULT_LOW_STOCK_THRESHOLD : Number(effectiveDefaultDraft),
+                  )}
+                </span>
+              </div>
+            </div>
+
+            {categoryEntries.map((entry) => {
+              const hasDraft = Object.prototype.hasOwnProperty.call(categoryThresholdDrafts, entry.key);
+              const savedValue = savedThresholds.categories[entry.key];
+              const fieldValue: number | '' = hasDraft
+                ? categoryThresholdDrafts[entry.key]
+                : savedValue ?? '';
+              const fallbackNumeric =
+                effectiveDefaultDraft === '' ? DEFAULT_LOW_STOCK_THRESHOLD : Number(effectiveDefaultDraft);
+              const previewLabel =
+                fieldValue === ''
+                  ? `Default (${formatLowStockRangeLabel(fallbackNumeric)})`
+                  : formatLowStockRangeLabel(Number(fieldValue));
+
+              return (
+                <div key={entry.key} className="flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900">{entry.label}</p>
+                    <p className="text-xs text-gray-500">
+                      {entry.count === 0
+                        ? 'Saved rule (no current products)'
+                        : `${entry.count} ${entry.count === 1 ? 'product' : 'products'}`}
+                    </p>
                   </div>
-                </li>
+                  <div className="flex items-center gap-3">
+                    <div className="w-24">
+                      <IntegerField
+                        label={`Low-stock threshold for ${entry.label}`}
+                        labelHidden
+                        compact
+                        min={0}
+                        max={9999}
+                        placeholder={String(fallbackNumeric)}
+                        value={fieldValue}
+                        onChange={(next) =>
+                          setCategoryThresholdDrafts((current) => ({ ...current, [entry.key]: next }))
+                        }
+                      />
+                    </div>
+                    <span className="w-28 text-right text-xs font-medium text-gray-600">
+                      {previewLabel}
+                    </span>
+                  </div>
+                </div>
               );
             })}
-          </ul>
-        </section>
-      )}
+          </div>
+
+          <div className="flex items-center justify-end gap-2">
+            {thresholdsDirty && (
+              <button
+                type="button"
+                disabled={savingThresholds}
+                onClick={() => {
+                  setDefaultThresholdDraft(null);
+                  setCategoryThresholdDrafts({});
+                }}
+                className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Reset
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={!thresholdsDirty || savingThresholds}
+              onClick={() => void handleSaveThresholds()}
+              className={`rounded-md px-3.5 py-1.5 text-xs font-medium transition-colors ${
+                thresholdsDirty
+                  ? 'bg-gray-900 text-white hover:bg-gray-800'
+                  : 'border border-gray-200 bg-gray-50 text-gray-400'
+              } disabled:cursor-not-allowed`}
+            >
+              {savingThresholds ? 'Saving…' : 'Save ranges'}
+            </button>
+          </div>
+        </div>
+      </details>
 
       {/* Main unified Products stock table */}
       <section className="overflow-hidden rounded-lg border border-gray-200 bg-white">

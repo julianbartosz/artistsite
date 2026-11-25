@@ -132,10 +132,12 @@ export function pickVariantUrl(originalUrl: string, size: ImageVariantSize = 'th
   const trimmed = originalUrl?.trim();
   if (!trimmed) return originalUrl;
 
-  // GIFs map to first-frame WebP posters generated at upload; videos/SVGs stay raw.
+  // GIFs map to first-frame WebP posters for small thumbs only; md/lg keep the animated GIF.
+  // Videos and SVGs always stay raw.
   if (
     !isManagedImageUploadUrl(trimmed) ||
     isVideoUrl(trimmed) ||
+    (isGifUrl(trimmed) && size !== 'thumb') ||
     /\.svg([?#].*)?$/i.test(trimmed)
   ) {
     return trimmed;

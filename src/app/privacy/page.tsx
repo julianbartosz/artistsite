@@ -1,8 +1,14 @@
+import type { Metadata } from 'next';
 import { getConfig } from '@/lib/config';
 import { sanitizeRichHtml } from '@/lib/content-sanitize';
 import { DEFAULT_PRIVACY_HTML } from '@/lib/site-content-shared';
 
 export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = {
+  title: 'Privacy Policy',
+  alternates: { canonical: '/privacy' },
+};
 
 export default async function PrivacyPage() {
   const content = sanitizeRichHtml(await getConfig('LEGAL_PRIVACY_HTML') || DEFAULT_PRIVACY_HTML);

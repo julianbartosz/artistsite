@@ -1,8 +1,14 @@
 import { Suspense } from 'react';
+import type { Metadata } from 'next';
 import { getSiteContent } from '@/lib/site-content';
 import CheckoutSuccessClient from './CheckoutSuccessClient';
 
 export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = {
+  title: 'Order Confirmed',
+  robots: { index: false, follow: false },
+};
 
 export default async function CheckoutSuccessPage() {
   const shop = await getSiteContent('shop');

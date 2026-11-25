@@ -34,12 +34,13 @@ export async function buildImageVariants(buffer: Buffer, filename: string): Prom
     return [];
   }
 
-  // Animated GIF/WebP: keep the original file for detail playback, but emit static
-  // first-frame WebP posters so listing thumbs do not decode every frame.
+  // Animated GIF/WebP: keep the original file for detail/card playback, and emit only
+  // a static first-frame thumb WebP poster so listing thumbnails do not decode every frame.
   const isAnimated = metadata.format === 'gif' || (metadata.pages ?? 1) > 1;
+  const specs = isAnimated ? VARIANTS.filter((variant) => variant.suffix === 'thumb') : VARIANTS;
   const variants: GeneratedImageVariant[] = [];
 
-  for (const variant of VARIANTS) {
+  for (const variant of specs) {
     const pipeline = isAnimated
       ? sharp(buffer, { animated: false, page: 0 })
       : sharp(buffer);

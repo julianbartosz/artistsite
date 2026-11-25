@@ -37,16 +37,39 @@ export async function POST(request: NextRequest) {
     const session = await requireAdmin();
 
     const body = await request.json();
-    const { action, alertId } = body;
+    const { action, alertId, type } = body;
 
     switch (action) {
       case 'acknowledge':
+        if (typeof alertId !== 'string' || !alertId.trim()) {
+          return NextResponse.json(
+            { success: false, error: 'alertId is required' },
+            { status: 400 }
+          );
+        }
         await InventoryService.acknowledgeAlert(alertId, session.user.id);
         break;
 
       case 'resolve':
+        if (typeof alertId !== 'string' || !alertId.trim()) {
+          return NextResponse.json(
+            { success: false, error: 'alertId is required' },
+            { status: 400 }
+          );
+        }
         await InventoryService.resolveAlert(alertId);
         break;
+
+      case 'resolve_all': {
+        const alertType =
+          type === 'low_stock' || type === 'out_of_stock' ? type : undefined;
+        const dismissedCount = await InventoryService.resolveAllAlerts(alertType);
+        return NextResponse.json({
+          success: true,
+          dismissedCount,
+          message: 'Alerts dismissed successfully',
+        });
+      }
 
       default:
         return NextResponse.json(

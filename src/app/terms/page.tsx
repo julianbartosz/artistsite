@@ -1,8 +1,14 @@
+import type { Metadata } from 'next';
 import { getConfig } from '@/lib/config';
 import { sanitizeRichHtml } from '@/lib/content-sanitize';
 import { DEFAULT_TERMS_HTML } from '@/lib/site-content-shared';
 
 export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = {
+  title: 'Terms of Service',
+  alternates: { canonical: '/terms' },
+};
 
 export default async function TermsPage() {
   const content = sanitizeRichHtml(await getConfig('LEGAL_TERMS_HTML') || DEFAULT_TERMS_HTML);

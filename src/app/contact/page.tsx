@@ -1,8 +1,23 @@
+import type { Metadata } from 'next';
 import { getConfig } from '@/lib/config';
 import { getSiteContent } from '@/lib/site-content';
 import ContactPageClient from '@/app/contact/ContactPageClient';
 
 export const dynamic = 'force-dynamic';
+
+export async function generateMetadata(): Promise<Metadata> {
+  const contact = await getSiteContent('contact');
+  return {
+    title: contact.header.title || 'Contact',
+    description: contact.header.subtitle || undefined,
+    openGraph: {
+      title: contact.header.title || 'Contact',
+      description: contact.header.subtitle || undefined,
+      type: 'website',
+    },
+    alternates: { canonical: '/contact' },
+  };
+}
 
 type ContactPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;

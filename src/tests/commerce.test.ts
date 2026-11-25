@@ -20,8 +20,13 @@ import {
   allowedCheckoutCountriesForItems,
   describeProductShipping,
   PRODUCT_IMAGE_FALLBACK,
+  normalizeCategoryThresholdKey,
+  parseLowStockThresholds,
+  resolveLowStockThreshold,
+  formatLowStockRangeLabel,
   type Product,
 } from '@/lib/commerce';
+import { humanizeOrderTimelineEntry } from '@/lib/order-status-shared';
 import { resolvePublicAssetUrl } from '@/lib/public-asset';
 import { normalizeProductPayload, productPayloadSchema } from '@/lib/admin-content';
 import { splitPlainParagraphs } from '@/lib/site-content-shared';
@@ -148,8 +153,10 @@ describe('Commerce Library', () => {
       expect(productRawImageSrc(uploaded)).toBe('/uploads/images/abc123.jpg');
     });
 
-    it('maps GIFs to static WebP posters, leaves videos raw, and prefers still images for product previews', () => {
+    it('maps GIFs to static WebP posters for thumbs only, keeps animated GIFs for md/lg, leaves videos raw, and prefers still images for product previews', () => {
       expect(pickVariantUrl('/uploads/images/spin.gif', 'thumb')).toBe('/uploads/images/spin-thumb.webp');
+      expect(pickVariantUrl('/uploads/images/spin.gif', 'md')).toBe('/uploads/images/spin.gif');
+      expect(pickVariantUrl('/uploads/images/spin.gif', 'lg')).toBe('/uploads/images/spin.gif');
       expect(pickVariantUrl('/uploads/videos/reel.mp4', 'thumb')).toBe('/uploads/videos/reel.mp4');
       expect(shouldUnoptimizeImage('/uploads/images/spin.gif')).toBe(true);
       expect(shouldUnoptimizeImage('https://artist.blob.core.windows.net/assets/images/spin.gif')).toBe(true);
@@ -227,7 +234,7 @@ describe('Commerce Library', () => {
       expect(productGalleryImages(sampleProduct)).toEqual([PRODUCT_IMAGE_FALLBACK]);
     });
 
-    it('artworkGalleryImages avoids creating a 2-slide carousel for legacy thumbnail + main pairs', () => {
+    it('artworkGalleryImages avoids creating a 2-slide carousel for legacy thumbnail + main pairs and preserves video-first galleries', () => {
       expect(
         artworkGalleryImages({
           main: '/images/artworks/piece.jpg',
@@ -243,6 +250,14 @@ describe('Commerce Library', () => {
           gallery: ['/images/artworks/piece.jpg', '/images/artworks/piece-detail.jpg'],
         }),
       ).toEqual(['/images/artworks/piece.jpg', '/images/artworks/piece-detail.jpg']);
+
+      expect(
+        artworkGalleryImages({
+          main: '/uploads/images/still.jpg',
+          thumbnail: '/uploads/images/still.jpg',
+          gallery: ['/uploads/videos/reel.mp4', '/uploads/images/still.jpg', '/uploads/images/spin.gif'],
+        }),
+      ).toEqual(['/uploads/videos/reel.mp4', '/uploads/images/still.jpg', '/uploads/images/spin.gif']);
     });
   });
 
@@ -1162,6 +1177,70 @@ describe('CustomerInsights.getOrderCommerceMetrics', () => {
     expect(result.averageLTV).toBeCloseTo(expected.averageLTV, 5);
     expect(result.medianLTV).toBeCloseTo(expected.medianLTV, 5);
     expect(result.repeatCustomers).toBe(expected.repeatCustomers);
+  });
+});
+
+describe('per-category low-stock thresholds and order timeline humanization', () => {
+  const config = parseLowStockThresholds(
+    JSON.stringify({
+      defaultThreshold: 4,
+      categories: { Originals: 0, 'Mixed Media': 2, postcards: 10 },
+    }),
+  );
+
+  it.each([
+    ['Originals', 0, 'Off (only at 0)'],
+    ['originals', 0, 'Off (only at 0)'],
+    ['Mixed Media', 2, '1–2 left'],
+    ['mixed-media', 2, '1–2 left'],
+    ['Postcards', 10, '1–10 left'],
+    ['Prints', 4, '1–4 left'],
+    ['', 4, '1–4 left'],
+  ])('resolves category %p -> threshold %i (%s)', (category, expected, label) => {
+    const resolved = resolveLowStockThreshold(category, config);
+    expect(resolved).toBe(expected);
+    expect(formatLowStockRangeLabel(resolved)).toBe(label);
+  });
+
+  it('falls back safely on empty or malformed JSON and clamps invalid values', () => {
+    expect(parseLowStockThresholds(null)).toEqual({ defaultThreshold: 5, categories: {} });
+    expect(parseLowStockThresholds('{bad')).toEqual({ defaultThreshold: 5, categories: {} });
+    expect(normalizeCategoryThresholdKey('  Oil_Paintings  ')).toBe('oil-paintings');
+  });
+
+  it.each([
+    {
+      input: {
+        message: 'Order placed and payment pending',
+        details: 'Stripe checkout session created and awaiting payment confirmation',
+      },
+      expected: {
+        message: 'Order received',
+        details: 'We received your order details and began verifying payment.',
+      },
+    },
+    {
+      input: {
+        message: 'Payment confirmed and order received',
+        details: 'Payment confirmed by Stripe',
+      },
+      expected: {
+        message: 'Order confirmed',
+        details: 'Payment received — your artwork is reserved and queued for studio packaging.',
+      },
+    },
+    {
+      input: {
+        message: 'Wrapped and dropped off at USPS',
+        details: 'Hand-packed with a thank-you note.',
+      },
+      expected: {
+        message: 'Wrapped and dropped off at USPS',
+        details: 'Hand-packed with a thank-you note.',
+      },
+    },
+  ])('humanizes order timeline entry "$input.message"', ({ input, expected }) => {
+    expect(humanizeOrderTimelineEntry(input)).toEqual(expected);
   });
 });
 

@@ -1,6 +1,16 @@
 import { revalidateTag } from 'next/cache';
 import { prisma } from '@/lib/db';
+import { getConfig, setConfig } from '@/lib/config';
+import {
+  DEFAULT_LOW_STOCK_THRESHOLD,
+  type LowStockThresholdConfig,
+  parseLowStockThresholds,
+  resolveLowStockThreshold,
+  sanitizeLowStockThresholds,
+} from '@/lib/commerce';
 import { getAllProducts } from './commerce-server';
+
+const LOW_STOCK_THRESHOLDS_KEY = 'INVENTORY_LOW_STOCK_THRESHOLDS';
 
 export interface InventoryStatus {
   productId: string;
@@ -45,18 +55,29 @@ export class InventoryService {
   static async initializeInventory(
     productId: string,
     initialStock: number = 0,
-    lowStockThreshold: number = 5,
+    lowStockThreshold?: number,
     allowBackorders: boolean = false
   ): Promise<void> {
+    let resolvedThreshold = lowStockThreshold;
+    if (resolvedThreshold === undefined) {
+      const product = await prisma.product.findUnique({
+        where: { id: productId },
+        select: { category: true },
+      });
+      resolvedThreshold = product
+        ? await this.getThresholdForCategory(product.category)
+        : DEFAULT_LOW_STOCK_THRESHOLD;
+    }
+
     // Start at zero so recordStockMovement is the sole writer of stock levels.
     await prisma.productInventory.create({
       data: {
         productId,
         currentStock: 0,
         availableStock: 0,
-        lowStockThreshold,
+        lowStockThreshold: resolvedThreshold,
         allowBackorders,
-        stockStatus: this.calculateStockStatus(0, lowStockThreshold),
+        stockStatus: this.calculateStockStatus(0, resolvedThreshold),
         isTrackingEnabled: true
       }
     });
@@ -592,14 +613,16 @@ export class InventoryService {
   }
 
   /**
-   * Calculate stock status based on available stock and threshold
+   * Calculate stock status based on available stock and threshold.
+   * A threshold of 0 disables low-stock warnings (useful for 1-of-1 originals)
+   * so stock moves directly from in_stock to out_of_stock at 0.
    */
   private static calculateStockStatus(
     availableStock: number,
     lowStockThreshold: number
   ): string {
     if (availableStock <= 0) return 'out_of_stock';
-    if (availableStock <= lowStockThreshold) return 'low_stock';
+    if (lowStockThreshold > 0 && availableStock <= lowStockThreshold) return 'low_stock';
     return 'in_stock';
   }
 
@@ -860,6 +883,23 @@ export class InventoryService {
   }
 
   /**
+   * Resolve all active stock alerts (optionally scoped to a single alert type).
+   */
+  static async resolveAllAlerts(type?: 'low_stock' | 'out_of_stock'): Promise<number> {
+    const result = await prisma.stockAlert.updateMany({
+      where: {
+        isActive: true,
+        ...(type ? { type } : {}),
+      },
+      data: {
+        isActive: false,
+        resolvedAt: new Date(),
+      },
+    });
+    return result.count;
+  }
+
+  /**
    * Get stock movement history
    */
   static async getStockHistory(
@@ -942,6 +982,77 @@ export class InventoryService {
   }
 
   /**
+   * Read per-category low-stock threshold settings.
+   */
+  static async getLowStockThresholds(): Promise<LowStockThresholdConfig> {
+    const raw = await getConfig(LOW_STOCK_THRESHOLDS_KEY);
+    return parseLowStockThresholds(raw);
+  }
+
+  /**
+   * Resolve the low-stock threshold for a product category from saved settings.
+   */
+  static async getThresholdForCategory(category: string | null | undefined): Promise<number> {
+    const config = await this.getLowStockThresholds();
+    return resolveLowStockThreshold(category, config);
+  }
+
+  /**
+   * Persist per-category low-stock thresholds and immediately reconcile every
+   * tracked product's threshold, stock status, and active stock alerts.
+   */
+  static async saveLowStockThresholds(
+    input: Partial<LowStockThresholdConfig>,
+  ): Promise<{ config: LowStockThresholdConfig; updatedProducts: number }> {
+    const config = sanitizeLowStockThresholds(input);
+    await setConfig(LOW_STOCK_THRESHOLDS_KEY, JSON.stringify(config), { encrypt: false });
+
+    const [products, inventories] = await Promise.all([
+      prisma.product.findMany({ select: { id: true, category: true } }),
+      prisma.productInventory.findMany({
+        select: { id: true, productId: true, lowStockThreshold: true },
+      }),
+    ]);
+
+    const categoryByProductId = new Map(products.map((product) => [product.id, product.category]));
+    let updatedProducts = 0;
+
+    for (const inventory of inventories) {
+      const category = categoryByProductId.get(inventory.productId);
+      const nextThreshold = resolveLowStockThreshold(category, config);
+      if (inventory.lowStockThreshold !== nextThreshold) {
+        await prisma.productInventory.update({
+          where: { id: inventory.id },
+          data: { lowStockThreshold: nextThreshold },
+        });
+        updatedProducts++;
+      }
+      await this.updateStockStatus(inventory.productId);
+    }
+
+    return { config, updatedProducts };
+  }
+
+  /**
+   * Re-sync a single product's threshold when its category changes.
+   */
+  static async syncProductCategoryThreshold(productId: string, category: string): Promise<void> {
+    const inventory = await prisma.productInventory.findUnique({
+      where: { productId },
+      select: { id: true, lowStockThreshold: true },
+    });
+    if (!inventory) return;
+    const nextThreshold = await this.getThresholdForCategory(category);
+    if (inventory.lowStockThreshold !== nextThreshold) {
+      await prisma.productInventory.update({
+        where: { id: inventory.id },
+        data: { lowStockThreshold: nextThreshold },
+      });
+    }
+    await this.updateStockStatus(productId);
+  }
+
+  /**
    * Get inventory dashboard data
    */
   static async getDashboardData(): Promise<{
@@ -952,11 +1063,13 @@ export class InventoryService {
     totalValue: number;
     activeAlerts: number;
     recentMovements: any[];
+    lowStockThresholds: LowStockThresholdConfig;
   }> {
     const [
       inventories,
       alerts,
-      recentMovements
+      recentMovements,
+      lowStockThresholds,
     ] = await Promise.all([
       prisma.productInventory.findMany(),
       prisma.stockAlert.count({ where: { isActive: true } }),
@@ -968,7 +1081,8 @@ export class InventoryService {
             select: { productId: true }
           }
         }
-      })
+      }),
+      this.getLowStockThresholds(),
     ]);
 
     const products = await getAllProducts();
@@ -1009,7 +1123,8 @@ export class InventoryService {
       outOfStock,
       totalValue,
       activeAlerts: alerts,
-      recentMovements
+      recentMovements,
+      lowStockThresholds,
     };
   }
 }

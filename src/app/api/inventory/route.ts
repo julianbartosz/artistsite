@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
         await InventoryService.initializeInventory(
           productId,
           quantity || 0,
-          body.lowStockThreshold || 5,
+          typeof body.lowStockThreshold === 'number' ? body.lowStockThreshold : undefined,
           body.allowBackorders || false
         );
         break;
@@ -105,6 +105,19 @@ export async function POST(request: NextRequest) {
       case 'bulk_update':
         await InventoryService.bulkUpdateInventory(body.updates, session.user.id);
         break;
+
+      case 'save_thresholds': {
+        const result = await InventoryService.saveLowStockThresholds({
+          defaultThreshold: body.defaultThreshold,
+          categories: body.categories,
+        });
+        return NextResponse.json({
+          success: true,
+          lowStockThresholds: result.config,
+          updatedProducts: result.updatedProducts,
+          message: 'Low-stock ranges updated',
+        });
+      }
 
       default:
         return NextResponse.json(

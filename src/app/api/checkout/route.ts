@@ -166,30 +166,6 @@ export async function POST(req: NextRequest) {
       t: createOrderAccessToken(persistedOrder.id),
     })}`;
 
-    // #region agent log
-    const originDebug = {
-      sessionId: '42a5ad',
-      hypothesisId: 'B',
-      location: 'api/checkout/route.ts:resolveCheckoutOrigin',
-      message: 'checkout public origin resolved',
-      data: {
-        requestOrigin: req.nextUrl.origin,
-        forwardedHost: req.headers.get('x-forwarded-host'),
-        host: req.headers.get('host'),
-        checkoutOrigin,
-        successUrlHost: (() => { try { return new URL(successUrl).host; } catch { return 'invalid'; } })(),
-      },
-      timestamp: Date.now(),
-      runId: 'post-fix',
-    };
-    console.log(JSON.stringify(originDebug));
-    fetch('http://127.0.0.1:7522/ingest/b298bde5-efc1-49c2-a537-64847b31c81b', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '42a5ad' },
-      body: JSON.stringify(originDebug),
-    }).catch(() => {});
-    // #endregion
-
     const discountCoupon = promoDiscount.amount > 0
       ? await stripe.coupons.create({
           amount_off: toCents(promoDiscount.amount),

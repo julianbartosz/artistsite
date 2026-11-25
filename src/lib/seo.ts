@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { getPublicSiteShell } from '@/lib/public-site-shell';
+import { isVideoUrl } from '@/lib/image-variant-url';
 
 export interface SEOParams {
   title: string;
@@ -150,13 +151,15 @@ export function generatePortfolioMetadata({
 }: {
   title: string;
   description: string;
-  images: { main?: string; gallery?: string[] };
+  images: { main?: string; thumbnail?: string; gallery?: string[] };
   medium?: string;
   year?: number;
   slug: string;
   brand: SeoBrand;
 }): Metadata {
-  const portfolioImages = images.main ? [images.main] : images.gallery?.slice(0, 1);
+  const candidates = [images.main, images.thumbnail, ...(images.gallery ?? [])]
+    .filter((entry): entry is string => Boolean(entry && entry.trim() && !isVideoUrl(entry)));
+  const portfolioImages = candidates.length > 0 ? [candidates[0]] : undefined;
   const tags = [medium, year?.toString()].filter(Boolean) as string[];
 
   return generatePageMetadata({

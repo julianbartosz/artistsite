@@ -12,6 +12,7 @@ import {
   normalizeAudienceEmails,
   parsePostMedia,
   productPayloadSchema,
+  sanitizeArtworkPayload,
 } from '@/lib/admin-content';
 import { viewerCanAccessPost } from '@/lib/markdown';
 import { buildCatalogPriceRanges } from '@/lib/search-params';
@@ -737,5 +738,49 @@ describe('studio content authoring & presentation defaults', () => {
     const parsed = portfolioPageSchema.parse({ title: 'Portfolio', subtitle: '' });
     expect(parsed.layout.showSoldBadge).toBe(false);
     expect(SITE_CONTENT_DEFAULTS.portfolio.layout.showSoldBadge).toBe(false);
+  });
+
+  it('supports photo-only quick portfolio posts and video-first galleries with still thumbnails', () => {
+    const quick = sanitizeArtworkPayload(
+      artworkPayloadSchema.parse({
+        title: '',
+        images: {
+          main: 'https://artist.blob.core.windows.net/assets/images/painting.jpg',
+          thumbnail: '',
+          gallery: ['https://artist.blob.core.windows.net/assets/images/painting.jpg'],
+        },
+      }),
+    );
+    expect(quick.title).toBe('Untitled');
+    expect(quick.slug).toMatch(/^untitled-[a-z0-9-]+$/);
+    expect(quick.category).toEqual([]);
+    expect(quick.available).toBe(false);
+
+    expect(() =>
+      artworkPayloadSchema.parse({
+        title: '',
+        images: { main: '', thumbnail: '', gallery: [] },
+      }),
+    ).toThrow(/Add a photo or enter a title/);
+
+    const videoFirst = sanitizeArtworkPayload(
+      artworkPayloadSchema.parse({
+        title: 'Studio Reel',
+        images: {
+          main: 'https://artist.blob.core.windows.net/assets/videos/reel.mp4',
+          thumbnail: 'https://artist.blob.core.windows.net/assets/videos/reel.mp4',
+          gallery: [
+            'https://artist.blob.core.windows.net/assets/videos/reel.mp4',
+            'https://artist.blob.core.windows.net/assets/images/still.jpg',
+          ],
+        },
+      }),
+    );
+    expect(videoFirst.images.main).toBe('https://artist.blob.core.windows.net/assets/images/still.jpg');
+    expect(videoFirst.images.thumbnail).toBe('https://artist.blob.core.windows.net/assets/images/still.jpg');
+    expect(videoFirst.images.gallery).toEqual([
+      'https://artist.blob.core.windows.net/assets/videos/reel.mp4',
+      'https://artist.blob.core.windows.net/assets/images/still.jpg',
+    ]);
   });
 });

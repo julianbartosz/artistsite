@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
+import { ChevronDown } from 'lucide-react';
 import {
   validateContactForm,
   sanitizeFormData,
@@ -232,16 +233,28 @@ export default function ContactPageClient({
             </div>
 
             {htmlHasVisibleText(pageContent.sidebar.responseTimeHtml) && (
-            <details className="rounded-lg border border-gray-200 p-4 desktop-open">
-              <summary className="cursor-pointer text-lg font-semibold text-gray-900 lg:cursor-default">{pageContent.sidebar.responseTimeTitle}</summary>
-              <div className="prose prose-sm max-w-none text-gray-700 mt-3" dangerouslySetInnerHTML={{ __html: pageContent.sidebar.responseTimeHtml }} />
+            <details className="group/disclosure overflow-hidden rounded-lg border border-gray-200 bg-white">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-lg font-semibold text-gray-900 select-none transition-colors hover:bg-surface-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
+                <span>{pageContent.sidebar.responseTimeTitle}</span>
+                <ChevronDown
+                  className="h-4 w-4 shrink-0 text-gray-500 transition-transform duration-200 group-open/disclosure:rotate-180"
+                  aria-hidden="true"
+                />
+              </summary>
+              <div className="prose prose-sm max-w-none border-t border-gray-100 px-4 pb-4 pt-3 text-gray-700" dangerouslySetInnerHTML={{ __html: pageContent.sidebar.responseTimeHtml }} />
             </details>
             )}
 
             {htmlHasVisibleText(pageContent.sidebar.commissionHtml) && (
-            <details className="rounded-lg border border-gray-200 p-4 desktop-open">
-              <summary className="cursor-pointer text-lg font-semibold text-gray-900 lg:cursor-default">{pageContent.sidebar.commissionTitle}</summary>
-              <div className="prose prose-sm max-w-none text-gray-700 mt-3" dangerouslySetInnerHTML={{ __html: pageContent.sidebar.commissionHtml }} />
+            <details className="group/disclosure overflow-hidden rounded-lg border border-gray-200 bg-white">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-lg font-semibold text-gray-900 select-none transition-colors hover:bg-surface-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
+                <span>{pageContent.sidebar.commissionTitle}</span>
+                <ChevronDown
+                  className="h-4 w-4 shrink-0 text-gray-500 transition-transform duration-200 group-open/disclosure:rotate-180"
+                  aria-hidden="true"
+                />
+              </summary>
+              <div className="prose prose-sm max-w-none border-t border-gray-100 px-4 pb-4 pt-3 text-gray-700" dangerouslySetInnerHTML={{ __html: pageContent.sidebar.commissionHtml }} />
             </details>
             )}
           </aside>

@@ -238,7 +238,9 @@ export async function POST(request: NextRequest) {
       buffer = normalized.buffer;
       extension = normalized.extension;
       verifiedContentType = normalized.contentType;
-      skipVariants = Boolean(normalized.animated || extension === 'gif');
+      // GIFs get a first-frame -thumb.webp poster while md/lg play the original animation.
+      // Animated WebPs cannot be distinguished from static WebPs by URL, so skip variants for them.
+      skipVariants = Boolean(normalized.animated && extension !== 'gif');
     } else {
       const videoMime = classified.videoMime || file.type;
       if (!hasValidVideoSignature(buffer, videoMime)) {

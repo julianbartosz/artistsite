@@ -290,8 +290,15 @@ export async function backfillMissingImageVariants(): Promise<VariantBackfillSum
   };
 
   for (const item of images) {
-    const missing = REQUIRED_VARIANTS.filter((size) => !item.variants?.[size]);
-    if (missing.length === 0 || isGifUrl(item.filename) || /\.svg$/i.test(item.filename)) {
+    if (/\.svg$/i.test(item.filename)) {
+      summary.skipped += 1;
+      continue;
+    }
+    const requiredForItem: readonly ImageVariantSize[] = isGifUrl(item.filename)
+      ? ['thumb']
+      : REQUIRED_VARIANTS;
+    const missing = requiredForItem.filter((size) => !item.variants?.[size]);
+    if (missing.length === 0) {
       summary.skipped += 1;
       continue;
     }
