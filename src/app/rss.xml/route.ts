@@ -39,7 +39,7 @@ export async function GET() {
      xmlns:dc="http://purl.org/dc/elements/1.1/"
      xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title>${siteName} — ${escapeHtml(blog.title)}</title>
+    <title>${siteName} | ${escapeHtml(blog.title)}</title>
     <description>${escapeHtml(blog.subtitle)}</description>
     <link>${link(UPDATES_PATH)}</link>
     <language>en-us</language>
@@ -49,7 +49,7 @@ export async function GET() {
     <ttl>60</ttl>
     <image>
       <url>${link(brandIconPath(identity, 180))}</url>
-      <title>${siteName} — ${escapeHtml(blog.title)}</title>
+      <title>${siteName} | ${escapeHtml(blog.title)}</title>
       <link>${link(UPDATES_PATH)}</link>
     </image>
 ${rssItems}

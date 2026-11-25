@@ -383,7 +383,7 @@ export default function OrderTracking({
           {session?.user ? (
             <>
               <p className="text-sm text-gray-600 mb-4">
-                Write directly to the studio — replies appear in your account messages.
+                Write directly to the studio. Replies appear in your account messages.
               </p>
               <OrderMessageComposer
                 orderId={order.id}

@@ -464,7 +464,7 @@ export default function ContactPageClient({
                   }`}
                   placeholder={
                     showCommissionFields
-                      ? 'Anything else the studio should know — inspiration, reference photos you’ll send, installation location…'
+                      ? 'Anything else the studio should know: inspiration, reference photos you’ll send, installation location…'
                       : form.messagePlaceholder
                   }
                   aria-describedby={getFieldError('message') ? 'message-error' : undefined}

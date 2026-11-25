@@ -134,7 +134,7 @@ function CheckoutSuccessContent({ initialShopCopy }: CheckoutSuccessClientProps)
               {loadError
                 ? 'We could not load the order summary yet.'
                 : orderDetails?.mode === 'manual'
-                  ? 'Thank you — the studio has received your request and will follow up with payment details.'
+                  ? 'Thank you. The studio has received your request and will follow up with payment details.'
                   : shopCopy.successSubtitle}
             </p>
           </div>

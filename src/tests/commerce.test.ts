@@ -1235,7 +1235,7 @@ describe('per-category low-stock thresholds and order timeline humanization', ()
       },
       expected: {
         message: 'Order confirmed',
-        details: 'Payment received — your artwork is reserved and queued for studio packaging.',
+        details: 'Payment received. Your artwork is reserved and queued for studio packaging.',
       },
     },
     {

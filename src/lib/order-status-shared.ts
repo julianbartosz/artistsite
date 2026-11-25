@@ -44,7 +44,7 @@ const LEGACY_TIMELINE_MESSAGE_MAP: Record<string, string> = {
 
 const LEGACY_TIMELINE_DETAILS_MAP: Record<string, string> = {
   'Stripe checkout session created and awaiting payment confirmation': 'We received your order details and began verifying payment.',
-  'Payment confirmed by Stripe': 'Payment received — your artwork is reserved and queued for studio packaging.',
+  'Payment confirmed by Stripe': 'Payment received. Your artwork is reserved and queued for studio packaging.',
 };
 
 /** Present internal payment-processor timeline notes warmly for collectors. */

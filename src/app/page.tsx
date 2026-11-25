@@ -42,7 +42,7 @@ function buildHomeMetaDescription(tagline: string, heroSubtitle: string, aboutBo
       unique.push(part);
     }
   }
-  const combined = unique.join(' — ');
+  const combined = unique.join(' | ');
   return combined.length > 160 ? `${combined.slice(0, 157).trimEnd()}…` : combined;
 }
 
@@ -73,7 +73,7 @@ export async function generateMetadata(): Promise<Metadata> {
   ]);
   const siteName = identity.siteName.trim();
   const tagline = identity.tagline.trim();
-  const titleText = tagline ? `${siteName} — ${tagline}` : `${siteName} — Original Art & Portfolio`;
+  const titleText = tagline ? `${siteName} | ${tagline}` : `${siteName} | Original Art & Portfolio`;
   const description = buildHomeMetaDescription(tagline, home.hero.subtitle, home.about.paragraph1);
   const twitterHandle = socialHandle(socialUrls.twitter);
 

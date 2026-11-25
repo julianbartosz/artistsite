@@ -248,7 +248,7 @@ export default function AccountDashboard() {
 
   const memberSince = profile?.createdAt
     ? new Date(profile.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
-    : '—';
+    : '-';
   const fullName = (profile?.name || [profile?.firstName, profile?.lastName].filter(Boolean).join(' ') || session.user?.name || '').trim();
   const firstName = (profile?.firstName || fullName.split(/\s+/)[0] || '').trim();
   const latestOrder = orders[0] ?? null;
@@ -264,7 +264,7 @@ export default function AccountDashboard() {
                 {firstName ? `Welcome, ${firstName}` : 'My Account'}
               </h1>
               <p className="mt-1 text-sm sm:text-base text-gray-600">
-                Your collector space — orders, saved works, and studio messages.
+                Your collector space for orders, saved works, and studio messages.
               </p>
               {loadError && (
                 <p className="mt-2 text-sm text-amber-800" role="alert">{loadError}</p>
@@ -474,7 +474,7 @@ export default function AccountDashboard() {
                     <dl className="space-y-3 text-sm">
                       <div>
                         <dt className="text-xs font-medium text-gray-500">Name</dt>
-                        <dd className="mt-0.5 text-gray-900">{fullName || '—'}</dd>
+                        <dd className="mt-0.5 text-gray-900">{fullName || '-'}</dd>
                       </div>
                       <div>
                         <dt className="text-xs font-medium text-gray-500">Email</dt>

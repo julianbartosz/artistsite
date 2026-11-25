@@ -115,7 +115,7 @@ export default function ProductQuickLook({ product, open, onClose }: ProductQuic
                         product={product}
                         preferred={imageUrl}
                         variantSize="thumb"
-                        alt={`${product.title} — ${itemIsVideo ? 'video' : 'photo'} ${thumbIndex + 1}`}
+                        alt={`${product.title}, ${itemIsVideo ? 'video' : 'photo'} ${thumbIndex + 1}`}
                         fill
                         className="object-cover"
                         sizes="56px"

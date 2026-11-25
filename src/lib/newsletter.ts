@@ -338,7 +338,7 @@ export function buildDefaultAutomationDocument(
           {
             id: 'followup-intro',
             type: 'text',
-            html: `<p>Hi {{first_name|there}},</p><p>A quick studio note since you joined ${escapeHtml(siteName)} — if you are exploring pieces for a space or curious about commissions, you can browse the full <a href="/portfolio">portfolio</a> or see recent <a href="/updates">studio updates</a>.</p><p>Reply anytime if a particular work catches your eye.</p>`,
+            html: `<p>Hi {{first_name|there}},</p><p>A quick studio note since you joined ${escapeHtml(siteName)}. If you are exploring pieces for a space or curious about commissions, you can browse the full <a href="/portfolio">portfolio</a> or see recent <a href="/updates">studio updates</a>.</p><p>Reply anytime if a particular work catches your eye.</p>`,
           },
           {
             id: 'followup-cta',
@@ -358,7 +358,7 @@ export function buildDefaultAutomationDocument(
           {
             id: 'winback-intro',
             type: 'text',
-            html: `<p>Hi {{first_name|there}},</p><p>It has been a little while since we last caught up. New works and limited prints have been added to ${escapeHtml(siteName)} recently — take a look whenever you have a quiet moment.</p><p>If you are looking for a specific size or palette, reply to this email or send a note through <a href="/contact">the studio contact page</a>.</p>`,
+            html: `<p>Hi {{first_name|there}},</p><p>It has been a little while since we last caught up. New works and limited prints have been added to ${escapeHtml(siteName)} recently. Take a look whenever you have a quiet moment.</p><p>If you are looking for a specific size or palette, reply to this email or send a note through <a href="/contact">the studio contact page</a>.</p>`,
           },
           {
             id: 'winback-cta',
@@ -661,10 +661,10 @@ function blockText(block: NewsletterBlock, context: NewsletterRenderContext): st
     case 'product': {
       if (!block.productId.trim()) return '';
       const href = resolvedUrl(block.href, context.siteUrl);
-      return [[block.title, block.priceLabel.trim()].filter(Boolean).join(' — '), href].filter(Boolean).join('\n');
+      return [[block.title, block.priceLabel.trim()].filter(Boolean).join(': '), href].filter(Boolean).join('\n');
     }
     case 'divider':
-      return '———';
+      return '---';
   }
 }
 

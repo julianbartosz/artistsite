@@ -101,7 +101,7 @@ export async function middleware(request: NextRequest) {
   if (process.env.NODE_ENV === 'production') {
     response.headers.set(
         'Content-Security-Policy',
-        "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://js.stripe.com https://www.googletagmanager.com https://connect.facebook.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' https: blob:; font-src 'self' data:; frame-src 'self' https://js.stripe.com https://hooks.stripe.com; frame-ancestors 'self'; connect-src 'self' https://api.stripe.com https://*.mailchimp.com https://www.google-analytics.com https://region1.google-analytics.com https://graph.facebook.com https://www.facebook.com;"
+        "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://js.stripe.com https://*.js.stripe.com https://checkout.stripe.com https://www.googletagmanager.com https://connect.facebook.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' https: blob:; font-src 'self' data:; frame-src 'self' https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://checkout.stripe.com; frame-ancestors 'self'; connect-src 'self' https://api.stripe.com https://checkout.stripe.com https://*.mailchimp.com https://www.google-analytics.com https://region1.google-analytics.com https://graph.facebook.com https://www.facebook.com;"
     );
   }
   

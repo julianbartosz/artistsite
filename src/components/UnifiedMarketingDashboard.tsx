@@ -8,6 +8,7 @@ import type { LucideIcon } from 'lucide-react';
 import { BarChart3, CreditCard, DollarSign, LineChart, Mail, Megaphone, Smartphone, Target, Users } from 'lucide-react';
 import { IntegerField, MoneyField } from '@/components/admin/StudioFormFields';
 import GalleryField from '@/components/admin/GalleryField';
+import { MarketQrCard } from '@/components/admin/MarketQrCard';
 
 import { AUTOMATION_EMAIL_IDS } from '@/lib/newsletter';
 
@@ -130,7 +131,7 @@ export function UnifiedMarketingDashboard({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-semibold text-gray-900">Marketing</h2>
-          <p className="mt-0.5 text-sm text-gray-600">Promo codes, social posts, ad spend tracking, and channel performance.</p>
+          <p className="mt-0.5 text-sm text-gray-600">Promo codes, market QR codes, social posts, ad spend tracking, and channel performance.</p>
         </div>
         {activeTab === 'performance' && (
           <div className="flex flex-wrap items-center gap-3">
@@ -532,6 +533,8 @@ function CampaignsTab({ onSelectTab }: { onSelectTab?: (tab: string) => void }) 
       {message && <div className="rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">{message}</div>}
 
       <PromoCodesPanel />
+
+      <MarketQrCard onSelectTab={onSelectTab} />
 
       <div className="bg-white p-6 rounded-lg shadow space-y-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

@@ -36,7 +36,7 @@ export async function maybeCreateOrderProgressPost(
   if (existing) return { created: false, mode, slug: existing.slug };
 
   const summary = itemSummary(order);
-  const template = blog.autoOrderProgressExcerpt || 'Work has started in the studio on {{summary}}. This private update is linked to your order — more photos and notes will appear here as the piece progresses.';
+  const template = blog.autoOrderProgressExcerpt || 'Work has started in the studio on {{summary}}. This private update is linked to your order. More photos and notes will appear here as the piece progresses.';
   const excerpt = template.replace('{{summary}}', summary).replace('{{orderNumber}}', order.orderNumber);
   const slugBase = slugify(`order-${order.orderNumber}-in-production`);
   let slug = slugBase;
@@ -50,7 +50,7 @@ export async function maybeCreateOrderProgressPost(
   const post = await db.blogPost.create({
     data: {
       slug,
-      title: `Order ${order.orderNumber} — In production`,
+      title: `Order ${order.orderNumber}: In production`,
       excerpt,
       content: `<p>${excerpt}</p>`,
       isDraft,

@@ -25,7 +25,7 @@ export async function notifyCollectorsOfPrivatePost(postId: string): Promise<num
   const fullUrl = absoluteUrl(updatesPostPath(post.slug), brand.siteUrl);
   const sectionTitle = blog.privateSectionTitle || 'For collectors';
   const template = {
-    subject: `${brand.siteName}: new collector update — ${title}`,
+    subject: `${brand.siteName}: new collector update: ${title}`,
     html: brandedEmailHtml(brand, {
       title: 'A new studio update for you',
       intro: `<strong>${escapeHtml(title)}</strong>`,

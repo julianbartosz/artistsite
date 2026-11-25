@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
           isE2e
             ? 'E2E checkout session created'
             : isManualCheckout
-              ? 'Manual purchase request submitted — awaiting studio confirmation and payment'
+              ? 'Manual purchase request submitted. Awaiting studio confirmation and payment'
               : 'Stripe checkout session created and awaiting payment confirmation'
         ),
       ],
@@ -218,11 +218,8 @@ export async function POST(req: NextRequest) {
 
     const stripe = await getStripe();
     const checkoutOrigin = await resolveCheckoutOrigin(req);
-    const successUrl = `${checkoutOrigin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
-    const cancelUrl = `${checkoutOrigin}/checkout/cancel?${new URLSearchParams({
-      order: persistedOrder.id,
-      t: createOrderAccessToken(persistedOrder.id),
-    })}`;
+    const returnUrl = `${checkoutOrigin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
+    const cancelToken = createOrderAccessToken(persistedOrder.id);
 
     let session;
     try {
@@ -251,7 +248,11 @@ export async function POST(req: NextRequest) {
       ]);
 
       session = await stripe.checkout.sessions.create({
+        ui_mode: 'custom',
         payment_method_types: ['card'],
+        wallet_options: {
+          link: { display: 'never' },
+        },
         line_items: orderItems.map((item) => {
           const itemDescription = [item.product.medium, item.product.dimensions].filter(Boolean).join(' • ');
           return {
@@ -301,8 +302,7 @@ export async function POST(req: NextRequest) {
         ...(discountCoupon ? { discounts: [{ coupon: discountCoupon.id }] } : {}),
         mode: 'payment',
         expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_SESSION_MINUTES * 60,
-        success_url: successUrl,
-        cancel_url: cancelUrl,
+        return_url: returnUrl,
         customer: stripeCustomer.id,
         customer_update: {
           address: 'auto',
@@ -334,7 +334,12 @@ export async function POST(req: NextRequest) {
 
     await recordCheckoutSession(persistedOrder.id, session.id);
 
-    return NextResponse.json({ sessionId: session.id });
+    return NextResponse.json({
+      sessionId: session.id,
+      clientSecret: session.client_secret,
+      orderId: persistedOrder.id,
+      cancelToken,
+    });
   } catch (error) {
     console.error('Stripe session creation error:', error);
     const message = error instanceof Error ? error.message : 'Failed to create checkout session';
@@ -385,8 +390,8 @@ function isUsablePublicOrigin(origin: string): boolean {
     const url = new URL(origin);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
     const host = url.hostname.toLowerCase();
-    if (!host || host === '0.0.0.0' || host === '127.0.0.1') return false;
-    if (host === 'localhost' && process.env.NODE_ENV === 'production') return false;
+    if (!host || host === '0.0.0.0') return false;
+    if ((host === 'localhost' || host === '127.0.0.1') && process.env.NODE_ENV === 'production') return false;
     return true;
   } catch {
     return false;

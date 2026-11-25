@@ -37,7 +37,7 @@ describe('ImageCarousel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /next photo of bouquet postcard/i }));
     expect(screen.getByText('2 / 3')).toBeInTheDocument();
-    expect(screen.getByAltText('Bouquet Postcard — photo 2 of 3')).toHaveAttribute(
+    expect(screen.getByAltText('Bouquet Postcard, photo 2 of 3')).toHaveAttribute(
       'src',
       expect.stringContaining('back.jpg'),
     );
@@ -109,7 +109,7 @@ describe('ImageCarousel', () => {
     expect(screen.getByText('Video')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /next photo of ceramic vase/i }));
-    const img = screen.getByAltText('Ceramic Vase — photo 2 of 2');
+    const img = screen.getByAltText('Ceramic Vase, photo 2 of 2');
     expect(img).toHaveAttribute('src', expect.stringContaining('loop-thumb.webp'));
   });
 

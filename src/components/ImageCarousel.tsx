@@ -176,7 +176,7 @@ export default function ImageCarousel({
   }
 
   const mediaWord = isVideo ? 'video' : 'photo';
-  const imageAlt = hasMultiple && index > 0 ? `${alt} — ${mediaWord} ${index + 1} of ${count}` : alt;
+  const imageAlt = hasMultiple && index > 0 ? `${alt}, ${mediaWord} ${index + 1} of ${count}` : alt;
   const unoptimized = resolvedSrc.startsWith('/uploads/') || shouldUnoptimizeImage(resolvedSrc);
   // Keep native <video controls> unobstructed on modals and detail views (thumbnail strips & arrows handle navigation).
   const interactiveVideo = isVideo && !href;

@@ -318,7 +318,7 @@ Your artwork has been carefully packaged and is on its way to you!
       intro: `Order ${escapeHtml(order.orderNumber)} is now with you, ${escapeHtml(customerName)}. I hope you love your new piece.`,
       sections: [{
         heading: 'Share it',
-        html: "I'd love to see your artwork in its new home — share a photo and tag the studio on social media.",
+        html: "I'd love to see your artwork in its new home. Share a photo and tag the studio on social media.",
       }],
       cta: { label: 'View order', href: orderUrl },
       closing: `Thank you for supporting independent art. <a href="${escapeHtml(shopUrl)}" style="color:#374151;">Browse more work in the shop</a>.`,
@@ -462,7 +462,7 @@ export async function sendManualOrderRequestEmails(
   const customerDelivered = await sendTemplateEmail(
     order.customerEmail,
     {
-      subject: `Purchase request received — ${order.orderNumber}`,
+      subject: `Purchase request received: ${order.orderNumber}`,
       html: orderEmailHtml(brand, {
         title: 'Purchase request received',
         intro: `Thank you, ${escapeHtml(customerName)}. Your request for order <strong>${escapeHtml(order.orderNumber)}</strong> has been sent to the studio.`,
@@ -473,7 +473,7 @@ export async function sendManualOrderRequestEmails(
         cta: { label: 'View request', href: orderUrl },
         closing: 'No payment has been charged yet. Reply to this email if you have any questions.',
       }),
-      text: `Purchase request received — ${order.orderNumber}\n\n${instructions}\n\nRequested total: ${money(order.total)} ${order.currency}\nView request: ${orderUrl}`,
+      text: `Purchase request received: ${order.orderNumber}\n\n${instructions}\n\nRequested total: ${money(order.total)} ${order.currency}\nView request: ${orderUrl}`,
     },
     artistRecipient ? { replyTo: artistRecipient } : undefined,
   );

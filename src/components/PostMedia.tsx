@@ -151,7 +151,7 @@ export default function PostMedia({
     <img
       key={item.url}
       src={resolvedImageUrl}
-      alt={item.alt || (hasMultiple ? `${title} — media ${safeIndex + 1} of ${count}` : title)}
+      alt={item.alt || (hasMultiple ? `${title}, media ${safeIndex + 1} of ${count}` : title)}
       className={mediaClass}
       loading={priority && safeIndex === 0 ? 'eager' : 'lazy'}
       decoding="async"

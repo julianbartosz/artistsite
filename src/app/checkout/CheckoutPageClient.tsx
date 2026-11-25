@@ -18,7 +18,12 @@ import {
 import ProductImage from '@/components/ProductImage';
 import { DEFAULT_SHOP_PAGE, type ShopPageContent } from '@/lib/site-content-shared';
 import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
-import { loadStripe } from '@stripe/stripe-js';
+import {
+  loadStripe,
+  type StripeCheckout,
+  type StripeCheckoutContact,
+  type StripePaymentElement,
+} from '@stripe/stripe-js';
 
 interface CheckoutFormData {
   email: string;
@@ -35,6 +40,23 @@ interface CheckoutFormData {
   giftMessage: string;
 }
 
+interface BillingAddressData {
+  name: string;
+  address: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+}
+
+interface ActiveStripeCheckout {
+  sessionId: string;
+  orderId: string;
+  cancelToken: string;
+  checkout: StripeCheckout;
+  paymentElement: StripePaymentElement;
+}
+
 type CheckoutStep = 'contact' | 'shipping' | 'review';
 
 type CheckoutPageClientProps = {
@@ -42,6 +64,8 @@ type CheckoutPageClientProps = {
   checkoutMode?: 'stripe' | 'manual';
   manualPaymentInstructions?: string;
   automaticTaxEnabled?: boolean;
+  stripePublishableKey?: string;
+  isE2e?: boolean;
 };
 
 export default function CheckoutPageClient({
@@ -49,6 +73,8 @@ export default function CheckoutPageClient({
   checkoutMode = 'stripe',
   manualPaymentInstructions = '',
   automaticTaxEnabled = false,
+  stripePublishableKey = '',
+  isE2e = false,
 }: CheckoutPageClientProps) {
   return (
     <Suspense fallback={
@@ -61,6 +87,8 @@ export default function CheckoutPageClient({
         checkoutMode={checkoutMode}
         manualPaymentInstructions={manualPaymentInstructions}
         automaticTaxEnabled={automaticTaxEnabled}
+        stripePublishableKey={stripePublishableKey}
+        isE2e={isE2e}
       />
     </Suspense>
   );
@@ -71,6 +99,8 @@ function CheckoutPageContent({
   checkoutMode = 'stripe',
   manualPaymentInstructions = '',
   automaticTaxEnabled = false,
+  stripePublishableKey = '',
+  isE2e = false,
 }: CheckoutPageClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -113,6 +143,51 @@ function CheckoutPageContent({
   const [promoDiscount, setPromoDiscount] = useState<{ code: string; amount: number } | null>(null);
   const [promoStatus, setPromoStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
   const [promoError, setPromoError] = useState('');
+  const useInlineStripePayment = !isManualCheckout && !isE2e;
+  const [paymentStatus, setPaymentStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [paymentLoadError, setPaymentLoadError] = useState('');
+  const [paymentRetryNonce, setPaymentRetryNonce] = useState(0);
+  const [liveStripeTotals, setLiveStripeTotals] = useState<{ tax: number; total: number } | null>(null);
+  const [billingSameAsShipping, setBillingSameAsShipping] = useState(true);
+  const [billingAddress, setBillingAddress] = useState<BillingAddressData>({
+    name: '',
+    address: '',
+    city: '',
+    state: '',
+    postalCode: '',
+    country: 'US',
+  });
+  const [billingErrors, setBillingErrors] = useState<Partial<BillingAddressData>>({});
+  const paymentMountRef = useRef<HTMLDivElement | null>(null);
+  const activeStripeRef = useRef<ActiveStripeCheckout | null>(null);
+  const confirmedPaymentRef = useRef(false);
+
+  const cancelPendingCheckoutOrder = useCallback((orderId: string, token: string) => {
+    void fetch('/api/checkout', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId, token }),
+    }).catch(() => undefined);
+  }, []);
+
+  const releaseActiveStripeCheckout = useCallback((cancelOrder: boolean) => {
+    const active = activeStripeRef.current;
+    activeStripeRef.current = null;
+    if (active) {
+      try {
+        active.paymentElement.unmount();
+        active.paymentElement.destroy();
+      } catch {
+        // Element may already be detached during navigation.
+      }
+      if (cancelOrder && !confirmedPaymentRef.current) {
+        cancelPendingCheckoutOrder(active.orderId, active.cancelToken);
+      }
+    }
+    setPaymentStatus('idle');
+    setPaymentLoadError('');
+    setLiveStripeTotals(null);
+  }, [cancelPendingCheckoutOrder]);
 
   useEffect(() => {
     const recoverToken = searchParams.get('recover');
@@ -352,6 +427,7 @@ function CheckoutPageContent({
   const goToPreviousStep = () => {
     setSubmitError('');
     if (step === 'review') {
+      releaseActiveStripeCheckout(true);
       setStep('shipping');
       scrollStepIntoView();
     } else if (step === 'shipping') {
@@ -359,6 +435,200 @@ function CheckoutPageContent({
       scrollStepIntoView();
     }
   };
+
+  const editStepFromReview = (target: 'contact' | 'shipping') => {
+    setSubmitError('');
+    releaseActiveStripeCheckout(true);
+    setStep(target);
+    scrollStepIntoView();
+  };
+
+  const handleBillingChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setBillingAddress((prev) => ({ ...prev, [name]: value }));
+    if (billingErrors[name as keyof BillingAddressData]) {
+      setBillingErrors((prev) => ({ ...prev, [name]: undefined }));
+    }
+  };
+
+  const validateBillingAddress = (): boolean => {
+    if (billingSameAsShipping) {
+      setBillingErrors({});
+      return true;
+    }
+    const nextErrors: Partial<BillingAddressData> = {};
+    if (!billingAddress.name.trim()) nextErrors.name = 'Name on card is required';
+    if (!billingAddress.address.trim()) nextErrors.address = 'Billing address is required';
+    if (!billingAddress.city.trim()) nextErrors.city = 'City is required';
+    if (!billingAddress.state.trim()) nextErrors.state = 'State is required';
+    if (!billingAddress.postalCode.trim()) nextErrors.postalCode = 'Postal code is required';
+    if (!billingAddress.country.trim()) nextErrors.country = 'Country is required';
+    setBillingErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  };
+
+  // Mount Stripe's inline Payment Element on Step 3 so customer details carry over with zero re-entry.
+  useEffect(() => {
+    if (step !== 'review' || !useInlineStripePayment) {
+      return;
+    }
+
+    if (formData.promoCode.trim() && !promoDiscount) {
+      setPaymentStatus('error');
+      setPaymentLoadError('Apply your promo code on the contact step, or clear it before paying.');
+      return;
+    }
+
+    let cancelled = false;
+    confirmedPaymentRef.current = false;
+    setPaymentStatus('loading');
+    setPaymentLoadError('');
+    setLiveStripeTotals(null);
+
+    const initInlinePayment = async () => {
+      let createdOrderId: string | null = null;
+      let createdCancelToken: string | null = null;
+
+      try {
+        const response = await fetch('/api/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items: state.items,
+            customerInfo: formData,
+            promoCode: formData.promoCode,
+            giftMessage: formData.isGift ? formData.giftMessage.trim() || undefined : undefined,
+          }),
+        });
+
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.error || 'Failed to initialize payment');
+        }
+
+        const { sessionId, clientSecret, orderId, cancelToken } = payload as {
+          sessionId?: string;
+          clientSecret?: string | null;
+          orderId?: string;
+          cancelToken?: string;
+        };
+
+        if (orderId && cancelToken) {
+          createdOrderId = orderId;
+          createdCancelToken = cancelToken;
+        }
+
+        if (cancelled) {
+          if (createdOrderId && createdCancelToken) {
+            cancelPendingCheckoutOrder(createdOrderId, createdCancelToken);
+          }
+          return;
+        }
+
+        if (!sessionId || !clientSecret || !orderId || !cancelToken) {
+          throw new Error('Payment session could not be initialized. Please try again.');
+        }
+
+        let publishableKey = stripePublishableKey || process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '';
+        if (!publishableKey) {
+          const configResponse = await fetch('/api/config/public');
+          const publicConfig = await configResponse.json();
+          publishableKey = publicConfig.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '';
+        }
+        if (!publishableKey) {
+          throw new Error('Stripe publishable key is not configured');
+        }
+
+        const stripe = await loadStripe(publishableKey);
+        if (!stripe) {
+          throw new Error('Could not load Stripe payment form. Please check your connection and try again.');
+        }
+
+        const checkout = await stripe.initCheckout({
+          fetchClientSecret: () => Promise.resolve(clientSecret),
+          elementsOptions: {
+            appearance: {
+              theme: 'stripe',
+              variables: {
+                borderRadius: '8px',
+                fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+              },
+            },
+          },
+        });
+
+        if (cancelled) {
+          cancelPendingCheckoutOrder(orderId, cancelToken);
+          return;
+        }
+
+        const syncTotals = () => {
+          const currentSession = checkout.session();
+          if (currentSession?.total) {
+            setLiveStripeTotals({
+              tax: currentSession.total.taxExclusive.minorUnitsAmount / 100,
+              total: currentSession.total.total.minorUnitsAmount / 100,
+            });
+          }
+        };
+        syncTotals();
+        checkout.on('change', syncTotals);
+
+        const paymentElement = checkout.createPaymentElement({
+          layout: 'tabs',
+          fields: {
+            billingDetails: 'never',
+          },
+        });
+
+        if (!paymentMountRef.current) {
+          paymentElement.destroy();
+          cancelPendingCheckoutOrder(orderId, cancelToken);
+          return;
+        }
+
+        paymentElement.on('ready', () => {
+          if (!cancelled) {
+            setPaymentStatus('ready');
+          }
+        });
+        paymentElement.on('loaderror', (event) => {
+          if (!cancelled) {
+            setPaymentStatus('error');
+            setPaymentLoadError(event.error?.message || 'Could not load payment form.');
+          }
+        });
+
+        paymentElement.mount(paymentMountRef.current);
+        activeStripeRef.current = {
+          sessionId,
+          orderId,
+          cancelToken,
+          checkout,
+          paymentElement,
+        };
+      } catch (error) {
+        if (cancelled) {
+          if (createdOrderId && createdCancelToken) {
+            cancelPendingCheckoutOrder(createdOrderId, createdCancelToken);
+          }
+          return;
+        }
+        console.error('Inline Stripe checkout init error:', error);
+        setPaymentStatus('error');
+        setPaymentLoadError(error instanceof Error ? error.message : 'Could not load payment form. Please try again.');
+      }
+    };
+
+    void initInlinePayment();
+
+    return () => {
+      cancelled = true;
+      releaseActiveStripeCheckout(true);
+    };
+    // Intentionally initialize once per entry into review (or explicit retry); editing form fields navigates off review first.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, useInlineStripePayment, paymentRetryNonce]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -372,10 +642,63 @@ function CheckoutPageContent({
       return;
     }
 
+    if (useInlineStripePayment) {
+      if (!validateBillingAddress()) return;
+      const active = activeStripeRef.current;
+      if (!active || paymentStatus !== 'ready') {
+        setSubmitError('Payment form is still loading. Please wait a moment and try again.');
+        return;
+      }
+
+      setIsProcessing(true);
+      try {
+        const confirmBillingAddress: StripeCheckoutContact = billingSameAsShipping
+          ? {
+              name: `${formData.firstName} ${formData.lastName}`.trim(),
+              address: {
+                line1: formData.address.trim(),
+                city: formData.city.trim(),
+                state: formData.state.trim(),
+                postal_code: formData.postalCode.trim(),
+                country: formData.country.trim().toUpperCase(),
+              },
+            }
+          : {
+              name: billingAddress.name.trim(),
+              address: {
+                line1: billingAddress.address.trim(),
+                city: billingAddress.city.trim(),
+                state: billingAddress.state.trim(),
+                postal_code: billingAddress.postalCode.trim(),
+                country: billingAddress.country.trim().toUpperCase(),
+              },
+            };
+
+        const result = await active.checkout.confirm({
+          billingAddress: confirmBillingAddress,
+          redirect: 'if_required',
+        });
+
+        if (result.type === 'error') {
+          setSubmitError(result.error.message || 'Payment could not be completed. Please check your card details and try again.');
+          return;
+        }
+
+        confirmedPaymentRef.current = true;
+        router.push(`/checkout/success?session_id=${encodeURIComponent(active.sessionId)}`);
+      } catch (error) {
+        console.error('Stripe confirmation error:', error);
+        setSubmitError(error instanceof Error ? error.message : 'Payment could not be completed. Please try again.');
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
     setIsProcessing(true);
 
     try {
-      // Create checkout session
+      // Create checkout session (Manual mode or Playwright E2E)
       const response = await fetch('/api/checkout', {
         method: 'POST',
         headers: {
@@ -407,21 +730,6 @@ function CheckoutPageContent({
       if (e2e || (typeof sessionId === 'string' && sessionId.startsWith(E2E_CHECKOUT_SESSION_PREFIX))) {
         router.push(`/checkout/success?session_id=${encodeURIComponent(sessionId)}`);
         return;
-      }
-
-      const configResponse = await fetch('/api/config/public');
-      const publicConfig = await configResponse.json();
-      const publishableKey = publicConfig.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
-      if (!publishableKey) {
-        throw new Error('Stripe publishable key is not configured');
-      }
-
-      const stripe = await loadStripe(publishableKey);
-      const { error: stripeError } = await stripe!.redirectToCheckout({ sessionId });
-
-      if (stripeError) {
-        console.error('Stripe error:', stripeError);
-        setSubmitError('Payment could not be started. Please check your details and try again.');
       }
     } catch (error) {
       console.error('Checkout error:', error);
@@ -461,6 +769,8 @@ function CheckoutPageContent({
       </div>
     );
   }
+
+  const displayedTotal = liveStripeTotals ? liveStripeTotals.total : total;
 
   const orderSummary = (
     <div className="bg-surface rounded-lg shadow-sm border border-gray-200 p-6">
@@ -512,14 +822,16 @@ function CheckoutPageContent({
         {!isManualCheckout && automaticTaxEnabled && (
           <div className="flex justify-between text-sm">
             <span className="text-gray-600">Tax</span>
-            <span className="text-gray-900">Calculated at payment</span>
+            <span className="text-gray-900">
+              {liveStripeTotals ? formatPrice(liveStripeTotals.tax) : 'Calculated at payment'}
+            </span>
           </div>
         )}
         <div className="border-t border-gray-200 pt-2 flex justify-between font-semibold text-lg">
-          <span>{!isManualCheckout && automaticTaxEnabled ? 'Estimated total' : 'Total'}</span>
-          <span>{formatPrice(total)}</span>
+          <span>{!isManualCheckout && automaticTaxEnabled && !liveStripeTotals ? 'Estimated total' : 'Total'}</span>
+          <span>{formatPrice(displayedTotal)}</span>
         </div>
-        {!isManualCheckout && automaticTaxEnabled && (
+        {!isManualCheckout && automaticTaxEnabled && !liveStripeTotals && (
           <p className="text-xs text-gray-500 pt-1">Final tax is calculated securely at payment.</p>
         )}
       </div>
@@ -786,7 +1098,7 @@ function CheckoutPageContent({
                         ))}
                       </select>
                       {shippingPolicy.isPickupOnly ? (
-                        <p className="mt-1 text-xs text-gray-500">Local pickup — no shipping will be charged.</p>
+                        <p className="mt-1 text-xs text-gray-500">Local pickup. No shipping will be charged.</p>
                       ) : shippingPolicy.countries.length === 1 && shippingPolicy.countries[0] === 'US' ? (
                         <p className="mt-1 text-xs text-gray-500">US shipping only for items in your cart.</p>
                       ) : null}
@@ -809,49 +1121,9 @@ function CheckoutPageContent({
                     />
                     {errors.phone && <p className="text-red-500 text-sm mt-1">{errors.phone}</p>}
                   </div>
-                </div>
-                </>
-                )}
 
-                {step === 'review' && (
-                <div className="space-y-4 text-sm text-gray-700">
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="font-medium text-gray-900">Contact</p>
-                      <button
-                        type="button"
-                        onClick={() => setStep('contact')}
-                        className="text-xs font-medium text-gray-600 underline underline-offset-2 hover:text-gray-900"
-                      >
-                        Edit
-                      </button>
-                    </div>
-                    <p>{formData.email}</p>
-                    {promoDiscount
-                      ? <p>Promo: {promoDiscount.code} (−{formatPrice(promoDiscount.amount)})</p>
-                      : formData.promoCode.trim()
-                        ? <p className="text-amber-700">Promo entered — apply it on the contact step before paying</p>
-                        : null}
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="font-medium text-gray-900">Ship to</p>
-                      <button
-                        type="button"
-                        onClick={() => setStep('shipping')}
-                        className="text-xs font-medium text-gray-600 underline underline-offset-2 hover:text-gray-900"
-                      >
-                        Edit
-                      </button>
-                    </div>
-                    <p>{formData.firstName} {formData.lastName}</p>
-                    <p>{formData.address}</p>
-                    <p>{formData.city}, {formData.state} {formData.postalCode}</p>
-                    <p>{formData.country}</p>
-                    <p>{formData.phone}</p>
-                  </div>
                   <div className="rounded-lg border border-gray-200 bg-surface-muted p-4 space-y-3">
-                    <label className="flex items-start gap-3 cursor-pointer">
+                    <label className="flex items-start gap-3 cursor-pointer text-sm">
                       <input
                         type="checkbox"
                         checked={formData.isGift}
@@ -885,14 +1157,229 @@ function CheckoutPageContent({
                       </div>
                     )}
                   </div>
+                </div>
+                </>
+                )}
+
+                {step === 'review' && (
+                <div className="space-y-5 text-sm text-gray-700">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-4 border-b border-gray-200">
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-medium text-gray-900">Contact</p>
+                        <button
+                          type="button"
+                          onClick={() => editStepFromReview('contact')}
+                          className="text-xs font-medium text-gray-600 underline underline-offset-2 hover:text-gray-900"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                      <p className="mt-1 break-all">{formData.email}</p>
+                      {promoDiscount
+                        ? <p className="text-green-700">Promo: {promoDiscount.code} (−{formatPrice(promoDiscount.amount)})</p>
+                        : formData.promoCode.trim()
+                          ? <p className="text-amber-700">Promo entered. Apply it on the contact step before paying</p>
+                          : null}
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-medium text-gray-900">Ship to</p>
+                        <button
+                          type="button"
+                          onClick={() => editStepFromReview('shipping')}
+                          className="text-xs font-medium text-gray-600 underline underline-offset-2 hover:text-gray-900"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                      <p className="mt-1">{formData.firstName} {formData.lastName}</p>
+                      <p>{formData.address}</p>
+                      <p>{formData.city}, {formData.state} {formData.postalCode}</p>
+                      <p>{formData.country} · {formData.phone}</p>
+                      {formData.isGift && (
+                        <p className="mt-1 text-xs text-gray-500">
+                          Gift order{formData.giftMessage.trim() ? `: “${formData.giftMessage.trim()}”` : ''}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
                   {isManualCheckout ? (
                     <div className="rounded-lg border border-gray-200 bg-surface-muted/60 p-3.5 text-sm text-gray-700">
                       <p className="font-medium text-gray-900">Direct studio payment</p>
                       <p className="mt-1 text-gray-600">{manualPaymentInstructions}</p>
                     </div>
+                  ) : useInlineStripePayment ? (
+                    <div className="space-y-4">
+                      <div>
+                        <p className="font-medium text-gray-900">Card details</p>
+                        <p className="mt-0.5 text-xs text-gray-600">
+                          Your contact, shipping, and billing details carry over automatically. Just enter your card to pay.
+                        </p>
+                      </div>
+
+                      {paymentStatus === 'error' ? (
+                        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 space-y-3">
+                          <p>{paymentLoadError || 'Could not load the payment form.'}</p>
+                          <button
+                            type="button"
+                            onClick={() => setPaymentRetryNonce((n) => n + 1)}
+                            className="inline-flex items-center rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-800 hover:bg-red-50"
+                          >
+                            Retry payment form
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="relative min-h-[120px]">
+                          {paymentStatus !== 'ready' && (
+                            <div className="flex items-center gap-2 py-6 text-sm text-gray-500">
+                              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-700" aria-hidden="true" />
+                              Loading secure payment form…
+                            </div>
+                          )}
+                          <div
+                            ref={paymentMountRef}
+                            data-testid="stripe-payment-element"
+                            className={paymentStatus === 'ready' ? 'block' : 'sr-only'}
+                          />
+                        </div>
+                      )}
+
+                      <div className="pt-2 border-t border-gray-100 space-y-3">
+                        <label className="flex items-center gap-2.5 cursor-pointer text-sm text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={billingSameAsShipping}
+                            onChange={(event) => {
+                              const same = event.target.checked;
+                              setBillingSameAsShipping(same);
+                              setBillingErrors({});
+                              if (!same && !billingAddress.address) {
+                                setBillingAddress({
+                                  name: `${formData.firstName} ${formData.lastName}`.trim(),
+                                  address: formData.address,
+                                  city: formData.city,
+                                  state: formData.state,
+                                  postalCode: formData.postalCode,
+                                  country: formData.country,
+                                });
+                              }
+                            }}
+                            className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-500"
+                          />
+                          <span>Billing address same as shipping</span>
+                        </label>
+
+                        {!billingSameAsShipping && (
+                          <div className="space-y-3 rounded-lg border border-gray-200 bg-surface-muted/50 p-4">
+                            <div>
+                              <label htmlFor="billing-name" className="block text-xs font-medium text-gray-700 mb-1">
+                                Full Name on Card
+                              </label>
+                              <input
+                                id="billing-name"
+                                name="name"
+                                type="text"
+                                value={billingAddress.name}
+                                onChange={handleBillingChange}
+                                className={`w-full px-3 py-2 border rounded-input text-sm focus:ring-2 focus:ring-primary focus:border-primary ${
+                                  billingErrors.name ? 'border-red-500' : 'border-gray-300'
+                                }`}
+                              />
+                              {billingErrors.name && <p className="text-red-500 text-xs mt-1">{billingErrors.name}</p>}
+                            </div>
+                            <div>
+                              <label htmlFor="billing-address" className="block text-xs font-medium text-gray-700 mb-1">
+                                Billing Street Address
+                              </label>
+                              <input
+                                id="billing-address"
+                                name="address"
+                                type="text"
+                                value={billingAddress.address}
+                                onChange={handleBillingChange}
+                                className={`w-full px-3 py-2 border rounded-input text-sm focus:ring-2 focus:ring-primary focus:border-primary ${
+                                  billingErrors.address ? 'border-red-500' : 'border-gray-300'
+                                }`}
+                              />
+                              {billingErrors.address && <p className="text-red-500 text-xs mt-1">{billingErrors.address}</p>}
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <label htmlFor="billing-city" className="block text-xs font-medium text-gray-700 mb-1">
+                                  City
+                                </label>
+                                <input
+                                  id="billing-city"
+                                  name="city"
+                                  type="text"
+                                  value={billingAddress.city}
+                                  onChange={handleBillingChange}
+                                  className={`w-full px-3 py-2 border rounded-input text-sm focus:ring-2 focus:ring-primary focus:border-primary ${
+                                    billingErrors.city ? 'border-red-500' : 'border-gray-300'
+                                  }`}
+                                />
+                                {billingErrors.city && <p className="text-red-500 text-xs mt-1">{billingErrors.city}</p>}
+                              </div>
+                              <div>
+                                <label htmlFor="billing-state" className="block text-xs font-medium text-gray-700 mb-1">
+                                  State / Province
+                                </label>
+                                <input
+                                  id="billing-state"
+                                  name="state"
+                                  type="text"
+                                  value={billingAddress.state}
+                                  onChange={handleBillingChange}
+                                  className={`w-full px-3 py-2 border rounded-input text-sm focus:ring-2 focus:ring-primary focus:border-primary ${
+                                    billingErrors.state ? 'border-red-500' : 'border-gray-300'
+                                  }`}
+                                />
+                                {billingErrors.state && <p className="text-red-500 text-xs mt-1">{billingErrors.state}</p>}
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <label htmlFor="billing-postalCode" className="block text-xs font-medium text-gray-700 mb-1">
+                                  Postal Code
+                                </label>
+                                <input
+                                  id="billing-postalCode"
+                                  name="postalCode"
+                                  type="text"
+                                  value={billingAddress.postalCode}
+                                  onChange={handleBillingChange}
+                                  className={`w-full px-3 py-2 border rounded-input text-sm focus:ring-2 focus:ring-primary focus:border-primary ${
+                                    billingErrors.postalCode ? 'border-red-500' : 'border-gray-300'
+                                  }`}
+                                />
+                                {billingErrors.postalCode && <p className="text-red-500 text-xs mt-1">{billingErrors.postalCode}</p>}
+                              </div>
+                              <div>
+                                <label htmlFor="billing-country" className="block text-xs font-medium text-gray-700 mb-1">
+                                  Country
+                                </label>
+                                <select
+                                  id="billing-country"
+                                  name="country"
+                                  value={billingAddress.country}
+                                  onChange={handleBillingChange}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-input text-sm focus:ring-2 focus:ring-primary focus:border-primary"
+                                >
+                                  {Object.entries(CHECKOUT_COUNTRY_LABELS).map(([code, countryLabel]) => (
+                                    <option key={code} value={code}>{countryLabel}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   ) : (
                     <p className="text-gray-600">
-                      Your contact and shipping details carry over to Stripe — you won’t need to enter them again.
+                      Your contact and shipping details are ready. Complete your purchase below.
                     </p>
                   )}
                 </div>
@@ -921,7 +1408,7 @@ function CheckoutPageContent({
               <button
                 type="submit"
                 data-testid="complete-order"
-                disabled={isProcessing || !reviewSubmitReady}
+                disabled={isProcessing || !reviewSubmitReady || (useInlineStripePayment && paymentStatus !== 'ready')}
                 className="w-full sm:flex-1 btn-primary py-4 px-6 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {isProcessing ? (
@@ -937,7 +1424,7 @@ function CheckoutPageContent({
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                     </svg>
-                    {isManualCheckout ? `Request to Purchase (${formatPrice(total)})` : `Complete Purchase (${formatPrice(total)})`}
+                    {isManualCheckout ? `Request to Purchase (${formatPrice(displayedTotal)})` : `Complete Purchase (${formatPrice(displayedTotal)})`}
                   </>
                 )}
               </button>

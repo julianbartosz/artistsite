@@ -1283,7 +1283,7 @@ export const blogPageSchema = listingPageSchema.extend({
   commentsLabel: z.string().default('Comments'),
   likeLabel: z.string().default('Like'),
   autoOrderProgressPost: orderProgressPostModeSchema.default('draft'),
-  autoOrderProgressExcerpt: z.string().default('Work has started in the studio on {{summary}}. This private update is linked to your order — more photos and notes will appear here as the piece progresses.'),
+  autoOrderProgressExcerpt: z.string().default('Work has started in the studio on {{summary}}. This private update is linked to your order. More photos and notes will appear here as the piece progresses.'),
   digestEnabled: z.boolean().default(true),
   digestIntervalDays: z.coerce.number().int().min(1).max(30).default(7),
   digestSubject: z.string().default('Recent studio updates'),
@@ -1522,7 +1522,7 @@ export const DEFAULT_HOME_PAGE: HomePageContent = {
   },
   about: {
     title: 'About the Artist',
-    paragraph1: 'I make art to explore ideas — color, texture, memory, and the feeling of a place.',
+    paragraph1: 'I make art to explore ideas: color, texture, memory, and the feeling of a place.',
     paragraph2: 'Working in acrylic, watercolor, and digital illustration from Milwaukee, I treat the studio like a journal and always find my way back to the work.',
     cta: 'Get in Touch',
     studioImage: '',
@@ -1586,7 +1586,7 @@ export const DEFAULT_BIO_PAGE: BioPageContent = {
 export const DEFAULT_CONTACT_PAGE: ContactPageContent = {
   header: {
     title: 'Get in Touch',
-    subtitle: 'Questions about a piece, a print, a commission, or just saying hello — write anytime.',
+    subtitle: 'Questions about a piece, a print, a commission, or just saying hello. Write anytime.',
   },
   form: {
     title: 'Send a Message',
@@ -1605,7 +1605,7 @@ export const DEFAULT_CONTACT_PAGE: ContactPageContent = {
   },
   sidebar: {
     connectTitle: "Let's Connect",
-    connectText: 'I read every note — sales, commissions, markets, or a simple hello.',
+    connectText: 'I read every note: sales, commissions, markets, or a simple hello.',
     location: 'Milwaukee, WI',
     instagramHandle: '@michalelenaart',
     contactInfoTitle: 'Contact Information',
@@ -1681,7 +1681,7 @@ export const DEFAULT_SHOP_PAGE: ShopPageContent = {
 
 export const DEFAULT_BLOG_PAGE: BlogPageContent = {
   title: 'Updates',
-  subtitle: 'Studio photos, short videos, and journal notes — a living feed of the work, plus a private space for collectors.',
+  subtitle: 'Studio photos, short videos, and journal notes. A living feed of the work, plus a private space for collectors.',
   hero: { height: 'compact' },
   subscribeLabel: 'Subscribe for Updates',
   showSubscribe: true,
@@ -1708,7 +1708,7 @@ export const DEFAULT_BLOG_PAGE: BlogPageContent = {
   commentsLabel: 'Comments',
   likeLabel: 'Like',
   autoOrderProgressPost: 'draft',
-  autoOrderProgressExcerpt: 'Work has started in the studio on {{summary}}. This private update is linked to your order — more photos and notes will appear here as the piece progresses.',
+  autoOrderProgressExcerpt: 'Work has started in the studio on {{summary}}. This private update is linked to your order. More photos and notes will appear here as the piece progresses.',
   digestEnabled: true,
   digestIntervalDays: 7,
   digestSubject: 'Recent studio updates',

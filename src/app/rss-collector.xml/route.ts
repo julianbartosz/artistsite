@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
   const rssXml = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
   <channel>
-    <title>${escapeHtml(`${identity.siteName} — ${blog.privateSectionTitle}`)}</title>
+    <title>${escapeHtml(`${identity.siteName} | ${blog.privateSectionTitle}`)}</title>
     <description>${escapeHtml(blog.privateSectionSubtitle)}</description>
     <link>${link(`${UPDATES_PATH}?view=collectors`)}</link>
     <language>en-us</language>

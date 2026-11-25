@@ -41,7 +41,7 @@ export async function GET() {
 
   const atomXml = `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
-  <title>${siteName} — ${escapeHtml(blog.title)}</title>
+  <title>${siteName} | ${escapeHtml(blog.title)}</title>
   <subtitle>${escapeHtml(blog.subtitle)}</subtitle>
   <link href="${link(UPDATES_PATH)}" />
   <link href="${link('/atom.xml')}" rel="self" type="application/atom+xml" />
