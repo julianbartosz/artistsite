@@ -520,7 +520,7 @@ function CampaignsTab({ onSelectTab }: { onSelectTab?: (tab: string) => void }) 
               )}.
             </p>
           </div>
-          <select value={campaignType} onChange={(event) => setCampaignType(event.target.value as 'social' | 'ad')} className="rounded-md border border-gray-300 px-3 py-2">
+          <select value={campaignType} onChange={(event) => setCampaignType(event.target.value as 'social' | 'ad')} className="h-10 rounded-md border border-gray-300 px-3 py-2 text-sm font-normal">
             <option value="social">Social post</option>
             <option value="ad">Ad spend log</option>
           </select>
@@ -529,11 +529,11 @@ function CampaignsTab({ onSelectTab }: { onSelectTab?: (tab: string) => void }) 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <label className="text-sm font-medium text-gray-700">
             Name
-            <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
+            <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal" />
           </label>
           <label className="text-sm font-medium text-gray-700">
             Platform
-            <select value={draft.platform} onChange={(event) => setDraft({ ...draft, platform: event.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2">
+            <select value={draft.platform} onChange={(event) => setDraft({ ...draft, platform: event.target.value })} className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal">
               <option value="instagram">Instagram</option>
               <option value="facebook">Facebook</option>
               <option value="google">Google</option>
@@ -552,7 +552,7 @@ function CampaignsTab({ onSelectTab }: { onSelectTab?: (tab: string) => void }) 
           )}
           <label className="text-sm font-medium text-gray-700">
             Schedule
-            <input type="datetime-local" value={draft.scheduledAt} onChange={(event) => setDraft({ ...draft, scheduledAt: event.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
+            <input type="datetime-local" value={draft.scheduledAt} onChange={(event) => setDraft({ ...draft, scheduledAt: event.target.value })} className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal" />
           </label>
         </div>
 
@@ -753,11 +753,11 @@ function PromoCodesPanel() {
       <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
         <label className="text-sm font-medium text-gray-700">
           Code
-          <input value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value.toUpperCase() })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" placeholder="SPRING10" />
+          <input value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value.toUpperCase() })} className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal" placeholder="SPRING10" />
         </label>
         <label className="text-sm font-medium text-gray-700">
           Type
-          <select value={draft.discountType} onChange={(e) => setDraft({ ...draft, discountType: e.target.value as 'percentage' | 'fixed' })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2">
+          <select value={draft.discountType} onChange={(e) => setDraft({ ...draft, discountType: e.target.value as 'percentage' | 'fixed' })} className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal">
             <option value="percentage">Percentage</option>
             <option value="fixed">Fixed amount</option>
           </select>
@@ -786,7 +786,7 @@ function PromoCodesPanel() {
         />
         <label className="text-sm font-medium text-gray-700">
           Expires
-          <input type="datetime-local" value={draft.expiresAt} onChange={(e) => setDraft({ ...draft, expiresAt: e.target.value })} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
+          <input type="datetime-local" value={draft.expiresAt} onChange={(e) => setDraft({ ...draft, expiresAt: e.target.value })} className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal" />
         </label>
       </div>
       <button type="button" onClick={createPromoCode} className="rounded bg-gray-900 px-4 py-2 text-white text-sm">Create promo code</button>
@@ -973,7 +973,7 @@ function DateRangeSelector({ value, onChange }: {
     <select
       value={value}
       onChange={(e) => onChange(e.target.value as any)}
-      className="border border-gray-300 rounded-md px-3 py-2 bg-white"
+      className="h-10 border border-gray-300 rounded-md px-3 py-2 text-sm font-normal bg-white"
     >
       <option value="7d">Last 7 days</option>
       <option value="30d">Last 30 days</option>

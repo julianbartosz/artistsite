@@ -210,7 +210,7 @@ export default function ProductPurchaseOptionsFields({ value, onChange }: Produc
                           <input
                             value={row.name}
                             onChange={(event) => updateRow(key, index, { name: event.target.value })}
-                            className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                            className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal"
                             placeholder={GROUP_PLACEHOLDERS[key]}
                             required
                           />
@@ -266,7 +266,7 @@ export default function ProductPurchaseOptionsFields({ value, onChange }: Produc
                           next[index] = { ...field, name, id: slugId(name, field.id) };
                           setCustomizations(next);
                         }}
-                        className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                        className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal"
                       />
                     </label>
                     <label className="block text-xs font-medium text-gray-600">
@@ -285,7 +285,7 @@ export default function ProductPurchaseOptionsFields({ value, onChange }: Produc
                           };
                           setCustomizations(next);
                         }}
-                        className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                        className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal"
                       >
                         <option value="select">Dropdown</option>
                         <option value="input">Short text</option>

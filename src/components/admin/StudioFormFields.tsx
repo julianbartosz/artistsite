@@ -120,7 +120,7 @@ export function MoneyField({
           onFocus={() => setFocused(true)}
           onChange={handleChange}
           onBlur={handleBlur}
-          className={`block w-full rounded-md border border-gray-300 py-2 pr-3 ${showCurrency ? 'pl-7' : 'px-3'} ${compact ? 'text-sm' : ''} disabled:cursor-not-allowed`}
+          className={`block h-10 w-full rounded-md border border-gray-300 py-2 pr-3 text-sm font-normal ${showCurrency ? 'pl-7' : 'px-3'} disabled:cursor-not-allowed`}
         />
       </div>
       {help && !labelHidden ? <span className="mt-1 block text-xs font-normal text-gray-500">{help}</span> : null}
@@ -214,7 +214,7 @@ export function IntegerField({
         onFocus={() => setFocused(true)}
         onChange={handleChange}
         onBlur={handleBlur}
-        className={`${labelHidden ? '' : 'mt-1 '}block w-full rounded-md border border-gray-300 px-3 py-2 ${compact ? 'text-sm' : ''} disabled:cursor-not-allowed`}
+        className={`${labelHidden ? '' : 'mt-1 '}block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal disabled:cursor-not-allowed`}
       />
       {help && !labelHidden ? <span className="mt-1 block text-xs font-normal text-gray-500">{help}</span> : null}
     </label>
@@ -303,7 +303,7 @@ export function TagInput({
       </label>
       <div
         onClick={() => inputRef.current?.focus()}
-        className="mt-1 flex min-h-[2.625rem] flex-wrap items-center gap-1.5 rounded-md border border-gray-300 bg-white px-2.5 py-1.5 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary"
+        className="mt-1 flex min-h-10 flex-wrap items-center gap-1.5 rounded-md border border-gray-300 bg-white px-2.5 py-1 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary"
       >
         {tags.map((tag) => (
           <span
@@ -431,7 +431,7 @@ export function CategorySelectField({
           setAddingCustom(false);
           onChange(event.target.value);
         }}
-        className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
+        className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal"
       >
         {emptyLabel !== undefined && (
           <option value="">{emptyLabel}</option>

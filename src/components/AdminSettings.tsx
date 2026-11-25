@@ -53,13 +53,17 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     id: 'site-identity',
     title: 'Site Identity',
-    description: 'Public URLs and artist contact routing used across the site.',
+    description: 'Public URLs, studio contact routing, and footer social profiles.',
     keys: [
       { key: 'NEXT_PUBLIC_SITE_URL', label: 'Public site URL', help: 'The address collectors use, such as https://yourstudio.com' },
       { key: 'NEXT_PUBLIC_BASE_URL', label: 'Application base URL', help: 'Usually the same as your public site URL.' },
       { key: 'CONTACT_EMAIL', label: 'Contact recipient email', help: 'Receives contact form submissions and studio inquiries.' },
       { key: 'ARTIST_EMAIL', label: 'Artist email', help: 'Receives internal studio notifications and new order alerts.' },
       { key: 'SUPPORT_EMAIL', label: 'Support email', help: 'Shown to collectors on receipts and shipping updates for help.' },
+      { key: 'SOCIAL_INSTAGRAM_URL', label: 'Instagram profile URL', help: 'Shown in the site footer next to email. Leave blank to use the handle from Pages → Contact.' },
+      { key: 'SOCIAL_FACEBOOK_URL', label: 'Facebook page URL' },
+      { key: 'SOCIAL_X_URL', label: 'X profile URL' },
+      { key: 'SOCIAL_PINTEREST_URL', label: 'Pinterest profile URL' },
     ],
   },
   {
@@ -199,10 +203,6 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
       },
       { key: 'MARKETING_EMAIL_UNIT_COST', label: 'Estimated cost per email', help: 'Optional dollar amount used for ROI estimates. Leave blank or 0 for actual spend only.' },
       { key: 'MARKETING_SOCIAL_POST_COST', label: 'Estimated cost per social post', help: 'Optional dollar amount used for ROI estimates. Leave blank or 0 for actual spend only.' },
-      { key: 'SOCIAL_INSTAGRAM_URL', label: 'Instagram profile URL' },
-      { key: 'SOCIAL_FACEBOOK_URL', label: 'Facebook page URL' },
-      { key: 'SOCIAL_X_URL', label: 'X profile URL' },
-      { key: 'SOCIAL_PINTEREST_URL', label: 'Pinterest profile URL' },
     ],
   },
   {
@@ -538,7 +538,7 @@ export default function AdminSettings() {
                       <select
                         value={fieldDraftValue(field, draft)}
                         onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))}
-                        className="block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900"
+                        className="block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal text-gray-900"
                       >
                         {field.options.map((option) => (
                           <option key={option.value} value={option.value}>
@@ -551,7 +551,7 @@ export default function AdminSettings() {
                         value={draft[field.key] || ''}
                         onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))}
                         rows={8}
-                        className="block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900"
+                        className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal text-gray-900"
                       />
                     ) : (
                       <input
@@ -559,7 +559,7 @@ export default function AdminSettings() {
                         value={draft[field.key] || ''}
                         placeholder={record?.secret && record.status === 'configured' ? 'Leave blank to keep current secret' : ''}
                         onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))}
-                        className="block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900"
+                        className="block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal text-gray-900"
                       />
                     )}
                     {field.help && <p className="mt-1 text-xs text-gray-500">{field.help}</p>}

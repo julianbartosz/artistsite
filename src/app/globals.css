@@ -47,7 +47,17 @@ h4 {
   input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='hidden']):not([type='submit']):not([type='button']):not([type='reset']):not([type='image']),
   textarea,
   select {
-    @apply bg-white text-gray-900 placeholder:text-gray-400;
+    @apply bg-white text-gray-900 font-normal placeholder:text-gray-400;
+  }
+
+  select:not([multiple]):not([size]) {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+    background-position: right 0.5rem center;
+    background-repeat: no-repeat;
+    background-size: 1rem 1rem;
+    line-height: inherit;
   }
 
   input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='hidden']):not([type='submit']):not([type='button']):not([type='reset']):not([type='image']):disabled,
@@ -63,6 +73,11 @@ h4 {
     -webkit-text-fill-color: #111827;
     caret-color: #111827;
   }
+}
+
+/* Reserve chevron space even when Tailwind px-* utilities are applied to <select>. */
+select:not([multiple]):not([size]) {
+  padding-right: 2rem;
 }
 
 @layer components {

@@ -1955,7 +1955,7 @@ function TextField({
         value={value ?? ''}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 font-normal"
+        className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal"
       />
       {help ? <span className="mt-1 block text-xs font-normal text-gray-500">{help}</span> : null}
     </label>
@@ -1993,7 +1993,7 @@ function SelectField({ label, value, options, onChange, optionLabels, id }: { la
   return (
     <label htmlFor={fieldId} className="block text-sm font-medium text-gray-700">
       {label}
-      <select id={fieldId} value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2">
+      <select id={fieldId} value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal">
         {options.map((option) => <option key={option} value={option}>{optionLabels?.[option] || option}</option>)}
       </select>
     </label>

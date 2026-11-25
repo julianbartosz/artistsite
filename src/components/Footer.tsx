@@ -57,31 +57,33 @@ export function Footer({
     switch (icon) {
       case 'instagram':
         return (
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 11-2.88 0 1.44 1.44 0 012.88 0z" />
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="4" y="4" width="16" height="16" rx="4.5" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            <circle cx="12" cy="12" r="3.5" strokeWidth={2} />
+            <circle cx="16.4" cy="7.6" r="0.9" fill="currentColor" stroke="none" />
           </svg>
         );
       case 'twitter':
         return (
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z"/>
           </svg>
         );
       case 'facebook':
         return (
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M22 12.06C22 6.48 17.52 2 11.94 2S2 6.48 2 12.06c0 5.02 3.66 9.18 8.44 9.94v-7.03H7.9v-2.91h2.54V9.85c0-2.52 1.5-3.91 3.79-3.91 1.1 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56v1.9h2.77l-.44 2.91h-2.33V22c4.78-.76 8.42-4.92 8.42-9.94z" />
           </svg>
         );
       case 'pinterest':
         return (
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12.02 2C6.49 2 3 5.72 3 9.77c0 1.88 1.05 4.23 2.73 4.97.25.11.38.06.44-.18.04-.18.26-1.05.36-1.45.03-.13.02-.25-.09-.38-.55-.67-.99-1.91-.99-3.06 0-2.84 2.15-5.59 5.82-5.59 3.17 0 5.39 2.16 5.39 5.25 0 3.49-1.76 5.91-4.05 5.91-1.26 0-2.2-1.04-1.9-2.32.36-1.52 1.06-3.16 1.06-4.25 0-.98-.53-1.8-1.62-1.8-1.28 0-2.31 1.33-2.31 3.11 0 1.13.38 1.9.38 1.9s-1.27 5.39-1.5 6.39c-.26 1.12-.16 2.69-.05 3.72.03.31.41.42.58.16.27-.38 1.16-1.7 1.45-2.78.1-.39.56-2.14.56-2.14.3.57 1.17 1.05 2.1 1.05 2.76 0 4.75-2.54 4.75-5.7 0-3.03-2.47-5.3-5.64-5.3z" />
           </svg>
         );
       case 'email':
         return (
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
           </svg>
         );
@@ -91,19 +93,19 @@ export function Footer({
   };
 
   const linkGridClass = linkColumnCount >= 3
-    ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-8'
+    ? 'grid grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6'
     : linkColumnCount === 2
-      ? 'grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-8'
-      : 'grid grid-cols-1 gap-y-8';
+      ? 'grid grid-cols-2 gap-x-6 gap-y-6'
+      : 'grid grid-cols-1 gap-y-6';
 
   return (
     <footer className="relative group bg-primary text-white" role="contentinfo">
       <CmsEditAnchor targetKey="identity:footer" />
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-12">
-        <div className="space-y-8 md:space-y-0 md:grid md:grid-cols-12 md:gap-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12">
+        <div className="space-y-6 md:space-y-0 md:grid md:grid-cols-12 md:gap-8">
           <div className="md:col-span-5">
-            <h3 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4">{siteIdentity.siteName}</h3>
-            <p className="text-gray-300 mb-5 sm:mb-6 text-sm sm:text-base leading-relaxed">
+            <h3 className="text-xl sm:text-2xl font-bold mb-2 sm:mb-4">{siteIdentity.siteName}</h3>
+            <p className="text-white/80 mb-4 sm:mb-6 text-sm sm:text-base leading-relaxed">
               {siteIdentity.tagline}
             </p>
             <div className="flex flex-wrap gap-1 -ml-3">
@@ -112,7 +114,7 @@ export function Footer({
                   key={item.name}
                   href={item.href}
                   {...(item.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-                  className="tap-target rounded-md text-gray-300 hover:text-white transition-colors"
+                  className="tap-target rounded-md text-white/80 hover:text-white transition-colors"
                   aria-label={item.name}
                 >
                   <SocialIcon icon={item.icon} />
@@ -125,13 +127,13 @@ export function Footer({
             <div className={`md:col-span-7 ${linkGridClass}`}>
               {footerLinks.main.length > 0 && (
                 <div className="min-w-0">
-                  <h4 className="text-base sm:text-lg font-semibold mb-2 sm:mb-3">{footerContent.quickLinksHeading}</h4>
+                  <h4 className="text-base sm:text-lg font-semibold mb-1.5 sm:mb-3">{footerContent.quickLinksHeading}</h4>
                   <ul className="space-y-0.5 -ml-3">
                     {footerLinks.main.map((item) => (
                       <li key={item.key}>
                         <Link
                           href={item.href}
-                          className="tap-target-inline text-sm sm:text-base text-gray-300 hover:text-white transition-colors rounded-md"
+                          className="tap-target-inline text-sm sm:text-base text-white/80 hover:text-white transition-colors rounded-md"
                         >
                           {item.label}
                         </Link>
@@ -143,13 +145,13 @@ export function Footer({
 
               {footerContent.showLegal && (
                 <div className="min-w-0">
-                  <h4 className="text-base sm:text-lg font-semibold mb-2 sm:mb-3">{footerContent.legalHeading}</h4>
+                  <h4 className="text-base sm:text-lg font-semibold mb-1.5 sm:mb-3">{footerContent.legalHeading}</h4>
                   <ul className="space-y-0.5 -ml-3">
                     {footerLinks.legal.map((item) => (
                       <li key={item.name}>
                         <Link
                           href={item.href}
-                          className="tap-target-inline text-sm sm:text-base text-gray-300 hover:text-white transition-colors rounded-md"
+                          className="tap-target-inline text-sm sm:text-base text-white/80 hover:text-white transition-colors rounded-md"
                         >
                           {item.name}
                         </Link>
@@ -160,13 +162,13 @@ export function Footer({
               )}
 
               {showExtraColumn && (
-                <div className="min-w-0">
+                <div className={`min-w-0 ${linkColumnCount >= 3 ? 'col-span-2 lg:col-span-1' : ''}`}>
                   {extraColumn.heading.trim() && (
-                    <h4 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">{extraColumn.heading}</h4>
+                    <h4 className="text-base sm:text-lg font-semibold mb-2 sm:mb-3">{extraColumn.heading}</h4>
                   )}
                   {extraColumn.bodyHtml.trim() && (
                     <div
-                      className="prose prose-invert prose-sm max-w-none text-gray-300"
+                      className="prose prose-invert prose-sm max-w-none text-white/80"
                       dangerouslySetInnerHTML={{ __html: extraColumn.bodyHtml }}
                     />
                   )}
@@ -176,11 +178,11 @@ export function Footer({
           )}
         </div>
 
-        <div className="border-t border-white/10 mt-8 pt-6 flex flex-row flex-wrap items-start justify-between gap-x-6 gap-y-3">
-          <p className="text-gray-400 text-sm">
+        <div className="border-t border-white/15 mt-6 pt-5 md:mt-8 md:pt-6 flex flex-row flex-wrap items-start justify-between gap-x-6 gap-y-2">
+          <p className="text-white/75 text-sm">
             © {currentYear} {siteIdentity.copyrightName.trim()}. All rights reserved.
           </p>
-          <p className="text-gray-400 text-sm max-w-md text-left sm:text-right leading-relaxed">
+          <p className="text-white/75 text-sm max-w-md text-left sm:text-right leading-relaxed">
             {siteIdentity.footerTagline}
           </p>
         </div>

@@ -233,6 +233,7 @@ export default function ImageCarousel({
       {href ? (
         <Link
           href={href}
+          aria-label={alt}
           data-testid={linkTestId}
           onClick={handleSurfaceClick}
           className="absolute inset-0 z-10 block"

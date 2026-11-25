@@ -100,8 +100,19 @@ describe('Footer Component', () => {
 
     expect(safeExternalHref('https://example.com/art')).toBe('https://example.com/art');
     expect(safeExternalHref('javascript:alert(1)')).toBeNull();
-    expect(instagramProfileHref('@michalelenaart')).toBe('https://instagram.com/michalelenaart');
+    expect(instagramProfileHref('@michalelenaart')).toBe('https://www.instagram.com/michalelenaart/');
+    expect(instagramProfileHref('https://www.instagram.com/michalelenaart/')).toBe('https://www.instagram.com/michalelenaart/');
     expect(instagramProfileHref('javascript:alert(1)')).toBeNull();
+  });
+
+  it('places Quick Links and Legal side-by-side on mobile to keep the footer compact', () => {
+    render(<Footer />);
+
+    const quickLinksHeading = screen.getByRole('heading', { name: 'Quick Links' });
+    const legalHeading = screen.getByRole('heading', { name: 'Legal' });
+    const linkGrid = quickLinksHeading.parentElement?.parentElement;
+    expect(linkGrid).toBe(legalHeading.parentElement?.parentElement);
+    expect(linkGrid).toHaveClass('grid', 'grid-cols-2');
   });
 
   it('creates and verifies collector feed tokens', async () => {

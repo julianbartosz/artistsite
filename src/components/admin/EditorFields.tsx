@@ -3,7 +3,9 @@
 import React from 'react';
 import RichTextEditor, { type RichTextMergeField } from '@/components/RichTextEditor';
 
-const INPUT_CLASS = 'mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 disabled:bg-gray-50 disabled:text-gray-500';
+const FIELD_BASE_CLASS = 'mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal text-gray-900 disabled:bg-gray-50 disabled:text-gray-500';
+const INPUT_CLASS = `${FIELD_BASE_CLASS} h-10`;
+const TEXTAREA_CLASS = FIELD_BASE_CLASS;
 
 type TextInputProps = {
   label: string;
@@ -60,7 +62,7 @@ export function TextAreaField({ label, value, onChange, rows = 4, help, placehol
   return (
     <label className="block text-sm font-medium text-gray-700">
       {label}
-      <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={rows} placeholder={placeholder} disabled={disabled} className={INPUT_CLASS} />
+      <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={rows} placeholder={placeholder} disabled={disabled} className={TEXTAREA_CLASS} />
       {help && <p className="mt-1 text-xs text-gray-500">{help}</p>}
     </label>
   );

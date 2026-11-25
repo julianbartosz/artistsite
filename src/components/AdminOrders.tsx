@@ -227,18 +227,18 @@ export default function AdminOrders() {
       <form onSubmit={handleSearch} className="flex flex-col gap-3 rounded-lg border bg-white p-4 md:flex-row md:items-end">
         <label className="flex-1 text-sm font-medium text-gray-700">
           Search orders
-          <input value={search} onChange={(event) => setSearch(event.target.value)} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" placeholder="Order number or customer email" />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal" placeholder="Order number or customer email" />
         </label>
         <label className="text-sm font-medium text-gray-700">
           Status
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="mt-1 block rounded-md border border-gray-300 px-3 py-2">
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal">
             <option value="">All statuses</option>
             {[...ORDER_STATUSES, 'refunded'].map((status) => (
               <option key={status} value={status}>{orderStatusLabel(status)}</option>
             ))}
           </select>
         </label>
-        <button type="submit" className="rounded bg-gray-900 px-4 py-2 text-white">Apply</button>
+        <button type="submit" className="h-10 rounded-md bg-gray-900 px-4 text-sm font-medium text-white hover:bg-gray-800">Apply</button>
       </form>
 
       {loading ? (
@@ -290,14 +290,14 @@ export default function AdminOrders() {
                       <li key={item.id}>{item.quantity} × {item.product?.title || item.productId}</li>
                     ))}
                   </ul>
-                  <div className="grid w-full max-w-2xl grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <label className="text-sm font-medium text-gray-700 sm:col-span-2 lg:col-span-4">
+                  <div className="grid w-full max-w-2xl grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <label className="text-sm font-medium text-gray-700 sm:col-span-2 lg:col-span-3">
                       Status
                       <select
                         value={draft.status}
                         disabled={order.status === 'refunded'}
                         onChange={(event) => setDrafts((current) => ({ ...current, [order.id]: { ...draft, status: event.target.value as OrderStatus } }))}
-                        className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 disabled:bg-gray-100"
+                        className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal disabled:bg-gray-100"
                       >
                         {order.status === 'refunded'
                           ? <option value="refunded">{orderStatusLabel('refunded')}</option>
@@ -308,20 +308,20 @@ export default function AdminOrders() {
                     </label>
                     <label className="text-sm font-medium text-gray-700">
                       Carrier
-                      <select value={draft.shippingCarrier} onChange={(event) => setDrafts((current) => ({ ...current, [order.id]: { ...draft, shippingCarrier: event.target.value } }))} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2">
+                      <select value={draft.shippingCarrier} onChange={(event) => setDrafts((current) => ({ ...current, [order.id]: { ...draft, shippingCarrier: event.target.value } }))} className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal">
                         <option value="">Select</option>
                         {SHIPPING_CARRIERS.map((carrier) => <option key={carrier.id} value={carrier.id}>{carrier.label}</option>)}
                       </select>
                     </label>
                     <label className="text-sm font-medium text-gray-700">
                       Tracking
-                      <input value={draft.trackingNumber} onChange={(event) => setDrafts((current) => ({ ...current, [order.id]: { ...draft, trackingNumber: event.target.value } }))} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
+                      <input value={draft.trackingNumber} onChange={(event) => setDrafts((current) => ({ ...current, [order.id]: { ...draft, trackingNumber: event.target.value } }))} className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal" />
                     </label>
                     <label className="text-sm font-medium text-gray-700">
                       Delivery ETA
-                      <input type="date" value={draft.estimatedDelivery} onChange={(event) => setDrafts((current) => ({ ...current, [order.id]: { ...draft, estimatedDelivery: event.target.value } }))} className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2" />
+                      <input type="date" value={draft.estimatedDelivery} onChange={(event) => setDrafts((current) => ({ ...current, [order.id]: { ...draft, estimatedDelivery: event.target.value } }))} className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal" />
                     </label>
-                    <div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-4">
+                    <div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-3">
                       <button type="button" onClick={() => updateOrder(order)} className="rounded bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800">Save</button>
                       {canMarkShipped && (
                         <button type="button" onClick={() => applyShippedPreset(order)} className="rounded border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Mark as shipped</button>

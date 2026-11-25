@@ -1327,7 +1327,7 @@ export function instagramProfileHref(handleOrUrl: string | null | undefined): st
   if (direct) return direct;
   const username = trimmed.replace(/^@+/, '').trim();
   if (!username || !/^[a-zA-Z0-9._]{1,30}$/.test(username)) return null;
-  return `https://instagram.com/${encodeURIComponent(username)}`;
+  return `https://www.instagram.com/${encodeURIComponent(username)}/`;
 }
 
 export const DEFAULT_PRIVACY_HTML = [

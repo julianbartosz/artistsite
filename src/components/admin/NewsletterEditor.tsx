@@ -303,7 +303,7 @@ function BlockFields({
                   href: `/shop/${product.id}`,
                 });
               }}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 disabled:bg-gray-50"
+              className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal text-gray-900 disabled:bg-gray-50"
             >
               <option value="">{products === null ? 'Loading shop…' : products.length ? 'Choose an artwork' : 'No artworks in the shop yet'}</option>
               {block.productId && !selected && <option value={block.productId}>{block.title || block.productId}</option>}

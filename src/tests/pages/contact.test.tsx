@@ -65,7 +65,7 @@ describe('Contact Page', () => {
       expect(screen.getByText(/hello@artistsite.com/i)).toBeInTheDocument();
       expect(screen.getByText(/milwaukee, wi/i)).toBeInTheDocument();
       const igLink = screen.getByRole('link', { name: /@michalelenaart/i });
-      expect(igLink).toHaveAttribute('href', 'https://instagram.com/michalelenaart');
+      expect(igLink).toHaveAttribute('href', 'https://www.instagram.com/michalelenaart/');
       expect(igLink).toHaveAttribute('target', '_blank');
       expect(igLink).toHaveAttribute('rel', 'noopener noreferrer');
 

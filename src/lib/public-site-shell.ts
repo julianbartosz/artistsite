@@ -1,7 +1,11 @@
 import 'server-only';
 import { getConfigMany } from '@/lib/config';
 import { getSiteContent } from '@/lib/site-content';
-import { DEFAULT_SITE_IDENTITY, type SiteIdentityContent } from '@/lib/site-content-shared';
+import {
+  DEFAULT_SITE_IDENTITY,
+  instagramProfileHref,
+  type SiteIdentityContent,
+} from '@/lib/site-content-shared';
 
 const PUBLIC_SHELL_CONFIG_KEYS = [
   'CONTACT_EMAIL',
@@ -25,8 +29,9 @@ export type PublicSiteShell = {
 };
 
 export async function getPublicSiteShell(): Promise<PublicSiteShell> {
-  const [identity, config] = await Promise.all([
+  const [identity, contact, config] = await Promise.all([
     getSiteContent('identity'),
+    getSiteContent('contact'),
     getConfigMany([...PUBLIC_SHELL_CONFIG_KEYS]),
   ]);
 
@@ -39,7 +44,10 @@ export async function getPublicSiteShell(): Promise<PublicSiteShell> {
       config.SUPPORT_EMAIL ||
       '',
     socialUrls: {
-      instagram: config.SOCIAL_INSTAGRAM_URL || '',
+      instagram:
+        instagramProfileHref(config.SOCIAL_INSTAGRAM_URL) ||
+        instagramProfileHref(contact.sidebar.instagramHandle) ||
+        '',
       facebook: config.SOCIAL_FACEBOOK_URL || '',
       twitter: config.SOCIAL_X_URL || '',
       pinterest: config.SOCIAL_PINTEREST_URL || '',

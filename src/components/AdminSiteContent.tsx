@@ -2,6 +2,7 @@
 
 import React, { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { Maximize2, Minimize2, Monitor, Smartphone, Tablet } from 'lucide-react';
 import { CheckboxField, EditorSection, HtmlField, ReorderButtons, SelectField, TextAreaField, TextField, reorder } from '@/components/admin/EditorFields';
 import { IntegerField } from '@/components/admin/StudioFormFields';
 import SiteAppearancePanel from '@/components/admin/SiteAppearancePanel';
@@ -439,6 +440,7 @@ export default function AdminSiteContent() {
   const [previewToken, setPreviewToken] = useState(0);
   const [artworkOptions, setArtworkOptions] = useState<ArtworkOption[]>([]);
   const [previewOpen, setPreviewOpen] = useState(true);
+  const [previewViewport, setPreviewViewport] = useState<'mobile' | 'tablet' | 'desktop'>('mobile');
   const [saved, setSaved] = useState<SiteContentByPage | null>(null);
   const [legalPages, setLegalPages] = useState({ privacyHtml: '', termsHtml: '' });
   const [savedLegalPages, setSavedLegalPages] = useState({ privacyHtml: '', termsHtml: '' });
@@ -462,14 +464,34 @@ export default function AdminSiteContent() {
     window.history.replaceState(null, '', nextUrl);
   }, []);
 
+  const isPreviewExpanded = previewOpen && previewViewport !== 'mobile';
+
+  const selectPreviewViewport = useCallback((viewport: 'mobile' | 'tablet' | 'desktop') => {
+    setPreviewViewport(viewport);
+    setPreviewOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isPreviewExpanded) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setPreviewViewport('mobile');
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isPreviewExpanded]);
+
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
     const media = window.matchMedia('(min-width: 1280px)');
-    const sync = () => setPreviewOpen(media.matches);
+    const sync = () => {
+      setPreviewOpen((open) => (media.matches ? true : open && previewViewport !== 'mobile'));
+    };
     sync();
     media.addEventListener('change', sync);
     return () => media.removeEventListener('change', sync);
-  }, []);
+  }, [previewViewport]);
 
   const legalDirty = legalPages.privacyHtml !== savedLegalPages.privacyHtml
     || legalPages.termsHtml !== savedLegalPages.termsHtml;
@@ -620,8 +642,7 @@ export default function AdminSiteContent() {
 
   useUnsavedChangesGuard(isDirty);
 
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
+  async function saveChanges() {
     if (!content || !saved || !isDirty) return;
 
     const submitted = Object.fromEntries(dirtyContentPages.map((page) => [page, content[page]])) as Partial<SiteContentByPage>;
@@ -682,13 +703,15 @@ export default function AdminSiteContent() {
     }
   }
 
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    await saveChanges();
+  }
+
   if (loading && !content) {
     return (
-      <div className="rounded-lg border bg-white p-6 text-gray-600">
+      <div className="rounded-lg border bg-white p-6 text-sm text-gray-600">
         <p>Loading site pages...</p>
-        <button type="button" onClick={() => void loadContent()} className="mt-3 text-sm font-medium text-gray-900 underline">
-          Retry
-        </button>
       </div>
     );
   }
@@ -732,14 +755,22 @@ export default function AdminSiteContent() {
         })}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2 xl:items-start">
-      <form onSubmit={handleSubmit} className="rounded-lg border bg-white p-6 space-y-6">
+      <div className={isPreviewExpanded ? 'grid grid-cols-1 gap-6' : 'grid grid-cols-1 gap-6 xl:grid-cols-2 xl:items-start'}>
+      <form onSubmit={handleSubmit} className={isPreviewExpanded ? 'hidden' : 'rounded-lg border bg-white p-6 space-y-6'}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">{activeTab.label}</h2>
             <p className="mt-1 text-sm text-gray-600">{activeTab.description}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => selectPreviewViewport('desktop')}
+              className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 xl:hidden"
+            >
+              <Maximize2 className="h-4 w-4" aria-hidden="true" />
+              Full preview
+            </button>
             <a
               href={previewHref}
               target="_blank"
@@ -1683,35 +1714,132 @@ export default function AdminSiteContent() {
         </div>
       </form>
 
-      <div className="scroll-mt-24 rounded-lg border bg-white overflow-hidden xl:sticky xl:top-28">
-        <div className="border-b px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+      <div
+        className={
+          isPreviewExpanded
+            ? 'scroll-mt-24 rounded-lg border bg-white overflow-hidden shadow-sm'
+            : 'scroll-mt-24 rounded-lg border bg-white overflow-hidden xl:sticky xl:top-28'
+        }
+        data-testid="live-preview-panel"
+        data-preview-viewport={previewViewport}
+      >
+        <div className="border-b px-4 py-3 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-gray-900">Live preview</h3>
-            <p className="text-xs text-gray-500">Updates as you edit — save to publish changes.</p>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-gray-900">Live preview</h3>
+              {isPreviewExpanded && (
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
+                  {activeTab.label}
+                </span>
+              )}
+              {isPreviewExpanded && isDirty && (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                  Unsaved draft
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-gray-500">
+              {isPreviewExpanded
+                ? 'Expanded preview — switch back to Mobile or click Back to editor to adjust settings.'
+                : 'Updates as you edit — expand to Tablet or Desktop to inspect wider layouts.'}
+            </p>
           </div>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setPreviewOpen((open) => !open)}
-              className="inline-flex min-h-9 items-center text-sm font-medium text-gray-700 hover:text-gray-900"
-              aria-expanded={previewOpen}
+          <div className="flex flex-wrap items-center gap-2">
+            <div
+              role="group"
+              aria-label="Preview size"
+              className="inline-flex items-center rounded-md border border-gray-200 bg-gray-50 p-0.5"
             >
-              {previewOpen ? 'Hide preview' : 'Show preview'}
-            </button>
+              {(
+                [
+                  { id: 'mobile', label: 'Mobile', Icon: Smartphone },
+                  { id: 'tablet', label: 'Tablet', Icon: Tablet },
+                  { id: 'desktop', label: 'Desktop', Icon: Monitor },
+                ] as const
+              ).map(({ id, label, Icon }) => {
+                const active = previewOpen && previewViewport === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => selectPreviewViewport(id)}
+                    className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                      active
+                        ? 'bg-white text-gray-900 shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {isPreviewExpanded ? (
+              <>
+                {isDirty && (
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void saveChanges()}
+                    className="btn-primary inline-flex min-h-8 items-center px-3 py-1.5 text-xs disabled:opacity-50"
+                  >
+                    {saving ? 'Saving…' : 'Save changes'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setPreviewViewport('mobile')}
+                  className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  <Minimize2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  Back to editor
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setPreviewOpen((open) => !open)}
+                className="inline-flex min-h-8 items-center text-xs font-medium text-gray-700 hover:text-gray-900 px-1.5"
+                aria-expanded={previewOpen}
+              >
+                {previewOpen ? 'Hide' : 'Show'}
+              </button>
+            )}
             {isDirty && (
-              <a href={`${previewHref}?cmsPreview=1&preview=${previewToken}`} target="_blank" rel="noreferrer" className="inline-flex min-h-9 items-center text-sm font-medium text-primary hover:opacity-80">
+              <a
+                href={`${previewHref}?cmsPreview=1&preview=${previewToken}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex min-h-8 items-center text-xs font-medium text-primary hover:opacity-80 px-1"
+              >
                 Open draft ↗
               </a>
             )}
           </div>
         </div>
         {previewOpen && (
-          <iframe
-            key={`${activePage}-${previewToken}`}
-            title={`Preview ${activeTab.label}`}
-            src={`${previewHref}?cmsPreview=1&preview=${previewToken}`}
-            className="w-full h-[min(70vh,720px)] bg-white"
-          />
+          <div
+            className={
+              previewViewport === 'tablet'
+                ? 'flex justify-center bg-gray-100 p-4'
+                : 'bg-white'
+            }
+          >
+            <iframe
+              key={`${activePage}-${previewToken}`}
+              title={`Preview ${activeTab.label}`}
+              src={`${previewHref}?cmsPreview=1&preview=${previewToken}`}
+              className={
+                previewViewport === 'tablet'
+                  ? 'w-full max-w-[768px] h-[calc(100vh-14rem)] min-h-[560px] rounded-md border border-gray-200 bg-white shadow-sm'
+                  : previewViewport === 'desktop'
+                    ? 'w-full h-[calc(100vh-14rem)] min-h-[560px] bg-white'
+                    : 'w-full h-[min(70vh,720px)] bg-white'
+              }
+            />
+          </div>
         )}
       </div>
       </div>
