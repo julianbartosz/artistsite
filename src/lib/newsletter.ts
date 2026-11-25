@@ -1,10 +1,94 @@
 import { z } from 'zod';
 import { visibleHtmlText } from '@/lib/site-content-shared';
-import { emailButtonHtml, emailShellHtml, escapeHtml, normalizeEmailColor } from '@/lib/email-shell';
+import { emailButtonHtml, emailShellHtml, escapeHtml, isResendSandboxSender, normalizeEmailColor } from '@/lib/email-shell';
 
 /** Marks EmailCampaign rows whose `content` is a block document (see `newsletterDocumentSchema`). */
 export const NEWSLETTER_TEMPLATE_ID = 'newsletter-blocks';
 export const NEWSLETTER_SEGMENT = 'newsletter_subscriber';
+
+export const AUTOMATION_EMAIL_IDS = {
+  newsletterWelcome: 'auto-newsletter-welcome',
+  newsletterWelcomeFollowup: 'auto-newsletter-welcome-followup',
+  collectorWinback: 'auto-collector-winback',
+  cartRecovery: 'auto-cart-recovery',
+} as const;
+
+export type AutomationEmailId = (typeof AUTOMATION_EMAIL_IDS)[keyof typeof AUTOMATION_EMAIL_IDS];
+
+const AUTOMATION_EMAIL_ID_SET = new Set<string>(Object.values(AUTOMATION_EMAIL_IDS));
+
+export function isAutomationEmailId(value: string): value is AutomationEmailId {
+  return AUTOMATION_EMAIL_ID_SET.has(value);
+}
+
+export type AutomationAudienceKind = 'subscriber' | 'checkout';
+
+export type AutomationEmailDefinition = {
+  id: AutomationEmailId;
+  templateId: string;
+  title: string;
+  description: string;
+  triggerSummary: string;
+  settingKey:
+    | 'NEWSLETTER_WELCOME_ENABLED'
+    | 'NEWSLETTER_WELCOME_SERIES_ENABLED'
+    | 'WINBACK_EMAIL_ENABLED'
+    | 'CART_ABANDONMENT_ENABLED';
+  defaultEnabled: boolean;
+  requiresScheduler: boolean;
+  audienceKind: AutomationAudienceKind;
+};
+
+export const AUTOMATION_EMAIL_CATALOG: readonly AutomationEmailDefinition[] = [
+  {
+    id: AUTOMATION_EMAIL_IDS.newsletterWelcome,
+    templateId: 'automated-welcome',
+    title: 'Welcome email',
+    description: 'Sent immediately when someone joins your newsletter list.',
+    triggerSummary: 'Instant on signup',
+    settingKey: 'NEWSLETTER_WELCOME_ENABLED',
+    defaultEnabled: true,
+    requiresScheduler: false,
+    audienceKind: 'subscriber',
+  },
+  {
+    id: AUTOMATION_EMAIL_IDS.newsletterWelcomeFollowup,
+    templateId: 'automated-welcome-followup',
+    title: 'Day-3 studio follow-up',
+    description: 'Sent 3 days after newsletter signup to share your portfolio and studio updates.',
+    triggerSummary: '3 days after signup',
+    settingKey: 'NEWSLETTER_WELCOME_SERIES_ENABLED',
+    defaultEnabled: false,
+    requiresScheduler: true,
+    audienceKind: 'subscriber',
+  },
+  {
+    id: AUTOMATION_EMAIL_IDS.collectorWinback,
+    templateId: 'automated-winback',
+    title: 'Collector win-back',
+    description: 'Sent once to opted-in subscribers who have not visited or ordered recently.',
+    triggerSummary: 'After quiet period',
+    settingKey: 'WINBACK_EMAIL_ENABLED',
+    defaultEnabled: false,
+    requiresScheduler: true,
+    audienceKind: 'subscriber',
+  },
+  {
+    id: AUTOMATION_EMAIL_IDS.cartRecovery,
+    templateId: 'automated-cart-recovery',
+    title: 'Cart recovery',
+    description: 'Sent 1 hour after someone enters their email at checkout without completing an order.',
+    triggerSummary: '1 hour after abandoned checkout',
+    settingKey: 'CART_ABANDONMENT_ENABLED',
+    defaultEnabled: false,
+    requiresScheduler: true,
+    audienceKind: 'checkout',
+  },
+] as const;
+
+export function getAutomationEmailDefinition(id: AutomationEmailId): AutomationEmailDefinition {
+  return AUTOMATION_EMAIL_CATALOG.find((entry) => entry.id === id) ?? AUTOMATION_EMAIL_CATALOG[0];
+}
 
 const blockId = z.string().trim().min(1).max(64);
 const text = (max: number) => z.string().max(max).default('');
@@ -119,13 +203,47 @@ export const NEWSLETTER_MERGE_FIELDS = [
   { key: 'site_url', label: 'Website address', fallback: '' },
 ] as const;
 
-export type NewsletterMergeKey = (typeof NEWSLETTER_MERGE_FIELDS)[number]['key'] | 'unsubscribe_url';
+export const CART_RECOVERY_MERGE_FIELDS = [
+  ...NEWSLETTER_MERGE_FIELDS,
+  { key: 'checkout_url', label: 'Checkout link', fallback: '/checkout' },
+  { key: 'promo_code', label: 'Promo code', fallback: '' },
+] as const;
+
+export type NewsletterMergeFieldOption = {
+  readonly key: string;
+  readonly label: string;
+  readonly fallback: string;
+};
+
+export type NewsletterMergeKey =
+  | (typeof CART_RECOVERY_MERGE_FIELDS)[number]['key']
+  | 'unsubscribe_url';
 export type NewsletterMergeValues = Partial<Record<NewsletterMergeKey, string>>;
 
+const NEWSLETTER_MERGE_KEY_SET = new Set<string>([
+  ...NEWSLETTER_MERGE_FIELDS.map((field) => field.key),
+  'unsubscribe_url',
+]);
+
+const CART_RECOVERY_MERGE_KEY_SET = new Set<string>([
+  ...CART_RECOVERY_MERGE_FIELDS.map((field) => field.key),
+  'unsubscribe_url',
+]);
+
+const URL_MERGE_KEYS = new Set<string>(['checkout_url', 'site_url', 'unsubscribe_url']);
+
 const MERGE_FIELD_FALLBACKS = new Map<string, string>([
-  ...NEWSLETTER_MERGE_FIELDS.map((field) => [field.key, field.fallback] as [string, string]),
+  ...CART_RECOVERY_MERGE_FIELDS.map((field) => [field.key, field.fallback] as [string, string]),
   ['unsubscribe_url', '#'],
 ]);
+
+export function mergeFieldsForAudience(audienceKind: AutomationAudienceKind = 'subscriber'): readonly NewsletterMergeFieldOption[] {
+  return audienceKind === 'checkout' ? CART_RECOVERY_MERGE_FIELDS : NEWSLETTER_MERGE_FIELDS;
+}
+
+export function allowedMergeKeysForAudience(audienceKind: AutomationAudienceKind = 'subscriber'): ReadonlySet<string> {
+  return audienceKind === 'checkout' ? CART_RECOVERY_MERGE_KEY_SET : NEWSLETTER_MERGE_KEY_SET;
+}
 
 export function mergeFieldToken(key: string): string {
   return `{{${key}}}`;
@@ -175,11 +293,106 @@ export function applyMergeFields(input: string, values: NewsletterMergeValues, m
   }).join('');
 }
 
-function unknownMergeTokens(input: string): string[] {
+function unknownMergeTokens(input: string, allowedKeys: ReadonlySet<string>): string[] {
   return parseMergeTemplate(input)
     .filter((segment): segment is Extract<MergeSegment, { kind: 'field' }> => segment.kind === 'field')
-    .filter((segment) => !MERGE_FIELD_FALLBACKS.has(segment.key))
+    .filter((segment) => !allowedKeys.has(segment.key))
     .map((segment) => segment.raw);
+}
+
+/** Default block document for each built-in automation email (used until the artist customizes it). */
+export function buildDefaultAutomationDocument(
+  id: AutomationEmailId,
+  options: { siteName: string; promoCode?: string } = { siteName: 'Studio' },
+): NewsletterDocument {
+  const siteName = options.siteName.trim() || 'Studio';
+  const promoCode = options.promoCode?.trim() || '';
+
+  switch (id) {
+    case AUTOMATION_EMAIL_IDS.newsletterWelcome:
+      return {
+        subject: `Welcome to ${siteName}`,
+        preheader: 'Studio notes, new work, and first access before releases open.',
+        fromName: siteName,
+        blocks: [
+          {
+            id: 'welcome-intro',
+            type: 'text',
+            html: `<p>Hi {{first_name|there}},</p><p>Thank you for joining the ${escapeHtml(siteName)} newsletter. You will hear first about new original pieces, limited print editions, exhibitions, and studio notes.</p><p>In the meantime, feel free to explore what is currently available.</p>`,
+          },
+          {
+            id: 'welcome-cta',
+            type: 'button',
+            label: 'Explore available works',
+            href: '/shop',
+          },
+        ],
+      };
+
+    case AUTOMATION_EMAIL_IDS.newsletterWelcomeFollowup:
+      return {
+        subject: `Inside the studio at ${siteName}`,
+        preheader: 'A closer look at recent works, process notes, and available pieces.',
+        fromName: siteName,
+        blocks: [
+          {
+            id: 'followup-intro',
+            type: 'text',
+            html: `<p>Hi {{first_name|there}},</p><p>A quick studio note since you joined ${escapeHtml(siteName)} — if you are exploring pieces for a space or curious about commissions, you can browse the full <a href="/portfolio">portfolio</a> or see recent <a href="/updates">studio updates</a>.</p><p>Reply anytime if a particular work catches your eye.</p>`,
+          },
+          {
+            id: 'followup-cta',
+            type: 'button',
+            label: 'View the portfolio',
+            href: '/portfolio',
+          },
+        ],
+      };
+
+    case AUTOMATION_EMAIL_IDS.collectorWinback:
+      return {
+        subject: `New from ${siteName}`,
+        preheader: 'Recent pieces and updates from the studio.',
+        fromName: siteName,
+        blocks: [
+          {
+            id: 'winback-intro',
+            type: 'text',
+            html: `<p>Hi {{first_name|there}},</p><p>It has been a little while since we last caught up. New works and limited prints have been added to ${escapeHtml(siteName)} recently — take a look whenever you have a quiet moment.</p><p>If you are looking for a specific size or palette, reply to this email or send a note through <a href="/contact">the studio contact page</a>.</p>`,
+          },
+          {
+            id: 'winback-cta',
+            type: 'button',
+            label: 'See what is new',
+            href: '/shop',
+          },
+        ],
+      };
+
+    case AUTOMATION_EMAIL_IDS.cartRecovery: {
+      const promoLine = promoCode
+        ? `<p>If it helps, use code <strong>{{promo_code}}</strong> at checkout.</p>`
+        : '';
+      return {
+        subject: `Still thinking it over? Your piece is waiting at ${siteName}`,
+        preheader: 'Return to checkout whenever you are ready.',
+        fromName: siteName,
+        blocks: [
+          {
+            id: 'cart-intro',
+            type: 'text',
+            html: `<p>Hi {{first_name|there}},</p><p>You left artwork waiting at checkout on ${escapeHtml(siteName)}. Original works and limited editions can go quickly, so your link is ready whenever you would like to finish your order.</p>${promoLine}<p>Have a question about framing, shipping, or dimensions? Just reply to this email.</p>`,
+          },
+          {
+            id: 'cart-cta',
+            type: 'button',
+            label: 'Return to checkout',
+            href: '{{checkout_url}}',
+          },
+        ],
+      };
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +404,10 @@ export type NewsletterRenderContext = {
   siteUrl: string;
   primaryColor: string;
   footerAddress: string;
+  /** Optional override for the footer explanation line (e.g. cart recovery checkout reminder). */
+  footerReason?: string;
+  /** Whether to include the newsletter unsubscribe link in the footer (default: true). */
+  includeUnsubscribe?: boolean;
 };
 
 export type RenderedNewsletter = { subject: string; html: string; text: string };
@@ -199,9 +416,17 @@ export { escapeHtml };
 
 type UrlCheck = { url: string } | { problem: 'needs-site-url' | 'invalid' };
 
-/** Accepts absolute http(s)/mailto URLs and site-relative paths (made absolute with the site URL). */
+function isSingleUrlMergeToken(value: string): boolean {
+  const segments = parseMergeTemplate(value);
+  return segments.length === 1 && segments[0].kind === 'field' && URL_MERGE_KEYS.has(segments[0].key);
+}
+
+/** Accepts absolute http(s)/mailto URLs, site-relative paths, and URL merge tokens (`{{checkout_url}}`, `{{site_url}}`). */
 export function resolveNewsletterUrl(value: string, siteUrl: string, allowMailto = true): UrlCheck {
   const trimmed = value.trim();
+  if (isSingleUrlMergeToken(trimmed)) {
+    return { url: trimmed };
+  }
   if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
     if (!siteUrl) return { problem: 'needs-site-url' };
     const base = siteUrl.endsWith('/') ? siteUrl.slice(0, -1) : siteUrl;
@@ -461,13 +686,25 @@ export function renderNewsletter(document: NewsletterDocument, context: Newslett
     .map((html) => `<div style="margin:0 0 28px;">${html}</div>`)
     .join('');
 
+  const includeUnsubscribe = context.includeUnsubscribe !== false;
+  const footerReason = context.footerReason?.trim() || `You are receiving this because you subscribed to ${siteName}.`;
+  const footerLinesHtml = [
+    escapeHtml(footerReason),
+    includeUnsubscribe ? '<a href="{{unsubscribe_url}}" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a>' : '',
+    address ? escapeHtml(address) : '',
+  ].filter(Boolean);
+  const footerLinesText = [
+    footerReason,
+    includeUnsubscribe ? 'Unsubscribe: {{unsubscribe_url}}' : '',
+    address,
+  ].filter(Boolean);
+
   const html = emailShellHtml({
     brand: { siteName, siteUrl: siteHref ?? '', primaryColor: color },
     title: subject,
     preheader,
     bodyHtml: blocks,
-    footerHtml: `You are receiving this because you subscribed to ${escapeHtml(siteName)}.<br>
-<a href="{{unsubscribe_url}}" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a>${address ? `<br>${escapeHtml(address)}` : ''}`,
+    footerHtml: footerLinesHtml.join('<br>\n'),
     extraCss: `.nl-text p{margin:0 0 16px;}
 .nl-text p:last-child{margin-bottom:0;}
 .nl-text h1,.nl-text h2,.nl-text h3{margin:28px 0 12px;line-height:1.25;color:#111827;}
@@ -482,7 +719,7 @@ export function renderNewsletter(document: NewsletterDocument, context: Newslett
   const text = [
     siteName,
     body,
-    `--\nYou are receiving this because you subscribed to ${siteName}.\nUnsubscribe: {{unsubscribe_url}}${address ? `\n${address}` : ''}`,
+    `--\n${footerLinesText.join('\n')}`,
   ].filter(Boolean).join('\n\n');
 
   return { subject, html, text };
@@ -500,6 +737,7 @@ export function newsletterMergeValues(
   recipient: { email: string; firstName?: string | null },
   context: NewsletterRenderContext,
   unsubscribeUrl: string,
+  extra?: Partial<Pick<NewsletterMergeValues, 'checkout_url' | 'promo_code'>>,
 ): NewsletterMergeValues {
   return {
     first_name: recipient.firstName?.trim() || '',
@@ -507,6 +745,7 @@ export function newsletterMergeValues(
     site_name: context.siteName,
     site_url: context.siteUrl,
     unsubscribe_url: unsubscribeUrl,
+    ...extra,
   };
 }
 
@@ -529,6 +768,25 @@ export type NewsletterSummary = {
   editable: boolean;
 };
 
+export type AutomationEmailSummary = {
+  id: AutomationEmailId;
+  title: string;
+  description: string;
+  triggerSummary: string;
+  settingKey: AutomationEmailDefinition['settingKey'];
+  enabled: boolean;
+  requiresScheduler: boolean;
+  audienceKind: AutomationAudienceKind;
+  customized: boolean;
+  document: NewsletterDocument;
+  defaultDocument: NewsletterDocument;
+  updatedAt: string | null;
+  metrics: { delivered: number; failed: number; lastSentAt: string | null };
+  /** Optional automation-specific settings surfaced inline in the editor. */
+  winbackDays?: number;
+  cartRecoveryPromoCode?: string;
+};
+
 export type NewsletterAdminContext = NewsletterRenderContext & {
   subscriberCount: number;
   deliveryMode: NewsletterDeliveryMode;
@@ -549,6 +807,7 @@ export type NewsletterDeliveryMode = 'smtp' | 'log' | 'unconfigured';
 export type NewsletterSendContext = NewsletterRenderContext & {
   subscriberCount: number;
   deliveryMode: NewsletterDeliveryMode;
+  fromAddress?: string;
 };
 
 function urlIssue(
@@ -568,7 +827,14 @@ function urlIssue(
 }
 
 /** Problems that make the email itself wrong. Test sends and real sends both require none. */
-export function newsletterContentIssues(document: NewsletterDocument, context: Pick<NewsletterRenderContext, 'siteUrl'>): NewsletterIssue[] {
+export function newsletterContentIssues(
+  document: NewsletterDocument,
+  context: Pick<NewsletterRenderContext, 'siteUrl'>,
+  options?: { audienceKind?: AutomationAudienceKind },
+): NewsletterIssue[] {
+  const audienceKind = options?.audienceKind ?? 'subscriber';
+  const allowedKeys = allowedMergeKeysForAudience(audienceKind);
+  const availableFields = mergeFieldsForAudience(audienceKind);
   const issues: NewsletterIssue[] = [];
   if (!document.subject.trim()) issues.push({ key: 'subject', message: 'Add a subject line.' });
   if (!document.blocks.some(blockHasContent)) {
@@ -626,11 +892,11 @@ export function newsletterContentIssues(document: NewsletterDocument, context: P
       }
     }),
   ];
-  const unknown = Array.from(new Set(tokenSources.flatMap(unknownMergeTokens)));
+  const unknown = Array.from(new Set(tokenSources.flatMap((source) => unknownMergeTokens(source, allowedKeys))));
   for (const token of unknown) {
     issues.push({
       key: `field-${token}`,
-      message: `${token} is not a personalization field. Use ${NEWSLETTER_MERGE_FIELDS.map((field) => mergeFieldToken(field.key)).join(', ')}.`,
+      message: `${token} is not a personalization field. Use ${availableFields.map((field) => mergeFieldToken(field.key)).join(', ')}.`,
     });
   }
   return issues;
@@ -649,6 +915,8 @@ export function newsletterSendIssues(document: NewsletterDocument, context: News
     issues.push({ key: 'delivery', message: 'Email delivery is in log mode. Switch to SMTP in Settings to reach inboxes.' });
   } else if (context.deliveryMode === 'unconfigured') {
     issues.push({ key: 'delivery', message: 'Finish SMTP setup in Settings → Email delivery before sending.' });
+  } else if (isResendSandboxSender(context.fromAddress)) {
+    issues.push({ key: 'sandbox-sender', message: 'From address uses Resend sandbox (onboarding@resend.dev), which cannot deliver to subscribers. Update it in Settings → Email delivery.' });
   }
   if (context.subscriberCount <= 0) {
     issues.push({ key: 'audience', message: 'You have no subscribers yet.' });

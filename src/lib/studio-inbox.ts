@@ -336,7 +336,7 @@ export async function findOrderThread(orderId: string, userEmail: string) {
 }
 
 export async function createOrderInquiryThread(input: {
-  userId: string;
+  userId?: string | null;
   userEmail: string;
   userName?: string | null;
   orderId: string;

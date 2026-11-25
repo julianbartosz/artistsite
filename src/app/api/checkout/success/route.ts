@@ -1,12 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { E2E_CHECKOUT_SESSION_PREFIX } from '@/lib/commerce';
-import { finalizePaidOrder, getOrderById } from '@/lib/orders';
-import { getStripe } from '@/lib/stripe';
+import { finalizePaidOrder, getOrderById, verifyOrderAccessToken } from '@/lib/orders';
+import { getCheckoutRuntimeConfig, getStripe } from '@/lib/stripe';
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const sessionId = searchParams.get('session_id');
+    const orderParam = searchParams.get('order');
+    const tokenParam = searchParams.get('t');
+
+    if (orderParam && tokenParam) {
+      if (!verifyOrderAccessToken(orderParam, tokenParam)) {
+        return NextResponse.json({ error: 'Invalid order link' }, { status: 403 });
+      }
+      const order = await getOrderById(orderParam);
+      if (!order) {
+        return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+      }
+      const checkoutConfig = await getCheckoutRuntimeConfig();
+      return NextResponse.json({
+        success: true,
+        mode: 'manual',
+        sessionId: '',
+        paymentStatus: order.paymentStatus,
+        order,
+        manualPaymentInstructions: checkoutConfig.manualPaymentInstructions,
+      });
+    }
 
     if (!sessionId) {
       return NextResponse.json(

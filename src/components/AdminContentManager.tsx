@@ -19,6 +19,7 @@ import { useUnsavedChangesGuard } from '@/components/admin/useUnsavedChangesGuar
 import type { PostMediaItem } from '@/lib/admin-content';
 import { POST_PROCESS_STAGES } from '@/lib/admin-content';
 import { formatPrice, normalizeShipping, PRODUCT_IMAGE_FALLBACK } from '@/lib/commerce';
+import { STUDIO_SHIPPING_PRESETS } from '@/lib/shipping';
 import { isVideoUrl } from '@/lib/image-variant-url';
 import { htmlHasVisibleText, type PortfolioCategory } from '@/lib/site-content-shared';
 
@@ -860,6 +861,7 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
               internationalEnabled: shipping.internationalEnabled,
               domestic: shipping.domesticEnabled ? coerceNumber(productForm.shipping?.domestic, 0) : 0,
               international: shipping.internationalEnabled ? coerceNumber(productForm.shipping?.international, 0) : 0,
+              ...(shipping.parcel ? { parcel: shipping.parcel } : {}),
             },
             edition: productForm.edition?.total
               ? {
@@ -1050,7 +1052,38 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
           </div>
 
           <div className="space-y-3 border-t border-gray-100 pt-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Shipping</h3>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Shipping</h3>
+              <p className="text-xs text-gray-500">
+                Collectors pay these flat rates at checkout; actual carrier postage is paid when you ship.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-gray-500">Presets:</span>
+              {STUDIO_SHIPPING_PRESETS.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() =>
+                    setProductForm({
+                      ...productForm,
+                      shipping: {
+                        ...productForm.shipping,
+                        domesticEnabled: true,
+                        internationalEnabled: true,
+                        domestic: preset.domestic,
+                        international: preset.international,
+                        parcel: { ...preset.parcel },
+                      },
+                    })
+                  }
+                  title={`${preset.hint} · US $${preset.domestic} / Intl $${preset.international}`}
+                  className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-700 hover:border-gray-400 hover:bg-white"
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2 rounded-lg border border-gray-200 p-3">
                 <CheckboxField
@@ -1106,6 +1139,53 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
                 Both shipping options are off — collectors will see this item as local pickup / studio arrangement with no shipping fee.
               </p>
             )}
+            <details className="rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-2">
+              <summary className="cursor-pointer text-xs font-medium text-gray-700">
+                Package size (optional — used for EasyPost label quotes)
+                {productForm.shipping?.parcel?.weightOz ? (
+                  <span className="ml-2 font-normal text-gray-500">
+                    {productForm.shipping.parcel.weightOz} oz
+                    {productForm.shipping.parcel.lengthIn && productForm.shipping.parcel.widthIn && productForm.shipping.parcel.heightIn
+                      ? ` · ${productForm.shipping.parcel.lengthIn} × ${productForm.shipping.parcel.widthIn} × ${productForm.shipping.parcel.heightIn} in`
+                      : ''}
+                  </span>
+                ) : null}
+              </summary>
+              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {([
+                  ['weightOz', 'Weight (oz)'],
+                  ['lengthIn', 'Length (in)'],
+                  ['widthIn', 'Width (in)'],
+                  ['heightIn', 'Height (in)'],
+                ] as const).map(([field, label]) => (
+                  <label key={field} className="text-xs text-gray-600">
+                    {label}
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      value={productForm.shipping?.parcel?.[field] ?? ''}
+                      onChange={(event) => {
+                        const raw = event.target.value;
+                        const parsed = raw === '' ? undefined : Number(raw);
+                        setProductForm({
+                          ...productForm,
+                          shipping: {
+                            ...productForm.shipping,
+                            parcel: {
+                              ...productForm.shipping?.parcel,
+                              [field]: parsed !== undefined && Number.isFinite(parsed) && parsed > 0 ? parsed : undefined,
+                            },
+                          },
+                        });
+                      }}
+                      placeholder="Default"
+                      className="mt-1 w-full rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-sm text-gray-900"
+                    />
+                  </label>
+                ))}
+              </div>
+            </details>
           </div>
 
           <div className="border-t border-gray-100 pt-4">

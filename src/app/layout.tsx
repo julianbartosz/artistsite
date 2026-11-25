@@ -48,9 +48,6 @@ export async function generateMetadata(): Promise<Metadata> {
     creator: siteName,
     publisher: siteName,
     metadataBase: parseSiteUrl(siteUrl),
-    alternates: {
-      canonical: '/',
-    },
     openGraph: {
       type: 'website',
       locale: 'en_US',

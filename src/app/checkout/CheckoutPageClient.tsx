@@ -39,21 +39,39 @@ type CheckoutStep = 'contact' | 'shipping' | 'review';
 
 type CheckoutPageClientProps = {
   initialShopCopy?: ShopPageContent;
+  checkoutMode?: 'stripe' | 'manual';
+  manualPaymentInstructions?: string;
+  automaticTaxEnabled?: boolean;
 };
 
-export default function CheckoutPageClient({ initialShopCopy }: CheckoutPageClientProps) {
+export default function CheckoutPageClient({
+  initialShopCopy,
+  checkoutMode = 'stripe',
+  manualPaymentInstructions = '',
+  automaticTaxEnabled = false,
+}: CheckoutPageClientProps) {
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-surface-muted flex items-center justify-center">
         <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-gray-900" aria-label="Loading checkout" />
       </div>
     }>
-      <CheckoutPageContent initialShopCopy={initialShopCopy} />
+      <CheckoutPageContent
+        initialShopCopy={initialShopCopy}
+        checkoutMode={checkoutMode}
+        manualPaymentInstructions={manualPaymentInstructions}
+        automaticTaxEnabled={automaticTaxEnabled}
+      />
     </Suspense>
   );
 }
 
-function CheckoutPageContent({ initialShopCopy }: CheckoutPageClientProps) {
+function CheckoutPageContent({
+  initialShopCopy,
+  checkoutMode = 'stripe',
+  manualPaymentInstructions = '',
+  automaticTaxEnabled = false,
+}: CheckoutPageClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { data: session, status: sessionStatus } = useSession();
@@ -80,11 +98,12 @@ function CheckoutPageContent({ initialShopCopy }: CheckoutPageClientProps) {
     ...DEFAULT_SHOP_PAGE,
     ...(initialShopCopy || {}),
   }));
+  const isManualCheckout = checkoutMode === 'manual';
   const checkoutSteps = useMemo<Array<{ id: CheckoutStep; label: string }>>(() => ([
     { id: 'contact', label: shopCopy.checkoutStepContact },
     { id: 'shipping', label: shopCopy.checkoutStepShipping },
-    { id: 'review', label: shopCopy.checkoutStepReview },
-  ]), [shopCopy.checkoutStepContact, shopCopy.checkoutStepReview, shopCopy.checkoutStepShipping]);
+    { id: 'review', label: isManualCheckout ? 'Review & request' : shopCopy.checkoutStepReview },
+  ]), [isManualCheckout, shopCopy.checkoutStepContact, shopCopy.checkoutStepReview, shopCopy.checkoutStepShipping]);
   const [step, setStep] = useState<CheckoutStep>('contact');
   const recoveryHandled = useRef(false);
   const checkoutTracked = useRef(false);
@@ -309,23 +328,36 @@ function CheckoutPageContent({ initialShopCopy }: CheckoutPageClientProps) {
     return Object.keys(newErrors).length === 0;
   };
 
-  const goToNextStep = async () => {
+  const scrollStepIntoView = () => {
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const goToNextStep = () => {
     setSubmitError('');
     if (step === 'contact' && validateContactStep()) {
-      await trackCheckoutRecovery(formData.email);
+      void trackCheckoutRecovery(formData.email);
       setStep('shipping');
+      scrollStepIntoView();
       return;
     }
     if (step === 'shipping' && validateShippingStep()) {
       setReviewSubmitReady(false);
       setStep('review');
+      scrollStepIntoView();
     }
   };
 
   const goToPreviousStep = () => {
     setSubmitError('');
-    if (step === 'review') setStep('shipping');
-    else if (step === 'shipping') setStep('contact');
+    if (step === 'review') {
+      setStep('shipping');
+      scrollStepIntoView();
+    } else if (step === 'shipping') {
+      setStep('contact');
+      scrollStepIntoView();
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -358,8 +390,17 @@ function CheckoutPageContent({ initialShopCopy }: CheckoutPageClientProps) {
       });
 
       const payload = await response.json();
-      const { sessionId, error, e2e } = payload;
-      if (!response.ok || !sessionId) {
+      const { sessionId, error, e2e, manualRequest, orderId, accessToken } = payload;
+      if (!response.ok) {
+        throw new Error(error || 'Failed to create checkout session');
+      }
+
+      if (manualRequest && orderId && accessToken) {
+        router.push(`/checkout/success?order=${encodeURIComponent(orderId)}&t=${encodeURIComponent(accessToken)}`);
+        return;
+      }
+
+      if (!sessionId) {
         throw new Error(error || 'Failed to create checkout session');
       }
 
@@ -468,15 +509,19 @@ function CheckoutPageContent({ initialShopCopy }: CheckoutPageClientProps) {
             <span className="text-gray-900">−{formatPrice(promoDiscount.amount)}</span>
           </div>
         )}
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-600">Tax</span>
-          <span className="text-gray-900">Calculated by Stripe</span>
-        </div>
+        {!isManualCheckout && automaticTaxEnabled && (
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-600">Tax</span>
+            <span className="text-gray-900">Calculated at payment</span>
+          </div>
+        )}
         <div className="border-t border-gray-200 pt-2 flex justify-between font-semibold text-lg">
-          <span>Estimated total</span>
+          <span>{!isManualCheckout && automaticTaxEnabled ? 'Estimated total' : 'Total'}</span>
           <span>{formatPrice(total)}</span>
         </div>
-        <p className="text-xs text-gray-500 pt-1">Final tax is calculated securely at payment when Stripe automatic tax is enabled.</p>
+        {!isManualCheckout && automaticTaxEnabled && (
+          <p className="text-xs text-gray-500 pt-1">Final tax is calculated securely at payment.</p>
+        )}
       </div>
     </div>
   );
@@ -507,25 +552,44 @@ function CheckoutPageContent({ initialShopCopy }: CheckoutPageClientProps) {
           </div>
 
           <div className="order-2 lg:order-none">
-            <div className="mb-6 flex items-center gap-2">
+            <div className="mb-6 flex items-center gap-3">
               {checkoutSteps.map((entry, index) => {
                 const activeIndex = checkoutSteps.findIndex((item) => item.id === step);
                 const isComplete = index < activeIndex;
                 const isCurrent = entry.id === step;
+                const hasConnector = index < checkoutSteps.length - 1;
                 return (
-                  <div key={entry.id} className="flex items-center gap-2 flex-1 min-w-0">
-                    <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${isCurrent ? 'bg-primary text-white' : isComplete ? 'bg-primary/10 text-primary' : 'bg-gray-200 text-gray-600'}`}>
+                  <div
+                    key={entry.id}
+                    className={`flex items-center gap-2.5 min-w-0 ${hasConnector ? 'flex-1' : 'shrink-0'}`}
+                  >
+                    <div
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
+                        isCurrent
+                          ? 'bg-primary text-white'
+                          : isComplete
+                            ? 'bg-primary/15 text-primary'
+                            : 'bg-gray-200/90 text-gray-700'
+                      }`}
+                    >
                       {index + 1}
                     </div>
-                    <span className={`text-sm truncate ${isCurrent ? 'font-semibold text-gray-900' : 'text-gray-600'}`}>{entry.label}</span>
-                    {index < checkoutSteps.length - 1 && <div className="hidden sm:block h-px flex-1 bg-gray-200" />}
+                    <span className={`text-sm whitespace-nowrap ${isCurrent ? 'font-semibold text-gray-900' : 'text-gray-600'}`}>
+                      {entry.label}
+                    </span>
+                    {hasConnector && (
+                      <div
+                        aria-hidden="true"
+                        className={`hidden sm:block h-px flex-1 ${isComplete ? 'bg-primary/60' : 'bg-gray-400/55'}`}
+                      />
+                    )}
                   </div>
                 );
               })}
             </div>
 
             <h2 className="text-xl font-semibold text-gray-900 mb-6">
-              {step === 'contact' ? 'Contact Information' : step === 'shipping' ? 'Shipping Information' : 'Review & Pay'}
+              {step === 'contact' ? 'Contact Information' : step === 'shipping' ? 'Shipping Information' : isManualCheckout ? 'Review & Request' : 'Review & Pay'}
             </h2>
             
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -752,7 +816,16 @@ function CheckoutPageContent({ initialShopCopy }: CheckoutPageClientProps) {
                 {step === 'review' && (
                 <div className="space-y-4 text-sm text-gray-700">
                   <div>
-                    <p className="font-medium text-gray-900">Contact</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-medium text-gray-900">Contact</p>
+                      <button
+                        type="button"
+                        onClick={() => setStep('contact')}
+                        className="text-xs font-medium text-gray-600 underline underline-offset-2 hover:text-gray-900"
+                      >
+                        Edit
+                      </button>
+                    </div>
                     <p>{formData.email}</p>
                     {promoDiscount
                       ? <p>Promo: {promoDiscount.code} (−{formatPrice(promoDiscount.amount)})</p>
@@ -761,7 +834,16 @@ function CheckoutPageContent({ initialShopCopy }: CheckoutPageClientProps) {
                         : null}
                   </div>
                   <div>
-                    <p className="font-medium text-gray-900">Ship to</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-medium text-gray-900">Ship to</p>
+                      <button
+                        type="button"
+                        onClick={() => setStep('shipping')}
+                        className="text-xs font-medium text-gray-600 underline underline-offset-2 hover:text-gray-900"
+                      >
+                        Edit
+                      </button>
+                    </div>
                     <p>{formData.firstName} {formData.lastName}</p>
                     <p>{formData.address}</p>
                     <p>{formData.city}, {formData.state} {formData.postalCode}</p>
@@ -803,7 +885,16 @@ function CheckoutPageContent({ initialShopCopy }: CheckoutPageClientProps) {
                       </div>
                     )}
                   </div>
-                  <p className="text-gray-600">Payment is processed securely by Stripe on the next step.</p>
+                  {isManualCheckout ? (
+                    <div className="rounded-lg border border-gray-200 bg-surface-muted/60 p-3.5 text-sm text-gray-700">
+                      <p className="font-medium text-gray-900">Direct studio payment</p>
+                      <p className="mt-1 text-gray-600">{manualPaymentInstructions}</p>
+                    </div>
+                  ) : (
+                    <p className="text-gray-600">
+                      Your contact and shipping details carry over to Stripe — you won’t need to enter them again.
+                    </p>
+                  )}
                 </div>
                 )}
               </div>
@@ -813,7 +904,7 @@ function CheckoutPageContent({ initialShopCopy }: CheckoutPageClientProps) {
                   <button
                     type="button"
                     onClick={goToPreviousStep}
-                    className="w-full sm:w-auto px-6 py-3 rounded-lg border border-gray-300 text-gray-900 hover:bg-gray-50"
+                    className="w-full sm:w-auto px-6 py-3 rounded-button border border-gray-300 bg-surface text-gray-900 hover:bg-surface-muted transition-colors"
                   >
                     Back
                   </button>
@@ -839,21 +930,21 @@ function CheckoutPageContent({ initialShopCopy }: CheckoutPageClientProps) {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    Processing...
+                    {isManualCheckout ? 'Sending request...' : 'Processing...'}
                   </>
                 ) : (
                   <>
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                     </svg>
-                    Complete Purchase ({formatPrice(total)})
+                    {isManualCheckout ? `Request to Purchase (${formatPrice(total)})` : `Complete Purchase (${formatPrice(total)})`}
                   </>
                 )}
               </button>
                 )}
               </div>
 
-              {step === 'review' && (
+              {step === 'review' && !isManualCheckout && (
               <p className="text-sm text-gray-500 text-center">{shopCopy.checkoutTrustCopy}</p>
               )}
             </form>

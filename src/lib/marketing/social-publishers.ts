@@ -40,12 +40,11 @@ function isAutoPublishMode(value?: string): boolean {
   return ['auto', 'api', 'direct'].includes((value || '').trim().toLowerCase());
 }
 
-function normalizeProvider(value?: string): SocialProvider | undefined {
+function normalizeProvider(value?: string): SocialProvider {
   const provider = (value || '').trim().toLowerCase();
   if (provider === 'ayrshare') return 'ayrshare';
   if (provider === 'meta' || provider === 'facebook') return 'meta';
-  if (provider === 'assist' || provider === 'manual') return 'assist';
-  return undefined;
+  return 'assist';
 }
 
 function parseStringArray(value: unknown): string[] {
@@ -60,10 +59,13 @@ function parseStringArray(value: unknown): string[] {
   }
 }
 
-function safeUrl(value?: string): string | undefined {
+function safeUrl(value?: string, baseUrl?: string): string | undefined {
   if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
   try {
-    return new URL(value).toString();
+    const resolved = baseUrl ? new URL(trimmed, baseUrl) : new URL(trimmed);
+    return resolved.protocol === 'http:' || resolved.protocol === 'https:' ? resolved.toString() : undefined;
   } catch {
     return undefined;
   }
@@ -87,7 +89,9 @@ function normalizeAyrsharePlatform(platform: string): string {
 async function buildShareAssist(post: SocialPostRecord): Promise<ShareAssistPayload> {
   const platform = post.platform.toLowerCase();
   const siteUrl = await getPublicSiteUrl();
-  const mediaUrls = parseStringArray(post.mediaUrls).map(safeUrl).filter((url): url is string => Boolean(url));
+  const mediaUrls = parseStringArray(post.mediaUrls)
+    .map((url) => safeUrl(url, siteUrl))
+    .filter((url): url is string => Boolean(url));
   const caption = post.content.trim();
   const links: ShareAssistLink[] = [];
 
@@ -167,15 +171,16 @@ async function publishFacebookPagePost(post: SocialPostRecord): Promise<SocialPu
 async function publishInstagramBusinessPost(post: SocialPostRecord): Promise<SocialPublishResult | null> {
   if (post.platform.toLowerCase() !== 'instagram') return null;
 
-  const [mode, pageId, accessToken] = await Promise.all([
+  const [mode, pageId, accessToken, siteUrl] = await Promise.all([
     getConfig('SOCIAL_PUBLISH_MODE'),
     getConfig('FACEBOOK_PAGE_ID'),
     getConfig('FACEBOOK_ACCESS_TOKEN'),
+    getPublicSiteUrl(),
   ]);
   if (!isAutoPublishMode(mode)) return null;
   if (!pageId || !accessToken) return null;
 
-  const imageUrl = parseStringArray(post.mediaUrls).map(safeUrl).find(Boolean);
+  const imageUrl = parseStringArray(post.mediaUrls).map((url) => safeUrl(url, siteUrl)).find(Boolean);
   if (!imageUrl) return { mode: 'api', status: 'failed', error: 'Instagram auto-publish requires one public image URL' };
 
   try {
@@ -224,14 +229,17 @@ async function publishInstagramBusinessPost(post: SocialPostRecord): Promise<Soc
 }
 
 async function publishViaAyrshare(post: SocialPostRecord): Promise<SocialPublishResult | null> {
-  const [mode, apiKey] = await Promise.all([
+  const [mode, apiKey, siteUrl] = await Promise.all([
     getConfig('SOCIAL_PUBLISH_MODE'),
     getConfig('AYRSHARE_API_KEY'),
+    getPublicSiteUrl(),
   ]);
   if (!isAutoPublishMode(mode)) return null;
   if (!apiKey) return null;
 
-  const mediaUrls = parseStringArray(post.mediaUrls).map(safeUrl).filter((url): url is string => Boolean(url));
+  const mediaUrls = parseStringArray(post.mediaUrls)
+    .map((url) => safeUrl(url, siteUrl))
+    .filter((url): url is string => Boolean(url));
   const payload = {
     post: post.content,
     platforms: [normalizeAyrsharePlatform(post.platform)],
@@ -275,7 +283,7 @@ export async function publishSocialPost(post: SocialPostRecord): Promise<SocialP
   const provider = normalizeProvider(await getConfig('SOCIAL_PROVIDER'));
   const apiResult = provider === 'ayrshare'
     ? await publishViaAyrshare(post)
-    : provider === 'meta' || provider === undefined
+    : provider === 'meta'
       ? await publishFacebookPagePost(post) || await publishInstagramBusinessPost(post)
       : null;
   if (apiResult?.status === 'published') return apiResult;

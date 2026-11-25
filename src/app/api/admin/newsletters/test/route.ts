@@ -6,7 +6,12 @@ import { sanitizeNewsletterDocument } from '@/lib/admin-content';
 import { getSiteUrl } from '@/lib/config';
 import { getEmailDeliveryStatus } from '@/lib/email';
 import { sendNewsletterTest } from '@/lib/marketing/campaign-execution';
-import { newsletterContentIssues, newsletterDocumentSchema } from '@/lib/newsletter';
+import {
+  getAutomationEmailDefinition,
+  isAutomationEmailId,
+  newsletterContentIssues,
+  newsletterDocumentSchema,
+} from '@/lib/newsletter';
 import { normalizeSubscriberEmail } from '@/lib/newsletter-subscribers';
 
 export const dynamic = 'force-dynamic';
@@ -16,6 +21,8 @@ const MAX_TEST_RECIPIENTS = 5;
 const testSchema = z.object({
   document: newsletterDocumentSchema,
   emails: z.array(z.string()).max(MAX_TEST_RECIPIENTS),
+  automationId: z.string().optional(),
+  promoCode: z.string().max(64).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -30,11 +37,16 @@ export async function POST(request: NextRequest) {
       throw new ApiError(400, 'Enter valid email addresses, separated by commas.', 'INVALID_EMAIL');
     }
 
-    const issues = newsletterContentIssues(document, { siteUrl: await getSiteUrl() });
+    const automationId = payload.automationId && isAutomationEmailId(payload.automationId)
+      ? payload.automationId
+      : undefined;
+    const audienceKind = automationId ? getAutomationEmailDefinition(automationId).audienceKind : 'subscriber';
+
+    const issues = newsletterContentIssues(document, { siteUrl: await getSiteUrl() }, { audienceKind });
     if (issues.length > 0) throw new ApiError(400, issues[0].message, 'NOT_READY', issues);
 
     const [result, delivery] = await Promise.all([
-      sendNewsletterTest(document, emails as string[]),
+      sendNewsletterTest(document, emails as string[], automationId ? { automationId, promoCode: payload.promoCode } : undefined),
       getEmailDeliveryStatus(),
     ]);
     return NextResponse.json({ ...result, deliveryMode: delivery.mode });

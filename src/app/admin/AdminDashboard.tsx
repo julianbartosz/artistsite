@@ -200,7 +200,11 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
       params.delete('page');
       params.delete('section');
     }
-    if (tab !== 'newsletter') params.delete('newsletter');
+    if (tab !== 'newsletter') {
+      params.delete('newsletter');
+      params.delete('automation');
+      params.delete('view');
+    }
     if (tab === 'products' && options?.product) {
       params.set('product', options.product);
     } else {

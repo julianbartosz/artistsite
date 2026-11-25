@@ -520,7 +520,7 @@ export class RecommendationService {
       return {
         type: 'similar',
         products: similar,
-        reason: `Similar ${sourceProduct.category.toLowerCase()} artworks`,
+        reason: sourceProduct.category ? `More in ${sourceProduct.category}` : 'More from the studio',
         score: similar.length > 0 ? 0.8 : 0
       };
     } catch (error) {

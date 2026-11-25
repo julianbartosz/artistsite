@@ -148,6 +148,31 @@ export function generateOrganizationSchema({
   };
 }
 
+export function generateWebSiteSchema({
+  name,
+  alternateNames,
+  description,
+  siteUrl,
+}: {
+  name: string;
+  alternateNames?: string[];
+  description?: string;
+  siteUrl: string;
+}): WithContext<Thing> {
+  const uniqueAlternates = Array.from(
+    new Set((alternateNames ?? []).map((entry) => entry.trim()).filter((entry) => entry && entry.toLowerCase() !== name.trim().toLowerCase())),
+  );
+
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name,
+    ...(uniqueAlternates.length > 0 ? { alternateName: uniqueAlternates } : {}),
+    description: description || undefined,
+    url: siteUrl || undefined,
+  };
+}
+
 export function generateBreadcrumbSchema(items: Array<{ name: string; url: string }>, siteUrl: string): WithContext<Thing> {
   return {
     '@context': 'https://schema.org',

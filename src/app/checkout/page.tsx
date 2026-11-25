@@ -1,11 +1,24 @@
+import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { getSiteContent } from '@/lib/site-content';
+import { getCheckoutRuntimeConfig } from '@/lib/stripe';
 import CheckoutPageClient from './CheckoutPageClient';
 
 export const dynamic = 'force-dynamic';
 
+export const metadata: Metadata = {
+  title: 'Checkout',
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
+
 export default async function CheckoutPage() {
-  const shop = await getSiteContent('shop');
+  const [shop, checkoutConfig] = await Promise.all([
+    getSiteContent('shop'),
+    getCheckoutRuntimeConfig(),
+  ]);
 
   return (
     <Suspense
@@ -15,7 +28,12 @@ export default async function CheckoutPage() {
         </div>
       }
     >
-      <CheckoutPageClient initialShopCopy={shop} />
+      <CheckoutPageClient
+        initialShopCopy={shop}
+        checkoutMode={checkoutConfig.checkoutMode}
+        manualPaymentInstructions={checkoutConfig.manualPaymentInstructions}
+        automaticTaxEnabled={checkoutConfig.automaticTaxEnabled}
+      />
     </Suspense>
   );
 }

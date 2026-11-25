@@ -1,29 +1,35 @@
 'use client';
 
 import React, { FormEvent, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { adminSettingFieldHref } from '@/components/AdminSettings';
 import MediaImageField from '@/components/admin/MediaImageField';
 import { EditorSection, HtmlField, TextField, reorder } from '@/components/admin/EditorFields';
 import { useUnsavedChangesGuard } from '@/components/admin/useUnsavedChangesGuard';
 import { formatPrice } from '@/lib/commerce';
+import { isResendSandboxSender } from '@/lib/email-shell';
 import { pickVariantUrl } from '@/lib/image-variant-url';
 import {
+  AUTOMATION_EMAIL_IDS,
   NEWSLETTER_BLOCK_LABELS,
-  NEWSLETTER_MERGE_FIELDS,
   applyMergeFields,
   createNewsletterBlock,
   createNewsletterDraft,
   mergeFieldToken,
+  mergeFieldsForAudience,
   newsletterContentIssues,
   newsletterMergeValues,
   newsletterSendIssues,
   personalizeNewsletter,
   renderNewsletter,
+  type AutomationAudienceKind,
+  type AutomationEmailSummary,
   type NewsletterAdminContext,
   type NewsletterBlock,
   type NewsletterBlockType,
   type NewsletterDocument,
   type NewsletterIssue,
+  type NewsletterRenderContext,
   type NewsletterStatus,
   type NewsletterSummary,
 } from '@/lib/newsletter';
@@ -115,6 +121,8 @@ const SETTING_FOR_ISSUE: Record<string, string> = {
   'site-url': 'NEXT_PUBLIC_SITE_URL',
   address: 'NEWSLETTER_FOOTER_ADDRESS',
   delivery: 'EMAIL_DELIVERY_MODE',
+  'sandbox-sender': 'SMTP_FROM',
+  scheduler: 'CRON_SECRET',
 };
 
 function blockElementId(blockId: string): string {
@@ -125,26 +133,77 @@ function blockElementId(blockId: string): string {
 // Inbox preview
 // ---------------------------------------------------------------------------
 
-function renderPreviewHtml(document: NewsletterDocument, context: NewsletterAdminContext) {
+function previewRenderContext(
+  context: NewsletterAdminContext,
+  audienceKind: AutomationAudienceKind = 'subscriber',
+): NewsletterRenderContext {
+  if (audienceKind === 'checkout') {
+    return {
+      ...context,
+      footerReason: `You are receiving this reminder because you began checking out at ${context.siteName}.`,
+      includeUnsubscribe: false,
+    };
+  }
+  return context;
+}
+
+function previewMergeValues(
+  context: NewsletterAdminContext,
+  audienceKind: AutomationAudienceKind = 'subscriber',
+  promoCode?: string,
+) {
+  const baseUrl = context.siteUrl ? context.siteUrl.replace(/\/$/, '') : 'https://example.com';
+  return newsletterMergeValues(
+    context.testRecipient,
+    context,
+    '#',
+    audienceKind === 'checkout'
+      ? {
+          checkout_url: `${baseUrl}/checkout`,
+          promo_code: promoCode?.trim() || 'STUDIO10',
+        }
+      : undefined,
+  );
+}
+
+function renderPreviewHtml(
+  document: NewsletterDocument,
+  context: NewsletterAdminContext,
+  audienceKind: AutomationAudienceKind = 'subscriber',
+  promoCode?: string,
+) {
+  const renderContext = previewRenderContext(context, audienceKind);
   const rendered = personalizeNewsletter(
-    renderNewsletter(document, context),
-    newsletterMergeValues(context.testRecipient, context, '#'),
+    renderNewsletter(document, renderContext),
+    previewMergeValues(context, audienceKind, promoCode),
   );
   return { ...rendered, html: rendered.html.replace('<head>', '<head><base target="_blank">') };
 }
 
-export function NewsletterPreview({ document, context, dirty = false }: { document: NewsletterDocument; context: NewsletterAdminContext; dirty?: boolean }) {
+export function NewsletterPreview({
+  document,
+  context,
+  dirty = false,
+  audienceKind = 'subscriber',
+  promoCode,
+}: {
+  document: NewsletterDocument;
+  context: NewsletterAdminContext;
+  dirty?: boolean;
+  audienceKind?: AutomationAudienceKind;
+  promoCode?: string;
+}) {
   const [open, setOpen] = useState(true);
   const [width, setWidth] = useState<'desktop' | 'mobile'>('desktop');
-  const [rendered, setRendered] = useState(() => renderPreviewHtml(document, context));
+  const [rendered, setRendered] = useState(() => renderPreviewHtml(document, context, audienceKind, promoCode));
 
   useEffect(() => {
-    const timer = setTimeout(() => setRendered(renderPreviewHtml(document, context)), 250);
+    const timer = setTimeout(() => setRendered(renderPreviewHtml(document, context, audienceKind, promoCode)), 250);
     return () => clearTimeout(timer);
-  }, [document, context]);
+  }, [document, context, audienceKind, promoCode]);
 
   const viewer = context.testRecipient.firstName || context.testRecipient.email;
-  const preheader = applyMergeFields(document.preheader.trim(), newsletterMergeValues(context.testRecipient, context, '#'), 'text');
+  const preheader = applyMergeFields(document.preheader.trim(), previewMergeValues(context, audienceKind, promoCode), 'text');
 
   return (
     <div className="rounded-lg border bg-white overflow-hidden xl:sticky xl:top-4">
@@ -207,7 +266,10 @@ export function NewsletterPreview({ document, context, dirty = false }: { docume
 
 const BLOCK_ORDER: NewsletterBlockType[] = ['text', 'image', 'button', 'product', 'divider'];
 const MAX_BLOCKS = 40;
-const RICH_TEXT_FIELDS = NEWSLETTER_MERGE_FIELDS.map((field) => ({ token: mergeFieldToken(field.key), label: field.label }));
+
+function mergeFieldOptionsFor(audienceKind: AutomationAudienceKind = 'subscriber') {
+  return mergeFieldsForAudience(audienceKind).map((field) => ({ token: mergeFieldToken(field.key), label: field.label }));
+}
 
 type ProductOption = { id: string; title: string; price: number; currency: string; availability: string; images: unknown };
 
@@ -229,7 +291,14 @@ function safeJson(value: string): unknown {
   }
 }
 
-function MergeFieldMenu({ onInsert }: { onInsert: (token: string) => void }) {
+function MergeFieldMenu({
+  onInsert,
+  audienceKind = 'subscriber',
+}: {
+  onInsert: (token: string) => void;
+  audienceKind?: AutomationAudienceKind;
+}) {
+  const options = mergeFieldOptionsFor(audienceKind);
   return (
     <select
       aria-label="Insert personalization field"
@@ -240,7 +309,7 @@ function MergeFieldMenu({ onInsert }: { onInsert: (token: string) => void }) {
       className="rounded border border-gray-300 bg-white px-2 py-0.5 text-xs text-gray-700"
     >
       <option value="">Insert field…</option>
-      {RICH_TEXT_FIELDS.map((field) => <option key={field.token} value={field.token}>{field.label}</option>)}
+      {options.map((field) => <option key={field.token} value={field.token}>{field.label}</option>)}
     </select>
   );
 }
@@ -253,14 +322,16 @@ function BlockFields({
   block,
   onChange,
   products,
+  audienceKind = 'subscriber',
 }: {
   block: NewsletterBlock;
   onChange: (block: NewsletterBlock) => void;
   products: ProductOption[] | null;
+  audienceKind?: AutomationAudienceKind;
 }) {
   switch (block.type) {
     case 'text':
-      return <HtmlField label="Text" value={block.html} onChange={(html) => onChange({ ...block, html })} mergeFields={RICH_TEXT_FIELDS} />;
+      return <HtmlField label="Text" value={block.html} onChange={(html) => onChange({ ...block, html })} mergeFields={mergeFieldOptionsFor(audienceKind)} />;
     case 'image':
       return (
         <div className="space-y-4">
@@ -276,7 +347,12 @@ function BlockFields({
       return (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <TextField label="Button label" value={block.label} onChange={(label) => onChange({ ...block, label })} maxLength={80} placeholder="See the new work" />
-          <TextField label="Link" value={block.href} onChange={(href) => onChange({ ...block, href })} placeholder="https://… or /portfolio" />
+          <TextField
+            label="Link"
+            value={block.href}
+            onChange={(href) => onChange({ ...block, href })}
+            placeholder={audienceKind === 'checkout' ? '{{checkout_url}} or /shop' : 'https://… or /portfolio'}
+          />
         </div>
       );
     case 'product': {
@@ -332,10 +408,12 @@ function BlockList({
   blocks,
   onChange,
   issuesByBlock,
+  audienceKind = 'subscriber',
 }: {
   blocks: NewsletterBlock[];
   onChange: (blocks: NewsletterBlock[]) => void;
   issuesByBlock: Map<string, NewsletterIssue[]>;
+  audienceKind?: AutomationAudienceKind;
 }) {
   const needsProducts = blocks.some((block) => block.type === 'product');
   const [products, setProducts] = useState<ProductOption[] | null>(null);
@@ -368,7 +446,12 @@ function BlockList({
                 <button type="button" className={`${controlClass} hover:text-red-700`} onClick={() => onChange(blocks.filter((entry) => entry.id !== block.id))}>Remove</button>
               </div>
             </div>
-            <BlockFields block={block} products={products} onChange={(next) => onChange(blocks.map((entry) => (entry.id === block.id ? next : entry)))} />
+            <BlockFields
+              block={block}
+              products={products}
+              audienceKind={audienceKind}
+              onChange={(next) => onChange(blocks.map((entry) => (entry.id === block.id ? next : entry)))}
+            />
             {issues.map((issue) => <p key={issue.key} className="mt-3 text-xs text-amber-800">{issue.message}</p>)}
           </div>
         );
@@ -408,7 +491,7 @@ function IssueList({ issues, readyText }: { issues: NewsletterIssue[]; readyText
             <span aria-hidden="true">•</span>
             <span>
               {issue.message}{' '}
-              {setting && <a href={adminSettingFieldHref(setting)} className="font-medium underline">Open Settings</a>}
+              {setting && <Link href={adminSettingFieldHref(setting)} className="font-medium underline">Open Settings</Link>}
               {issue.blockId && (
                 <button
                   type="button"
@@ -514,6 +597,44 @@ export function NewsletterEditor({ newsletter, context, onSaved, onDeleted, onSt
         setNotice({ tone: 'error', text: 'SMTP setup isn’t finished in Settings, so the test wasn’t sent.' });
       }
     });
+  }
+
+  async function copyManualDraft(format: 'text' | 'html') {
+    try {
+      const rendered = personalizeNewsletter(
+        renderNewsletter(draft, context),
+        newsletterMergeValues(
+          { email: context.testRecipient.email, firstName: '' },
+          context,
+          context.siteUrl ? `${context.siteUrl.replace(/\/+$/, '')}/subscribe` : '#',
+        ),
+      );
+      const payload = format === 'html'
+        ? rendered.html
+        : `Subject: ${rendered.subject}\n\n${rendered.text}`;
+      await navigator.clipboard.writeText(payload);
+      setNotice({
+        tone: 'success',
+        text: format === 'html' ? 'Newsletter HTML copied to clipboard.' : 'Newsletter subject and text copied to clipboard.',
+      });
+    } catch {
+      setNotice({ tone: 'error', text: 'Could not access clipboard in this browser.' });
+    }
+  }
+
+  async function copySubscriberEmails() {
+    try {
+      const data = await newsletterRequest<{ subscribers: Array<{ email: string }> }>('/api/admin/newsletters/subscribers');
+      const emails = data.subscribers.map((entry) => entry.email).filter(Boolean);
+      if (emails.length === 0) {
+        setNotice({ tone: 'info', text: 'No subscribers yet.' });
+        return;
+      }
+      await navigator.clipboard.writeText(emails.join(', '));
+      setNotice({ tone: 'success', text: `Copied ${emails.length} subscriber ${emails.length === 1 ? 'email' : 'emails'} for BCC.` });
+    } catch {
+      setNotice({ tone: 'error', text: 'Could not copy subscriber emails.' });
+    }
   }
 
   function handleSend() {
@@ -636,6 +757,47 @@ export function NewsletterEditor({ newsletter, context, onSaved, onDeleted, onSt
               </button>
             </div>
 
+            <button type="button" onClick={handleSend} disabled={sendDisabled} className="btn-primary w-full px-5 py-2.5 disabled:opacity-50">
+              {busy === 'send' ? 'Starting send…' : `Send now to ${subscriberLabel(context.subscriberCount)}`}
+            </button>
+
+            {context.deliveryMode !== 'smtp' && (
+              <div className="rounded-md border border-gray-200 bg-gray-50 p-4 space-y-2.5">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Send manually without SMTP</p>
+                  <p className="mt-0.5 text-xs text-gray-600">
+                    Copy this draft and your subscriber list to send from Gmail, Apple Mail, or Substack — or{' '}
+                    <Link href={adminSettingFieldHref('EMAIL_DELIVERY_MODE')} className="font-medium text-gray-800 underline hover:text-gray-900">
+                      enable SMTP in Settings →
+                    </Link>
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void copyManualDraft('text')}
+                    className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    Copy text
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void copyManualDraft('html')}
+                    className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    Copy HTML
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void copySubscriberEmails()}
+                    className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    Copy subscriber emails ({context.subscriberCount.toLocaleString()})
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="rounded-md bg-gray-50 p-4 space-y-3">
               {scheduled ? (
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -645,25 +807,22 @@ export function NewsletterEditor({ newsletter, context, onSaved, onDeleted, onSt
               ) : (
                 <>
                   <label className="block text-sm font-medium text-gray-700">
-                    Send later
+                    Schedule for later (optional)
                     <input
                       type="datetime-local"
                       value={scheduleAt}
                       min={toLocalInputValue(new Date().toISOString())}
                       onChange={(event) => setScheduleAt(event.target.value)}
-                      disabled={!context.schedulingAvailable}
-                      className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 disabled:bg-gray-100 disabled:text-gray-500"
+                      className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900"
                     />
                     <span className="mt-1 block text-xs font-normal text-gray-500">
-                      {context.schedulingAvailable
-                        ? `Your time zone: ${timezone}.`
-                        : <>Scheduling needs automations. <a href={adminSettingFieldHref('CRON_SECRET')} className="underline">Set the automation secret</a>.</>}
+                      Your time zone: {timezone}. Built-in scheduling checks automatically every 30 minutes.
                     </span>
                   </label>
                   <button
                     type="button"
                     onClick={handleSchedule}
-                    disabled={sendDisabled || !scheduleAt || !context.schedulingAvailable}
+                    disabled={sendDisabled || !scheduleAt}
                     className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                   >
                     {busy === 'schedule' ? 'Scheduling…' : 'Schedule'}
@@ -671,10 +830,6 @@ export function NewsletterEditor({ newsletter, context, onSaved, onDeleted, onSt
                 </>
               )}
             </div>
-
-            <button type="button" onClick={handleSend} disabled={sendDisabled} className="btn-primary w-full px-5 py-2.5 disabled:opacity-50">
-              {busy === 'send' ? 'Starting send…' : `Send now to ${subscriberLabel(context.subscriberCount)}`}
-            </button>
           </EditorSection>
 
           <div className="flex items-center justify-between gap-3">
@@ -801,6 +956,348 @@ export function NewsletterReport({ newsletter, context, onSaved, onDeleted, onDu
         </div>
 
         <NewsletterPreview document={newsletter.document} context={context} />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Automation email editor (reuses Envelope, Blocks, Preview, and Test Send)
+// ---------------------------------------------------------------------------
+
+type AutomationEditorProps = {
+  automation: AutomationEmailSummary;
+  context: NewsletterAdminContext;
+  onSaved: (automation: AutomationEmailSummary) => void;
+  onStale: () => void;
+  onBack: () => void;
+};
+
+type AutomationBusyAction = 'save' | 'test' | 'reset';
+
+function automationReadinessIssues(
+  automation: AutomationEmailSummary,
+  enabled: boolean,
+  context: NewsletterAdminContext,
+  contentIssues: NewsletterIssue[],
+): NewsletterIssue[] {
+  const issues = [...contentIssues];
+  if (!context.siteUrl) {
+    issues.push({ key: 'site-url', message: 'Set your public site URL in Settings so links work in email.' });
+  }
+  if (automation.audienceKind === 'subscriber' && !context.footerAddress.trim()) {
+    issues.push({ key: 'address', message: 'Add a mailing address for the email footer in Settings (required by anti-spam law).' });
+  }
+  if (context.deliveryMode === 'log') {
+    issues.push({ key: 'delivery', message: 'Email delivery is in log mode. Switch to SMTP in Settings so automated emails reach inboxes.' });
+  } else if (context.deliveryMode === 'unconfigured') {
+    issues.push({ key: 'delivery', message: 'Finish SMTP setup in Settings → Email delivery so automated emails can send.' });
+  } else if (isResendSandboxSender(context.fromAddress)) {
+    issues.push({ key: 'sandbox-sender', message: 'From address uses Resend sandbox (onboarding@resend.dev), which only delivers to your Resend account email.' });
+  }
+  return issues;
+}
+
+export function AutomationEmailEditor({ automation, context, onSaved, onStale, onBack }: AutomationEditorProps) {
+  const [draft, setDraft] = useState<NewsletterDocument>(() => automation.document);
+  const [enabled, setEnabled] = useState<boolean>(() => automation.enabled);
+  const [winbackDays, setWinbackDays] = useState<string>(() => String(automation.winbackDays ?? 45));
+  const [promoCode, setPromoCode] = useState<string>(() => automation.cartRecoveryPromoCode ?? '');
+  const [baseline, setBaseline] = useState(() => JSON.stringify({
+    draft: automation.document,
+    enabled: automation.enabled,
+    winbackDays: String(automation.winbackDays ?? 45),
+    promoCode: automation.cartRecoveryPromoCode ?? '',
+  }));
+  const [testEmails, setTestEmails] = useState(context.testRecipient.email);
+  const { busy, notice, setNotice, run } = useNewsletterAction<AutomationBusyAction>(onStale);
+
+  const currentSnapshot = useMemo(() => JSON.stringify({ draft, enabled, winbackDays, promoCode }), [draft, enabled, winbackDays, promoCode]);
+  const dirty = currentSnapshot !== baseline;
+  const contentIssues = useMemo(
+    () => newsletterContentIssues(draft, context, { audienceKind: automation.audienceKind }),
+    [draft, context, automation.audienceKind],
+  );
+  const readinessIssues = useMemo(
+    () => automationReadinessIssues(automation, enabled, context, contentIssues),
+    [automation, enabled, context, contentIssues],
+  );
+  const issuesByBlock = useMemo(() => {
+    const map = new Map<string, NewsletterIssue[]>();
+    for (const issue of contentIssues) {
+      if (issue.blockId) map.set(issue.blockId, [...(map.get(issue.blockId) ?? []), issue]);
+    }
+    return map;
+  }, [contentIssues]);
+
+  useUnsavedChangesGuard(dirty);
+
+  const update = (patch: Partial<NewsletterDocument>) => setDraft((current) => ({ ...current, ...patch }));
+
+  const isWinback = automation.id === AUTOMATION_EMAIL_IDS.collectorWinback;
+  const isCartRecovery = automation.id === AUTOMATION_EMAIL_IDS.cartRecovery;
+  const documentChangedFromDefault = JSON.stringify(draft) !== JSON.stringify(automation.defaultDocument);
+
+  function syncSavedState(saved: AutomationEmailSummary) {
+    const nextWinback = String(saved.winbackDays ?? 45);
+    const nextPromo = saved.cartRecoveryPromoCode ?? '';
+    setDraft(saved.document);
+    setEnabled(saved.enabled);
+    setWinbackDays(nextWinback);
+    setPromoCode(nextPromo);
+    setBaseline(JSON.stringify({
+      draft: saved.document,
+      enabled: saved.enabled,
+      winbackDays: nextWinback,
+      promoCode: nextPromo,
+    }));
+    onSaved(saved);
+  }
+
+  function handleSave(event: FormEvent) {
+    event.preventDefault();
+    void run('save', async () => {
+      const parsedDays = Number.parseInt(winbackDays.trim(), 10);
+      const body: Record<string, unknown> = {
+        enabled,
+        ...(automation.customized || documentChangedFromDefault ? { document: draft } : {}),
+        ...(isWinback && Number.isFinite(parsedDays) ? { winbackDays: Math.max(14, Math.min(365, parsedDays)) } : {}),
+        ...(isCartRecovery ? { cartRecoveryPromoCode: promoCode.trim() } : {}),
+      };
+      const { automation: saved } = await newsletterRequest<{ automation: AutomationEmailSummary }>(
+        `/api/admin/newsletters/${automation.id}`,
+        { method: 'PUT', body },
+      );
+      syncSavedState(saved);
+      setNotice({ tone: 'success', text: 'Automation email saved.' });
+    });
+  }
+
+  function handleReset() {
+    if (!window.confirm('Restore the default wording and layout for this automation email? Your custom edits will be replaced.')) return;
+    void run('reset', async () => {
+      const { automation: saved } = await newsletterRequest<{ automation: AutomationEmailSummary }>(
+        `/api/admin/newsletters/${automation.id}`,
+        { method: 'PUT', body: { resetToDefault: true } },
+      );
+      syncSavedState(saved);
+      setNotice({ tone: 'info', text: 'Restored to the default studio template.' });
+    });
+  }
+
+  function handleTest() {
+    const emails = testEmails.split(',').map((email) => email.trim()).filter(Boolean);
+    void run('test', async () => {
+      const result = await newsletterRequest<{ delivered: string[]; failed: string[]; deliveryMode: string }>(
+        '/api/admin/newsletters/test',
+        {
+          method: 'POST',
+          body: {
+            document: draft,
+            emails,
+            automationId: automation.id,
+            ...(isCartRecovery ? { promoCode: promoCode.trim() } : {}),
+          },
+        },
+      );
+      if (result.failed.length) {
+        setNotice({ tone: 'error', text: `Couldn’t deliver the test to ${result.failed.join(', ')}. Check Email delivery in Settings.` });
+      } else if (result.deliveryMode === 'smtp') {
+        setNotice({ tone: 'success', text: `Test sent to ${result.delivered.join(', ')}.` });
+      } else if (result.deliveryMode === 'log') {
+        setNotice({ tone: 'info', text: 'Email delivery is in log mode, so the test was written to the server log instead of an inbox.' });
+      } else {
+        setNotice({ tone: 'error', text: 'SMTP setup isn’t finished in Settings, so the test wasn’t sent.' });
+      }
+    });
+  }
+
+  function handleBack() {
+    if (dirty && !window.confirm('You have unsaved changes. Leave this automation email anyway?')) return;
+    onBack();
+  }
+
+  const readyText = enabled
+    ? `Active · sends automatically (${automation.triggerSummary.toLowerCase()}).`
+    : 'Template looks good. Turn this automation on above when you want it to send automatically.';
+
+  return (
+    <div className="space-y-6" data-testid="automation-email-editor">
+      <button type="button" onClick={handleBack} className="text-sm font-medium text-gray-700 hover:text-gray-900">
+        ← All automations
+      </button>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2 xl:items-start">
+        <form onSubmit={handleSave} className="rounded-lg border bg-white p-6 space-y-6">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-semibold text-gray-900">{automation.title}</h2>
+              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${enabled ? 'bg-green-50 text-green-800' : 'bg-gray-100 text-gray-700'}`}>
+                {enabled ? 'On' : 'Off'}
+              </span>
+              {automation.customized && (
+                <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-800">Custom</span>
+              )}
+            </div>
+            <p className="mt-1 text-sm text-gray-600">{automation.description}</p>
+            {(automation.metrics.delivered > 0 || automation.metrics.failed > 0) && (
+              <p className="mt-1.5 text-xs text-gray-500">
+                {automation.metrics.delivered.toLocaleString()} delivered
+                {automation.metrics.failed ? ` · ${automation.metrics.failed.toLocaleString()} failed` : ''}
+                {automation.metrics.lastSentAt ? ` · Last sent ${formatNewsletterDate(automation.metrics.lastSentAt)}` : ''}
+              </p>
+            )}
+          </div>
+
+          <NoticeBanner notice={notice} />
+
+          <EditorSection title="Automation" defaultOpen>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-gray-50 px-4 py-3">
+              <div>
+                <p className="text-sm font-medium text-gray-900">Automatic sending</p>
+                <p className="text-xs text-gray-500">Trigger: {automation.triggerSummary}</p>
+              </div>
+              <div className="flex rounded-md border border-gray-300 bg-white text-xs font-medium" role="group" aria-label="Automation status">
+                <button
+                  type="button"
+                  onClick={() => setEnabled(true)}
+                  aria-pressed={enabled}
+                  className={`px-3 py-1.5 rounded-l-md ${enabled ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-50'}`}
+                >
+                  On
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEnabled(false)}
+                  aria-pressed={!enabled}
+                  className={`px-3 py-1.5 rounded-r-md ${!enabled ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-50'}`}
+                >
+                  Off
+                </button>
+              </div>
+            </div>
+
+            {isWinback && (
+              <label className="block text-sm font-medium text-gray-700">
+                Quiet period before sending (days)
+                <input
+                  type="number"
+                  min={14}
+                  max={365}
+                  value={winbackDays}
+                  onChange={(event) => setWinbackDays(event.target.value)}
+                  className="mt-1 block h-10 w-36 rounded-md border border-gray-300 px-3 py-2 text-sm font-normal text-gray-900"
+                />
+                <span className="mt-1 block text-xs font-normal text-gray-500">
+                  Minimum days since last visit, order, or signup (14–365).
+                </span>
+              </label>
+            )}
+
+            {isCartRecovery && (
+              <TextField
+                label="Promo code (optional)"
+                value={promoCode}
+                onChange={setPromoCode}
+                maxLength={64}
+                placeholder="e.g. WELCOME10"
+                help="Optional active promo code from Marketing → Campaigns. Use {{promo_code}} anywhere in this email to insert it."
+              />
+            )}
+
+            <IssueList issues={readinessIssues} readyText={readyText} />
+          </EditorSection>
+
+          <EditorSection title="Envelope" defaultOpen>
+            <TextField
+              label="From name"
+              value={draft.fromName}
+              onChange={(fromName) => update({ fromName })}
+              placeholder={context.siteName}
+              maxLength={80}
+              help={`Sent from ${context.fromAddress || 'your SMTP address'}${context.replyTo ? ` · replies go to ${context.replyTo}` : ''}.`}
+            />
+            <div>
+              <TextField label="Subject" value={draft.subject} onChange={(subject) => update({ subject })} maxLength={200} />
+              <div className="mt-1 flex items-center justify-between gap-3 text-xs text-gray-500">
+                <span>{draft.subject.length}/200 · Inboxes show about the first 60 characters.</span>
+                <MergeFieldMenu
+                  audienceKind={automation.audienceKind}
+                  onInsert={(token) => update({ subject: appendToken(draft.subject, token) })}
+                />
+              </div>
+            </div>
+            <div>
+              <TextField label="Preview text" value={draft.preheader} onChange={(preheader) => update({ preheader })} maxLength={200} placeholder="Optional" />
+              <div className="mt-1 flex items-center justify-between gap-3 text-xs text-gray-500">
+                <span>Shown after the subject in most inboxes.</span>
+                <MergeFieldMenu
+                  audienceKind={automation.audienceKind}
+                  onInsert={(token) => update({ preheader: appendToken(draft.preheader, token) })}
+                />
+              </div>
+            </div>
+          </EditorSection>
+
+          <EditorSection title="Content" defaultOpen>
+            <BlockList
+              blocks={draft.blocks}
+              onChange={(blocks) => update({ blocks })}
+              issuesByBlock={issuesByBlock}
+              audienceKind={automation.audienceKind}
+            />
+          </EditorSection>
+
+          <EditorSection title="Test email" defaultOpen>
+            <div className="rounded-md bg-gray-50 p-4 space-y-3">
+              <TextField
+                label="Send a test to"
+                value={testEmails}
+                onChange={setTestEmails}
+                placeholder="you@example.com"
+                help="Separate up to 5 addresses with commas. Test subjects start with [Test]."
+              />
+              <button
+                type="button"
+                onClick={handleTest}
+                disabled={busy !== null || contentIssues.length > 0}
+                className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {busy === 'test' ? 'Sending test…' : 'Send test'}
+              </button>
+            </div>
+          </EditorSection>
+
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              {(automation.customized || documentChangedFromDefault) && (
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  disabled={busy !== null}
+                  className="text-sm font-medium text-gray-600 hover:text-gray-900 underline disabled:opacity-50"
+                >
+                  {busy === 'reset' ? 'Restoring…' : 'Reset to default'}
+                </button>
+              )}
+            </div>
+            <button
+              type="submit"
+              disabled={busy !== null || !dirty || contentIssues.length > 0}
+              className="btn-primary px-5 py-2 disabled:opacity-50"
+            >
+              {busy === 'save' ? 'Saving...' : 'Save changes'}
+            </button>
+          </div>
+        </form>
+
+        <NewsletterPreview
+          document={draft}
+          context={context}
+          dirty={dirty}
+          audienceKind={automation.audienceKind}
+          promoCode={promoCode}
+        />
       </div>
     </div>
   );

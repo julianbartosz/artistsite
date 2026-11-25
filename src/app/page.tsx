@@ -1,8 +1,13 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import React from "react";
 import { getAllPosts } from "@/lib/markdown";
 import { resolveFeaturedArtworks } from "@/lib/portfolio";
 import { getSiteContent } from "@/lib/site-content";
+import { getPublicSiteShell } from "@/lib/public-site-shell";
+import { getSiteUrl } from "@/lib/config";
+import { socialHandle } from "@/lib/seo";
+import { StructuredData, generateWebSiteSchema } from "@/components/StructuredData";
 import {
   homeHeroCtas,
   homeHeroHeightClass,
@@ -24,6 +29,84 @@ import OptimizedImage from "@/components/OptimizedImage";
 import { artworkGalleryImages, collectImageGallery } from "@/lib/commerce";
 
 export const dynamic = 'force-dynamic';
+
+function buildHomeMetaDescription(tagline: string, heroSubtitle: string, aboutBody: string): string | undefined {
+  const parts = [tagline, heroSubtitle, splitPlainParagraphs(aboutBody)[0] ?? '']
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return undefined;
+
+  const unique: string[] = [];
+  for (const part of parts) {
+    if (!unique.some((existing) => existing.toLowerCase() === part.toLowerCase())) {
+      unique.push(part);
+    }
+  }
+  const combined = unique.join(' — ');
+  return combined.length > 160 ? `${combined.slice(0, 157).trimEnd()}…` : combined;
+}
+
+function deriveSiteAlternateNames(siteUrl: string, socialUrls: Record<string, string>): string[] {
+  const candidates: string[] = [];
+  try {
+    const hostname = new URL(siteUrl).hostname.replace(/^www\./, '');
+    if (hostname && hostname !== 'localhost') {
+      candidates.push(hostname);
+    }
+  } catch {
+    // Ignore invalid siteUrl
+  }
+  for (const profileUrl of Object.values(socialUrls)) {
+    const handle = socialHandle(profileUrl);
+    if (handle) {
+      const bare = handle.replace(/^@/, '');
+      if (bare) candidates.push(bare);
+    }
+  }
+  return candidates;
+}
+
+export async function generateMetadata(): Promise<Metadata> {
+  const [{ identity, socialUrls }, home] = await Promise.all([
+    getPublicSiteShell(),
+    getSiteContent('home'),
+  ]);
+  const siteName = identity.siteName.trim();
+  const tagline = identity.tagline.trim();
+  const titleText = tagline ? `${siteName} — ${tagline}` : `${siteName} — Original Art & Portfolio`;
+  const description = buildHomeMetaDescription(tagline, home.hero.subtitle, home.about.paragraph1);
+  const twitterHandle = socialHandle(socialUrls.twitter);
+
+  return {
+    title: { absolute: titleText },
+    description,
+    alternates: { canonical: '/' },
+    openGraph: {
+      type: 'website',
+      locale: 'en_US',
+      url: '/',
+      siteName,
+      title: titleText,
+      description,
+      images: [
+        {
+          url: '/api/og',
+          width: 1200,
+          height: 630,
+          alt: siteName,
+        },
+      ],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      site: twitterHandle,
+      creator: twitterHandle,
+      title: titleText,
+      description,
+      images: ['/api/og'],
+    },
+  };
+}
 
 /** Natural-width gallery CTA row: full-width tap targets on phones, balanced inline buttons on tablet/desktop. */
 function heroCtaLayoutClass(inlineHero: boolean): string {
@@ -256,14 +339,22 @@ function renderHomeSection(key: HomeSectionKey, ctx: HomeSectionContext) {
 }
 
 export default async function Home() {
-  const [home, portfolio] = await Promise.all([
+  const [home, portfolio, siteShell, siteUrl] = await Promise.all([
     getSiteContent('home'),
     getSiteContent('portfolio'),
+    getPublicSiteShell(),
+    getSiteUrl(),
   ]);
   const [recentPosts, featuredArtworks] = await Promise.all([
     getAllPosts().then((posts) => posts.slice(0, 3)),
     resolveFeaturedArtworks(home.featured),
   ]);
+  const webSiteSchema = generateWebSiteSchema({
+    name: siteShell.identity.siteName,
+    alternateNames: deriveSiteAlternateNames(siteUrl, siteShell.socialUrls),
+    description: buildHomeMetaDescription(siteShell.identity.tagline, home.hero.subtitle, home.about.paragraph1),
+    siteUrl,
+  });
 
   const ctas = homeHeroCtas(home);
   const portraitImage = home.hero.portraitImage;
@@ -285,6 +376,7 @@ export default async function Home() {
 
   return (
     <div className="min-h-screen">
+      <StructuredData data={webSiteSchema} />
       {beforeHero.map((sectionKey) => (
         <React.Fragment key={sectionKey}>
           {wrapHomeSection(sectionKey, renderHomeSection(sectionKey, sectionContext))}

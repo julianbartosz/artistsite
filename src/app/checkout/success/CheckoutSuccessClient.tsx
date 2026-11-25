@@ -11,9 +11,11 @@ import { formatPrice } from '@/lib/commerce';
 import { DEFAULT_SHOP_PAGE, type ShopPageContent } from '@/lib/site-content-shared';
 
 interface OrderDetails {
+  mode?: 'stripe' | 'manual';
   sessionId: string;
   paymentStatus: string;
   order: Order;
+  manualPaymentInstructions?: string;
 }
 
 type CheckoutSuccessClientProps = {
@@ -53,26 +55,35 @@ function CheckoutSuccessContent({ initialShopCopy }: CheckoutSuccessClientProps)
 
   useEffect(() => {
     const sessionId = searchParams.get('session_id');
+    const orderParam = searchParams.get('order');
+    const tokenParam = searchParams.get('t');
 
-    if (!sessionId) {
+    if (!sessionId && (!orderParam || !tokenParam)) {
       router.push('/shop');
       return;
     }
 
     const fetchOrderDetails = async () => {
       try {
-        const response = await fetch(`/api/checkout/success?session_id=${sessionId}`);
+        const endpoint = orderParam && tokenParam
+          ? `/api/checkout/success?order=${encodeURIComponent(orderParam)}&t=${encodeURIComponent(tokenParam)}`
+          : `/api/checkout/success?session_id=${encodeURIComponent(sessionId!)}`;
+        const response = await fetch(endpoint);
         if (response.ok) {
           const data = await response.json();
           setOrderDetails(data);
           setLoadError(null);
           clearCart();
         } else {
-          setLoadError('Payment succeeded, but we could not load your order details yet. Check your email receipt or contact the studio with your checkout session.');
+          setLoadError(
+            orderParam
+              ? 'We could not load your purchase request details. Please contact the studio if you need a copy.'
+              : 'Payment succeeded, but we could not load your order details yet. Check your email receipt or contact the studio with your checkout session.',
+          );
           console.error('Failed to fetch order details');
         }
       } catch (error) {
-        setLoadError('Payment may have succeeded, but we could not load your order details. Check your email receipt or contact the studio.');
+        setLoadError('We could not load your order details. Check your email receipt or contact the studio.');
         console.error('Error fetching order details:', error);
       } finally {
         setIsLoading(false);
@@ -113,12 +124,18 @@ function CheckoutSuccessContent({ initialShopCopy }: CheckoutSuccessClientProps)
               )}
             </div>
             <h1 className="text-3xl font-bold text-gray-900">
-              {loadError ? 'Payment received — order details pending' : shopCopy.successTitle}
+              {loadError
+                ? 'Order details pending'
+                : orderDetails?.mode === 'manual'
+                  ? 'Purchase request received'
+                  : shopCopy.successTitle}
             </h1>
             <p className="mt-2 text-base text-gray-600">
               {loadError
-                ? 'Your payment may have succeeded. We could not load the order summary yet.'
-                : shopCopy.successSubtitle}
+                ? 'We could not load the order summary yet.'
+                : orderDetails?.mode === 'manual'
+                  ? 'Thank you — the studio has received your request and will follow up with payment details.'
+                  : shopCopy.successSubtitle}
             </p>
           </div>
 
@@ -142,11 +159,15 @@ function CheckoutSuccessContent({ initialShopCopy }: CheckoutSuccessClientProps)
 
               <dl className="grid grid-cols-1 gap-4 rounded-lg border border-gray-200/70 bg-surface-muted/60 p-4 text-sm sm:grid-cols-2">
                 <div>
-                  <dt className="text-xs font-medium uppercase tracking-wider text-gray-500">Confirmation sent to</dt>
+                  <dt className="text-xs font-medium uppercase tracking-wider text-gray-500">
+                    {orderDetails.mode === 'manual' ? 'Collector email' : 'Confirmation sent to'}
+                  </dt>
                   <dd className="mt-1 font-medium text-gray-900 break-all">{orderDetails.order.customerEmail}</dd>
                 </div>
                 <div className="sm:text-right">
-                  <dt className="text-xs font-medium uppercase tracking-wider text-gray-500">Total paid</dt>
+                  <dt className="text-xs font-medium uppercase tracking-wider text-gray-500">
+                    {orderDetails.mode === 'manual' && orderDetails.paymentStatus !== 'paid' ? 'Requested total' : 'Total paid'}
+                  </dt>
                   <dd className="mt-1 text-base font-semibold text-gray-900">
                     {formatPrice(orderDetails.order.total, orderDetails.order.currency)} {orderDetails.order.currency}
                   </dd>
@@ -155,10 +176,17 @@ function CheckoutSuccessContent({ initialShopCopy }: CheckoutSuccessClientProps)
 
               <div className="rounded-lg border border-gray-200/60 bg-surface-muted/40 p-5">
                 <h2 className="text-sm font-semibold text-gray-900 mb-3">What happens next</h2>
-                <div
-                  className="prose prose-sm max-w-none text-gray-600 [&_ul]:space-y-1.5 [&_li]:leading-relaxed"
-                  dangerouslySetInnerHTML={{ __html: shopCopy.successNextStepsHtml }}
-                />
+                {orderDetails.mode === 'manual' ? (
+                  <div className="space-y-2 text-sm text-gray-600">
+                    <p>{orderDetails.manualPaymentInstructions || 'No payment was charged today. The studio will confirm availability and send payment instructions shortly.'}</p>
+                    <p>Once payment is confirmed, your piece will be carefully packaged and shipped with tracking details.</p>
+                  </div>
+                ) : (
+                  <div
+                    className="prose prose-sm max-w-none text-gray-600 [&_ul]:space-y-1.5 [&_li]:leading-relaxed"
+                    dangerouslySetInnerHTML={{ __html: shopCopy.successNextStepsHtml }}
+                  />
+                )}
               </div>
             </div>
           )}

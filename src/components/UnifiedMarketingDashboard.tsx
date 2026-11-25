@@ -9,6 +9,8 @@ import { BarChart3, CreditCard, DollarSign, LineChart, Mail, Megaphone, Smartpho
 import { IntegerField, MoneyField } from '@/components/admin/StudioFormFields';
 import GalleryField from '@/components/admin/GalleryField';
 
+import { AUTOMATION_EMAIL_IDS } from '@/lib/newsletter';
+
 interface MarketingOverview {
   totalRevenue: number;
   totalCost: number;
@@ -36,12 +38,14 @@ interface MarketingOverview {
       welcomeEnabled?: boolean;
       welcomeSeriesEnabled?: boolean;
       welcomeSent?: number;
+      welcomeInstantSent?: number;
+      welcomeFollowupSent?: number;
       winbackEnabled?: boolean;
       winbackInactiveDays?: number;
       winbackSent?: number;
       cartEnabled?: boolean;
     };
-    social: { active: number; total: number; posts: number };
+    social: { active: number; total: number; posts: number; provider?: 'assist' | 'meta' | 'ayrshare'; autoPublish?: boolean };
   };
   analytics?: {
     journey: Array<{ step: string; visitors: number }>;
@@ -341,7 +345,11 @@ function CampaignsTab({ onSelectTab }: { onSelectTab?: (tab: string) => void }) 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [shareAssist, setShareAssist] = useState<ShareAssistPayload | null>(null);
+  const [shareAssist, setShareAssist] = useState<{
+    campaignId: string;
+    assist: ShareAssistPayload;
+    publishError?: string;
+  } | null>(null);
 
   useEffect(() => {
     loadCampaigns();
@@ -421,8 +429,16 @@ function CampaignsTab({ onSelectTab }: { onSelectTab?: (tab: string) => void }) 
       if (!response.ok) throw new Error(data.error || 'Failed to run campaign');
       await loadCampaigns();
       if (data.campaign?.publishAssist) {
-        setShareAssist(data.campaign.publishAssist);
-        setMessage('Use the publish assist panel to complete this social post.');
+        setShareAssist({
+          campaignId: id,
+          assist: data.campaign.publishAssist,
+          publishError: typeof data.campaign.publishError === 'string' ? data.campaign.publishError : undefined,
+        });
+        setMessage(
+          data.campaign.publishError
+            ? 'Auto-publish could not complete. Use the manual post assist below.'
+            : 'Caption and links are ready below — post on the platform, then click Mark as posted.'
+        );
       } else if (type === 'ad') {
         setMessage('Ad log marked active. Record results after you run the campaign in the ads manager.');
       } else {
@@ -468,11 +484,11 @@ function CampaignsTab({ onSelectTab }: { onSelectTab?: (tab: string) => void }) 
     }
   };
 
-  const markSocialPosted = async (campaign: CampaignSummary) => {
+  const markSocialPostedById = async (campaignId: string) => {
     setMessage(null);
     setShareAssist(null);
     try {
-      const response = await fetch(`/api/marketing/campaigns/${campaign.id}`, {
+      const response = await fetch(`/api/marketing/campaigns/${campaignId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'social', action: 'mark_posted' }),
@@ -484,6 +500,10 @@ function CampaignsTab({ onSelectTab }: { onSelectTab?: (tab: string) => void }) 
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Failed to mark post as published');
     }
+  };
+
+  const markSocialPosted = async (campaign: CampaignSummary) => {
+    await markSocialPostedById(campaign.id);
   };
 
   if (loading) {
@@ -510,7 +530,6 @@ function CampaignsTab({ onSelectTab }: { onSelectTab?: (tab: string) => void }) 
   return (
     <div className="space-y-6">
       {message && <div className="rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">{message}</div>}
-      {shareAssist && <ShareAssistPanel assist={shareAssist} />}
 
       <PromoCodesPanel />
 
@@ -533,7 +552,17 @@ function CampaignsTab({ onSelectTab }: { onSelectTab?: (tab: string) => void }) 
               )}.
             </p>
           </div>
-          <select value={campaignType} onChange={(event) => setCampaignType(event.target.value as 'social' | 'ad')} className="h-10 rounded-md border border-gray-300 px-3 py-2 text-sm font-normal">
+          <select
+            value={campaignType}
+            onChange={(event) => {
+              const nextType = event.target.value as 'social' | 'ad';
+              setCampaignType(nextType);
+              if (nextType === 'social' && draft.platform === 'google') {
+                setDraft((current) => ({ ...current, platform: 'instagram' }));
+              }
+            }}
+            className="h-10 rounded-md border border-gray-300 px-3 py-2 text-sm font-normal"
+          >
             <option value="social">Social post</option>
             <option value="ad">Ad spend log</option>
           </select>
@@ -549,8 +578,9 @@ function CampaignsTab({ onSelectTab }: { onSelectTab?: (tab: string) => void }) 
             <select value={draft.platform} onChange={(event) => setDraft({ ...draft, platform: event.target.value })} className="mt-1 block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal">
               <option value="instagram">Instagram</option>
               <option value="facebook">Facebook</option>
-              <option value="google">Google</option>
+              {campaignType === 'ad' && <option value="google">Google</option>}
               <option value="pinterest">Pinterest</option>
+              <option value="twitter">X (Twitter)</option>
               <option value="linkedin">LinkedIn</option>
             </select>
           </label>
@@ -593,6 +623,15 @@ function CampaignsTab({ onSelectTab }: { onSelectTab?: (tab: string) => void }) 
         <h3 className="text-lg font-semibold text-gray-900">Active Campaigns</h3>
       </div>
 
+      {shareAssist && (
+        <ShareAssistPanel
+          assist={shareAssist.assist}
+          publishError={shareAssist.publishError}
+          onMarkPosted={() => void markSocialPostedById(shareAssist.campaignId)}
+          onDismiss={() => setShareAssist(null)}
+        />
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <CampaignSection
           title="Social Media"
@@ -619,7 +658,17 @@ function CampaignsTab({ onSelectTab }: { onSelectTab?: (tab: string) => void }) 
   );
 }
 
-function ShareAssistPanel({ assist }: { assist: ShareAssistPayload }) {
+function ShareAssistPanel({
+  assist,
+  publishError,
+  onMarkPosted,
+  onDismiss,
+}: {
+  assist: ShareAssistPayload;
+  publishError?: string;
+  onMarkPosted: () => void;
+  onDismiss: () => void;
+}) {
   const [copied, setCopied] = useState(false);
 
   const copyCaption = async () => {
@@ -640,13 +689,23 @@ function ShareAssistPanel({ assist }: { assist: ShareAssistPayload }) {
         <div>
           <h3 className="font-semibold">{assist.label}</h3>
           <p className="mt-1 text-xs text-amber-900">Step 1: Copy caption · Step 2: Open platform · Step 3: Mark as posted</p>
+          {publishError && (
+            <p className="mt-2 rounded border border-amber-300 bg-white/80 px-2.5 py-1.5 text-xs text-amber-900">
+              Auto-publish could not finish ({publishError}) — you can still post manually below.
+            </p>
+          )}
           <ul className="mt-2 list-disc space-y-1 pl-5">
             {assist.instructions.map((instruction) => <li key={instruction}>{instruction}</li>)}
           </ul>
         </div>
-        <button type="button" onClick={copyCaption} className="rounded bg-amber-900 px-3 py-2 text-white">
-          {copied ? 'Copied!' : 'Copy caption'}
-        </button>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <button type="button" onClick={copyCaption} className="rounded bg-amber-900 px-3 py-2 text-white hover:bg-amber-800">
+            {copied ? 'Copied!' : 'Copy caption'}
+          </button>
+          <button type="button" onClick={onDismiss} className="rounded border border-amber-300 bg-white px-3 py-2 text-xs text-amber-900 hover:bg-amber-100">
+            Close
+          </button>
+        </div>
       </div>
       <div className="mt-4 rounded border border-amber-200 bg-white p-3 whitespace-pre-wrap">{assist.caption}</div>
       {safeMediaUrls.length > 0 && (
@@ -654,8 +713,15 @@ function ShareAssistPanel({ assist }: { assist: ShareAssistPayload }) {
           {safeMediaUrls.map((url) => <a key={url} href={url} target="_blank" rel="noopener noreferrer" className="rounded border border-amber-300 bg-white px-3 py-1 text-amber-900">Open media</a>)}
         </div>
       )}
-      <div className="mt-3 flex flex-wrap gap-2">
-        {safeLinks.map((link) => <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" className="rounded bg-gray-900 px-3 py-2 text-white">{link.label}</a>)}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {safeLinks.map((link) => <a key={link.url} href={link.url} target="_blank" rel="noopener noreferrer" className="rounded bg-gray-900 px-3 py-2 text-white hover:bg-gray-800">{link.label}</a>)}
+        <button
+          type="button"
+          onClick={onMarkPosted}
+          className="rounded border border-emerald-700 bg-emerald-700 px-3 py-2 text-white hover:bg-emerald-800"
+        >
+          Mark as posted
+        </button>
       </div>
     </div>
   );
@@ -737,7 +803,7 @@ function PromoCodesPanel() {
       setMessage(data.error || 'Failed to save cart recovery promo');
       return;
     }
-    setMessage(`Cart recovery will use promo code ${code}.`);
+    setMessage(`Saved ${code} as your cart recovery promo code. Make sure Cart recovery is enabled under Newsletter → Automations.`);
   }
 
   async function deletePromoCode(promo: PromoCodeRecord) {
@@ -859,28 +925,41 @@ function PerformanceInsightsRow({
   const maxVisitors = Math.max(1, ...journey.map(item => item.visitors));
   const automation = overview?.automation;
 
-  const automationRows = [
+  const automationRows: Array<{ name: string; detail: string; active: boolean; statusLabel?: string; editHref?: string }> = [
     {
-      name: 'Newsletter welcome & follow-up',
-      detail: `${automation?.email.welcomeSent || 0} sent · ${
-        automation?.email.welcomeSeriesEnabled ? 'Welcome + Day-3 follow-up on' : 'Instant welcome on signup'
-      }`,
+      name: 'Welcome email',
+      detail: `${automation?.email.welcomeInstantSent ?? automation?.email.welcomeSent ?? 0} sent · Instant on newsletter signup`,
       active: automation?.email.welcomeEnabled !== false,
+      editHref: `/admin?tab=newsletter&automation=${AUTOMATION_EMAIL_IDS.newsletterWelcome}`,
+    },
+    {
+      name: 'Day-3 studio follow-up',
+      detail: `${automation?.email.welcomeFollowupSent ?? 0} sent · 3 days after signup`,
+      active: Boolean(automation?.email.welcomeSeriesEnabled),
+      editHref: `/admin?tab=newsletter&automation=${AUTOMATION_EMAIL_IDS.newsletterWelcomeFollowup}`,
     },
     {
       name: 'Collector win-back',
       detail: `${automation?.email.winbackSent || 0} sent · ${automation?.email.winbackInactiveDays || 45}-day quiet window`,
       active: Boolean(automation?.email.winbackEnabled),
+      editHref: `/admin?tab=newsletter&automation=${AUTOMATION_EMAIL_IDS.collectorWinback}`,
     },
     {
       name: 'Cart recovery',
-      detail: `${automation?.email.cartAbandonment || 0} abandoned cart signals captured`,
+      detail: `${automation?.email.cartAbandonment || 0} recovery emails triggered`,
       active: Boolean(automation?.email.cartEnabled),
+      editHref: `/admin?tab=newsletter&automation=${AUTOMATION_EMAIL_IDS.cartRecovery}`,
     },
     {
-      name: 'Social auto-publish',
-      detail: `${automation?.social.posts || 0} social posts recorded`,
-      active: (automation?.social.posts || 0) > 0,
+      name: automation?.social.autoPublish
+        ? `Social auto-publish (${automation.social.provider === 'ayrshare' ? 'Ayrshare' : 'Meta'})`
+        : 'Social publishing (Assist)',
+      detail: automation?.social.autoPublish
+        ? `${automation?.social.posts || 0} social posts recorded`
+        : `${automation?.social.posts || 0} posts drafted · Copy & open platform (no API keys required)`,
+      active: Boolean(automation?.social.autoPublish) || (automation?.social.posts || 0) > 0,
+      statusLabel: automation?.social.autoPublish ? 'Auto' : 'Assist',
+      editHref: '/admin?tab=settings#setting-SOCIAL_PROVIDER',
     },
   ];
 
@@ -920,34 +999,37 @@ function PerformanceInsightsRow({
       <div className="bg-white p-6 rounded-lg shadow">
         <div className="flex items-center justify-between gap-2 mb-4">
           <h3 className="text-lg font-semibold text-gray-900">Automations</h3>
-          {onSelectTab ? (
-            <button
-              type="button"
-              onClick={() => onSelectTab('settings')}
-              className="text-xs font-medium text-blue-700 hover:underline"
-            >
-              Configure in Settings →
-            </button>
-          ) : (
-            <Link href="/admin?tab=settings" className="text-xs font-medium text-blue-700 hover:underline">
-              Configure in Settings →
-            </Link>
-          )}
+          <Link href="/admin?tab=newsletter&view=automations" className="text-xs font-medium text-blue-700 hover:underline">
+            Edit automation emails →
+          </Link>
         </div>
         <div className="divide-y divide-gray-100">
           {automationRows.map((row) => (
             <div key={row.name} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
               <div className="min-w-0">
-                <p className="text-sm font-medium text-gray-900">{row.name}</p>
+                {row.editHref ? (
+                  <Link href={row.editHref} className="text-sm font-medium text-gray-900 hover:text-blue-700 hover:underline">
+                    {row.name}
+                  </Link>
+                ) : (
+                  <p className="text-sm font-medium text-gray-900">{row.name}</p>
+                )}
                 <p className="text-xs text-gray-500">{row.detail}</p>
               </div>
-              <span
-                className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                  row.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'
-                }`}
-              >
-                {row.active ? 'On' : 'Off'}
-              </span>
+              <div className="flex shrink-0 items-center gap-2">
+                {row.editHref && (
+                  <Link href={row.editHref} className="text-xs font-medium text-gray-600 hover:text-gray-900 hover:underline">
+                    Edit
+                  </Link>
+                )}
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                    row.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'
+                  }`}
+                >
+                  {'statusLabel' in row && row.statusLabel ? row.statusLabel : row.active ? 'On' : 'Off'}
+                </span>
+              </div>
             </div>
           ))}
         </div>
@@ -1050,10 +1132,35 @@ function CampaignSection({ title, icon, campaigns, onRun, onDelete, onSaveActual
     return 'Mark active';
   };
 
+  const statusPresentation = (status: string, type: 'social' | 'ad') => {
+    switch (status) {
+      case 'published':
+        return { label: 'Published', className: 'bg-green-100 text-green-800' };
+      case 'active':
+        return { label: 'Active', className: 'bg-green-100 text-green-800' };
+      case 'needs_attention':
+        return {
+          label: type === 'social' ? 'Ready to post' : 'Needs attention',
+          className: 'bg-amber-100 text-amber-900',
+        };
+      case 'scheduled':
+        return { label: 'Scheduled', className: 'bg-blue-100 text-blue-800' };
+      case 'paused':
+        return { label: 'Paused', className: 'bg-yellow-100 text-yellow-800' };
+      case 'failed':
+        return { label: 'Failed', className: 'bg-red-100 text-red-800' };
+      case 'draft':
+        return { label: 'Draft', className: 'bg-gray-100 text-gray-700' };
+      default:
+        return { label: status.replaceAll('_', ' '), className: 'bg-gray-100 text-gray-700' };
+    }
+  };
+
   const adManagerUrl = (campaign: CampaignSummary): string | null => {
     const platform = String(campaign.content?.platform || '').toLowerCase();
     if (platform === 'google') return 'https://ads.google.com/aw/campaigns';
     if (platform === 'facebook' || platform === 'instagram') return 'https://business.facebook.com/adsmanager/manage/campaigns';
+    if (platform === 'pinterest') return 'https://ads.pinterest.com/';
     if (platform === 'linkedin') return 'https://www.linkedin.com/campaignmanager/';
     if (platform === 'twitter' || platform === 'x') return 'https://ads.x.com/';
     return null;
@@ -1068,16 +1175,14 @@ function CampaignSection({ title, icon, campaigns, onRun, onDelete, onSaveActual
       <div className="space-y-3">
         {campaigns.length === 0 ? (
           <div className="text-sm text-gray-500">No campaign data available.</div>
-        ) : campaigns.map((campaign) => (
+        ) : campaigns.map((campaign) => {
+          const badge = statusPresentation(campaign.status, campaign.type);
+          return (
           <div key={campaign.id} className="border-l-4 border-blue-500 pl-3">
             <div className="font-medium">{campaign.name}</div>
             <div className="text-sm text-gray-600">{campaign.performance}</div>
-            <div className={`text-xs px-2 py-1 rounded inline-block mt-1 ${
-              campaign.status === 'active' ? 'bg-green-100 text-green-800' :
-              campaign.status === 'paused' ? 'bg-yellow-100 text-yellow-800' :
-              'bg-blue-100 text-blue-800'
-            }`}>
-              {campaign.status}
+            <div className={`text-xs px-2 py-1 rounded inline-block mt-1 font-medium ${badge.className}`}>
+              {badge.label}
             </div>
             {campaign.type === 'ad' && onSaveActuals && (() => {
               const performance = campaign.content?.performance || {};
@@ -1167,7 +1272,8 @@ function CampaignSection({ title, icon, campaigns, onRun, onDelete, onSaveActual
               {onDelete && <button type="button" onClick={() => onDelete(campaign)} className="text-xs font-medium text-red-700 hover:text-red-800">Delete</button>}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

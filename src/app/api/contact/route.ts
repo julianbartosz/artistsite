@@ -7,7 +7,7 @@ import {
   formatCommissionInquiryDetails,
   type ContactFormData,
 } from '@/lib/form-validation';
-import { brandedEmailHtml, emailDetailRows, emailQuoteHtml, getEmailBrand, sendTemplateEmail, type EmailSection } from '@/lib/email';
+import { brandedEmailHtml, emailDetailRows, emailQuoteHtml, getEmailBrand, getEmailDeliveryStatus, sendTemplateEmail, type EmailSection } from '@/lib/email';
 import { escapeHtml } from '@/lib/email-shell';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
@@ -100,48 +100,47 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
     ? `${commissionDetails}\n\n${message}`
     : message;
 
-  const isE2eLogMode = process.env.PLAYWRIGHT_E2E === 'true';
-  const deliveryMode = isE2eLogMode ? 'log' : await getConfig('EMAIL_DELIVERY_MODE') || (process.env.NODE_ENV === 'production' ? 'smtp' : 'log');
-  const recipient = await getConfig('CONTACT_EMAIL') || await getConfig('SMTP_FROM') || await getConfig('SMTP_USER');
-  if (!recipient && deliveryMode !== 'log') {
-    throw new ApiError(503, 'Contact email recipient is not configured', 'CONTACT_RECIPIENT_UNCONFIGURED');
-  }
-
-  const brand = await getEmailBrand();
-  const userAgent = request.headers.get('user-agent')?.substring(0, 100) || 'unknown';
-  const sections: EmailSection[] = [
-    { html: emailDetailRows([['From', escapeHtml(`${name} <${email}>`)], ['Inquiry type', escapeHtml(inquiryType)], ['Subject', escapeHtml(subject)]]) },
-    ...(commissionDetails ? [{ heading: 'Commission details', html: emailQuoteHtml(commissionDetails, brand) }] : []),
-    { heading: 'Message', html: emailQuoteHtml(message, brand) },
-  ];
-
-  const delivered = await sendTemplateEmail(recipient || 'contact-log@localhost', {
-    subject: `[${inquiryType.toUpperCase()}] ${subject}`,
-    html: brandedEmailHtml(brand, {
-      title: 'New message from your site',
-      intro: `${escapeHtml(name)} wrote through the contact form. Reply to this email to answer them directly.`,
-      sections,
-      footerHtml: `IP: ${escapeHtml(ip)} · ${escapeHtml(userAgent)}`,
-    }),
-    text: `New contact form submission\n\nFrom: ${name} <${email}>\nInquiry Type: ${inquiryType}\nSubject: ${subject}\n\n${commissionDetails ? `${commissionDetails}\n\n` : ''}${message}\n\nIP: ${ip}`,
-  }, { replyTo: email });
-
-  if (!delivered) {
-    throw new ApiError(502, 'Failed to send email notification', 'EMAIL_SEND_FAILED');
-  }
-
   const userId = await resolveSessionUserId();
-  try {
-    await linkContactSubmissionToInbox({
-      name,
-      email,
-      subject,
-      message: inboxMessage,
-      inquiryType,
-      userId,
+  await linkContactSubmissionToInbox({
+    name,
+    email,
+    subject,
+    message: inboxMessage,
+    inquiryType,
+    userId,
+  });
+
+  const isE2eLogMode = process.env.PLAYWRIGHT_E2E === 'true';
+  const emailStatus = isE2eLogMode ? { mode: 'log' as const } : await getEmailDeliveryStatus();
+  const recipient = await getConfig('CONTACT_EMAIL') || await getConfig('SMTP_FROM') || await getConfig('SMTP_USER');
+
+  const shouldDeliverEmail = emailStatus.mode === 'log' || (emailStatus.mode === 'smtp' && Boolean(recipient));
+  if (shouldDeliverEmail) {
+    const brand = await getEmailBrand();
+    const userAgent = request.headers.get('user-agent')?.substring(0, 100) || 'unknown';
+    const sections: EmailSection[] = [
+      { html: emailDetailRows([['From', escapeHtml(`${name} <${email}>`)], ['Inquiry type', escapeHtml(inquiryType)], ['Subject', escapeHtml(subject)]]) },
+      ...(commissionDetails ? [{ heading: 'Commission details', html: emailQuoteHtml(commissionDetails, brand) }] : []),
+      { heading: 'Message', html: emailQuoteHtml(message, brand) },
+    ];
+
+    const delivered = await sendTemplateEmail(recipient || 'contact-log@localhost', {
+      subject: `[${inquiryType.toUpperCase()}] ${subject}`,
+      html: brandedEmailHtml(brand, {
+        title: 'New message from your site',
+        intro: `${escapeHtml(name)} wrote through the contact form. Reply to this email to answer them directly.`,
+        sections,
+        footerHtml: `IP: ${escapeHtml(ip)} · ${escapeHtml(userAgent)}`,
+      }),
+      text: `New contact form submission\n\nFrom: ${name} <${email}>\nInquiry Type: ${inquiryType}\nSubject: ${subject}\n\n${commissionDetails ? `${commissionDetails}\n\n` : ''}${message}\n\nIP: ${ip}`,
+    }, { replyTo: email }).catch((err) => {
+      console.error('Failed to email contact notification (message is saved in Studio Inbox):', err);
+      return false;
     });
-  } catch (inboxError) {
-    console.error('Failed to persist contact message to studio inbox:', inboxError);
+
+    if (!delivered) {
+      console.warn('Contact form notification email was not delivered; submission saved in Studio Inbox.');
+    }
   }
 
   return NextResponse.json({

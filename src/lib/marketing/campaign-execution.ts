@@ -1,18 +1,28 @@
 import 'server-only';
+import { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { ApiError } from '@/lib/api-error-handler';
-import { getConfig } from '@/lib/config';
-import { brandedEmailHtml, getEmailBrand, getEmailDeliveryStatus, sendTemplateEmail } from '@/lib/email';
-import { escapeHtml } from '@/lib/email-shell';
+import { sanitizeNewsletterDocument } from '@/lib/admin-content';
+import { getConfig, setConfigMany } from '@/lib/config';
+import { getEmailBrand, getEmailDeliveryStatus, sendTemplateEmail } from '@/lib/email';
 import { absoluteUrl, parseInternalPath } from '@/lib/utils';
 import { publishSocialPost, type SocialPublishResult } from '@/lib/marketing/social-publishers';
 import {
+  AUTOMATION_EMAIL_CATALOG,
+  AUTOMATION_EMAIL_IDS,
+  buildDefaultAutomationDocument,
+  getAutomationEmailDefinition,
+  newsletterContentIssues,
   newsletterDocumentFromContent,
+  newsletterDocumentSchema,
   newsletterMergeValues,
   newsletterSendIssues,
   personalizeNewsletter,
   renderNewsletter,
+  type AutomationEmailId,
+  type AutomationEmailSummary,
   type NewsletterDocument,
+  type NewsletterMergeValues,
   type NewsletterRenderContext,
   type NewsletterSendContext,
   type NewsletterStatus,
@@ -74,8 +84,8 @@ function parseJsonObject(value: unknown): Record<string, any> {
   }
 }
 
-function isEnabled(value: string | undefined, defaultValue = false): boolean {
-  if (value === undefined) return defaultValue;
+function isEnabled(value: string | null | undefined, defaultValue = false): boolean {
+  if (value == null) return defaultValue;
   return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
 }
 
@@ -180,18 +190,34 @@ async function newsletterSender(document: NewsletterDocument, context: Newslette
   return { fromName: document.fromName.trim() || context.siteName, replyTo: await newsletterReplyTo() };
 }
 
+function automationRenderContext(base: NewsletterRenderContext, automationId?: AutomationEmailId): NewsletterRenderContext {
+  if (automationId === AUTOMATION_EMAIL_IDS.cartRecovery) {
+    return {
+      ...base,
+      footerReason: `You are receiving this reminder because you began checking out at ${base.siteName}.`,
+      includeUnsubscribe: false,
+    };
+  }
+  return base;
+}
+
 async function deliverNewsletter(
   rendered: RenderedNewsletter,
   recipient: NewsletterRecipient,
   context: NewsletterRenderContext,
   sender: NewsletterSender,
+  extraMergeValues?: Partial<Pick<NewsletterMergeValues, 'checkout_url' | 'promo_code'>>,
 ): Promise<boolean> {
-  const links = newsletterUnsubscribeLinks(recipient.email, context.siteUrl);
-  const personalized = personalizeNewsletter(rendered, newsletterMergeValues(recipient, context, links.pageUrl));
+  const includeUnsubscribe = context.includeUnsubscribe !== false;
+  const links = includeUnsubscribe ? newsletterUnsubscribeLinks(recipient.email, context.siteUrl) : null;
+  const personalized = personalizeNewsletter(
+    rendered,
+    newsletterMergeValues(recipient, context, links?.pageUrl ?? '#', extraMergeValues),
+  );
   return sendTemplateEmail(recipient.email, personalized, {
     fromName: sender.fromName,
     replyTo: sender.replyTo,
-    headers: newsletterUnsubscribeHeaders(links.oneClickUrl),
+    ...(links ? { headers: newsletterUnsubscribeHeaders(links.oneClickUrl) } : {}),
   });
 }
 
@@ -200,14 +226,25 @@ export async function sendNewsletterEmails(
   document: NewsletterDocument,
   recipients: NewsletterRecipient[],
   onResult?: (recipient: NewsletterRecipient, ok: boolean) => Promise<void>,
+  options?: {
+    automationId?: AutomationEmailId;
+    extraMergeValues?: (recipient: NewsletterRecipient) => Partial<Pick<NewsletterMergeValues, 'checkout_url' | 'promo_code'>>;
+  },
 ): Promise<{ delivered: number; failed: number }> {
-  const context = await getNewsletterRenderContext();
+  const baseContext = await getNewsletterRenderContext();
+  const context = automationRenderContext(baseContext, options?.automationId);
   const rendered = renderNewsletter(document, context);
   const sender = await newsletterSender(document, context);
   let delivered = 0;
   let failed = 0;
   for (const recipient of recipients) {
-    const ok = await deliverNewsletter(rendered, recipient, context, sender);
+    const ok = await deliverNewsletter(
+      rendered,
+      recipient,
+      context,
+      sender,
+      options?.extraMergeValues?.(recipient),
+    );
     if (ok) delivered += 1;
     else failed += 1;
     await onResult?.(recipient, ok);
@@ -215,14 +252,25 @@ export async function sendNewsletterEmails(
   return { delivered, failed };
 }
 
-export async function sendNewsletterTest(document: NewsletterDocument, emails: string[]) {
-  const users = await db.user.findMany({
-    where: { email: { in: emails, mode: 'insensitive' } },
-    select: { email: true, firstName: true, name: true },
-  });
+export async function sendNewsletterTest(
+  document: NewsletterDocument,
+  emails: string[],
+  options?: { automationId?: AutomationEmailId; promoCode?: string },
+) {
+  const [users, renderContext, configuredPromo] = await Promise.all([
+    db.user.findMany({
+      where: { email: { in: emails, mode: 'insensitive' } },
+      select: { email: true, firstName: true, name: true },
+    }),
+    getNewsletterRenderContext(),
+    options?.automationId === AUTOMATION_EMAIL_IDS.cartRecovery
+      ? (options.promoCode !== undefined ? Promise.resolve(options.promoCode) : getConfig('CART_RECOVERY_PROMO_CODE'))
+      : Promise.resolve(undefined),
+  ]);
   const usersByEmail = new Map(users.map((user) => [user.email.toLowerCase(), user]));
   const delivered: string[] = [];
   const failed: string[] = [];
+  const isCartRecovery = options?.automationId === AUTOMATION_EMAIL_IDS.cartRecovery;
   await sendNewsletterEmails(
     { ...document, subject: `[Test] ${document.subject.trim()}` },
     emails.map((email) => {
@@ -232,6 +280,15 @@ export async function sendNewsletterTest(document: NewsletterDocument, emails: s
     async (recipient, ok) => {
       (ok ? delivered : failed).push(recipient.email);
     },
+    isCartRecovery
+      ? {
+          automationId: AUTOMATION_EMAIL_IDS.cartRecovery,
+          extraMergeValues: () => ({
+            checkout_url: absoluteUrl('/checkout', renderContext.siteUrl),
+            promo_code: configuredPromo?.trim() || 'STUDIO10',
+          }),
+        }
+      : undefined,
   );
   return { delivered, failed };
 }
@@ -486,104 +543,17 @@ export async function processDueSocialPosts(now = new Date()): Promise<CampaignP
   return summary;
 }
 
-export async function processDueCartRecovery(now = new Date()): Promise<CampaignProcessSummary> {
-  if (!isEnabled(await getConfig('CART_ABANDONMENT_ENABLED'), false)) {
-    return { attempted: 0, completed: 0, needsAttention: 0, failed: 0 };
-  }
-
-  const staleBefore = new Date(now.getTime() - 60 * 60 * 1000);
-  const windowStart = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const events = await db.analyticsEvent.findMany({
-    where: {
-      eventName: { in: ['add_to_cart', 'begin_checkout', 'purchase', 'cart_abandoned'] },
-      timestamp: { gte: windowStart },
-    },
-    orderBy: { timestamp: 'desc' },
-    take: 1000,
-  }).catch(() => []);
-
-  const completedActors = new Set<string>();
-  const recoveredActors = new Set<string>();
-  const cartSignals = [] as any[];
-
-  for (const event of events) {
-    const key = eventActorKey(event);
-    if (!key) continue;
-    if (event.eventName === 'purchase') completedActors.add(key);
-    if (event.eventName === 'cart_abandoned') recoveredActors.add(key);
-    if (
-      (event.eventName === 'add_to_cart' || event.eventName === 'begin_checkout')
-      && new Date(event.timestamp) <= staleBefore
-    ) {
-      cartSignals.push(event);
-    }
-  }
-
-  const userIds = Array.from(new Set(cartSignals.map((event) => event.userId).filter(Boolean)));
-  const [users, profiles] = await Promise.all([
-    userIds.length ? db.user.findMany({ where: { id: { in: userIds } }, select: { id: true, email: true, name: true } }).catch(() => []) : [],
-    userIds.length ? dbWithMarketing.customerProfile.findMany({ where: { id: { in: userIds } }, select: { id: true, email: true } }).catch(() => []) : [],
-  ]);
-  const recipientsById = new Map<string, CampaignRecipient>();
-  for (const user of users as any[]) if (user.email) recipientsById.set(user.id, { email: user.email, name: user.name, userId: user.id });
-  for (const profile of profiles as any[]) if (profile.email && !recipientsById.has(profile.id)) recipientsById.set(profile.id, { email: profile.email, customerProfileId: profile.id });
-
-  const [brand, promoCode] = await Promise.all([getEmailBrand(), getConfig('CART_RECOVERY_PROMO_CODE')]);
-  const summary: CampaignProcessSummary = { attempted: 0, completed: 0, needsAttention: 0, failed: 0 };
-  const processedActors = new Set<string>();
-
-  for (const signal of cartSignals) {
-    const key = eventActorKey(signal);
-    if (!key || completedActors.has(key) || recoveredActors.has(key) || processedActors.has(key)) continue;
-    const properties = parseJsonObject(signal.properties);
-    const recipient = typeof properties.email === 'string'
-      ? { email: properties.email, name: typeof properties.name === 'string' ? properties.name : null, userId: signal.userId }
-      : signal.userId ? recipientsById.get(signal.userId) : undefined;
-    if (!recipient?.email) continue;
-
-    processedActors.add(key);
-    summary.attempted += 1;
-    const requestedPath = typeof properties.recovery_path === 'string' ? parseInternalPath(properties.recovery_path.trim()) : null;
-    const recoveryPath = requestedPath ? `${requestedPath.pathname}${requestedPath.search}` : '/checkout';
-    const checkoutUrl = absoluteUrl(recoveryPath, brand.siteUrl);
-    const template = {
-      subject: 'Complete your artwork selection',
-      html: brandedEmailHtml(brand, {
-        title: 'Your artwork is still waiting',
-        intro: `Hi ${escapeHtml(recipient.name || 'there')}, you recently selected artwork but did not finish checkout.`,
-        sections: promoCode ? [{ html: `Use code <strong>${escapeHtml(promoCode)}</strong> when you return.` }] : [],
-        cta: { label: 'Return to checkout', href: checkoutUrl },
-      }),
-      text: `Hi ${recipient.name || 'there'}, you recently selected artwork but did not finish checkout.${promoCode ? ` Use code ${promoCode} when you return.` : ''} Return to checkout: ${checkoutUrl}`,
-    };
-    const ok = await sendTemplateEmail(recipient.email, template);
-    if (ok) summary.completed += 1;
-    else summary.failed += 1;
-
-    await db.analyticsEvent.create({
-      data: {
-        eventName: 'cart_abandoned',
-        userId: signal.userId,
-        sessionId: signal.sessionId,
-        properties: JSON.stringify({
-          cart_event_id: signal.id,
-          recipient_email: recipient.email,
-          delivery_success: ok,
-          promo_code: promoCode || undefined,
-        }),
-        timestamp: now,
-      },
-    }).catch(() => undefined);
-  }
-
-  return summary;
+function normalizeEmailValue(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
-export const AUTOMATION_CAMPAIGN_IDS = {
-  newsletterWelcome: 'auto-newsletter-welcome',
-  newsletterWelcomeFollowup: 'auto-newsletter-welcome-followup',
-  collectorWinback: 'auto-collector-winback',
-} as const;
+function extractSavedAutomationDocument(content: unknown): NewsletterDocument | null {
+  if (!content || typeof content !== 'object' || Array.isArray(content)) return null;
+  const parsed = newsletterDocumentSchema.safeParse(content);
+  return parsed.success ? parsed.data : null;
+}
+
+export const AUTOMATION_CAMPAIGN_IDS = AUTOMATION_EMAIL_IDS;
 
 const WELCOME_FOLLOWUP_MIN_DAYS = 3;
 const WELCOME_FOLLOWUP_MAX_DAYS = 30;
@@ -596,24 +566,33 @@ export function parseWinbackInactiveDays(raw: string | undefined): number {
   return Math.min(365, parsed);
 }
 
-async function ensureAutomationCampaign(
-  id: string,
-  name: string,
-  templateId: string,
-): Promise<void> {
+async function ensureAutomationCampaign(id: AutomationEmailId): Promise<void> {
+  const def = getAutomationEmailDefinition(id);
   await db.emailCampaign.upsert({
     where: { id },
     create: {
       id,
-      name,
+      name: def.title,
       type: 'automated',
-      templateId,
-      segments: JSON.stringify(['newsletter_subscriber']),
+      templateId: def.templateId,
+      segments: JSON.stringify([def.audienceKind === 'checkout' ? 'checkout_visitor' : 'newsletter_subscriber']),
       metrics: JSON.stringify({ total: 0, delivered: 0, failed: 0 }),
       status: 'active',
     },
     update: {},
   });
+}
+
+async function resolveAutomationDocument(
+  id: AutomationEmailId,
+  options: { siteName: string; promoCode?: string },
+): Promise<NewsletterDocument> {
+  const row = await db.emailCampaign.findUnique({
+    where: { id },
+    select: { content: true },
+  }).catch(() => null);
+  const saved = extractSavedAutomationDocument(row?.content);
+  return saved ?? buildDefaultAutomationDocument(id, options);
 }
 
 async function recordAutomationDelivery(
@@ -655,84 +634,300 @@ async function recordAutomationDelivery(
   }).catch(() => undefined);
 }
 
-function buildNewsletterWelcomeDocument(siteName: string, siteUrl: string): NewsletterDocument {
-  const portfolioUrl = absoluteUrl('/portfolio', siteUrl);
-  const shopUrl = absoluteUrl('/shop', siteUrl);
-  return {
-    subject: `Welcome to ${siteName}`,
-    preheader: 'You are on the studio list for new artwork, prints, and studio notes.',
-    fromName: siteName,
-    blocks: [
-      {
-        id: 'welcome-body',
-        type: 'text',
-        html: '<h2>Welcome to the studio list</h2><p>Hi {{first_name}},</p><p>Thank you for joining the list. You will hear directly from the studio when new originals, limited prints, exhibitions, and quiet studio notes arrive — never spam, and you can unsubscribe anytime below.</p>',
-      },
-      {
-        id: 'welcome-cta',
-        type: 'button',
-        label: 'Explore the shop',
-        href: shopUrl,
-      },
-      {
-        id: 'welcome-portfolio',
-        type: 'text',
-        html: `<p>Or browse recent work in the <a href="${escapeHtml(portfolioUrl)}">portfolio</a>.</p>`,
-      },
-    ],
+export async function listAutomationEmailSummaries(): Promise<AutomationEmailSummary[]> {
+  const ids = AUTOMATION_EMAIL_CATALOG.map((entry) => entry.id);
+  const [
+    brand,
+    welcomeEnabled,
+    welcomeSeriesEnabled,
+    winbackEnabled,
+    winbackDaysRaw,
+    cartEnabled,
+    cartPromoRaw,
+    campaigns,
+    deliveryStats,
+  ] = await Promise.all([
+    getEmailBrand(),
+    getConfig('NEWSLETTER_WELCOME_ENABLED'),
+    getConfig('NEWSLETTER_WELCOME_SERIES_ENABLED'),
+    getConfig('WINBACK_EMAIL_ENABLED'),
+    getConfig('WINBACK_INACTIVE_DAYS'),
+    getConfig('CART_ABANDONMENT_ENABLED'),
+    getConfig('CART_RECOVERY_PROMO_CODE'),
+    db.emailCampaign.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, content: true, updatedAt: true },
+    }).catch(() => []),
+    db.emailCampaignDelivery.groupBy({
+      by: ['campaignId', 'status'],
+      where: { campaignId: { in: ids } },
+      _count: { _all: true },
+      _max: { attemptedAt: true },
+    }).catch(() => []),
+  ]);
+
+  const winbackDays = parseWinbackInactiveDays(winbackDaysRaw);
+  const promoCode = (cartPromoRaw || '').trim();
+  const enabledByKey: Record<string, boolean> = {
+    NEWSLETTER_WELCOME_ENABLED: isEnabled(welcomeEnabled, true),
+    NEWSLETTER_WELCOME_SERIES_ENABLED: isEnabled(welcomeSeriesEnabled, false),
+    WINBACK_EMAIL_ENABLED: isEnabled(winbackEnabled, false),
+    CART_ABANDONMENT_ENABLED: isEnabled(cartEnabled, false),
   };
+
+  const campaignById = new Map(campaigns.map((row) => [row.id, row]));
+  const metricsById = new Map<string, { delivered: number; failed: number; lastSentAt: string | null }>();
+  for (const row of deliveryStats) {
+    const entry = metricsById.get(row.campaignId) ?? { delivered: 0, failed: 0, lastSentAt: null };
+    if (row.status === 'sent') {
+      entry.delivered += row._count._all;
+      if (row._max.attemptedAt) entry.lastSentAt = row._max.attemptedAt.toISOString();
+    } else if (row.status === 'failed') {
+      entry.failed += row._count._all;
+    }
+    metricsById.set(row.campaignId, entry);
+  }
+
+  return AUTOMATION_EMAIL_CATALOG.map((def) => {
+    const row = campaignById.get(def.id);
+    const saved = extractSavedAutomationDocument(row?.content);
+    const defaultDocument = buildDefaultAutomationDocument(def.id, {
+      siteName: brand.siteName,
+      promoCode: def.id === AUTOMATION_EMAIL_IDS.cartRecovery ? promoCode : undefined,
+    });
+    const metrics = metricsById.get(def.id) ?? { delivered: 0, failed: 0, lastSentAt: null };
+    return {
+      id: def.id,
+      title: def.title,
+      description: def.description,
+      triggerSummary: def.id === AUTOMATION_EMAIL_IDS.collectorWinback
+        ? `After ${winbackDays} quiet days`
+        : def.triggerSummary,
+      settingKey: def.settingKey,
+      enabled: enabledByKey[def.settingKey] ?? def.defaultEnabled,
+      requiresScheduler: def.requiresScheduler,
+      audienceKind: def.audienceKind,
+      customized: Boolean(saved),
+      document: saved ?? defaultDocument,
+      defaultDocument,
+      updatedAt: row?.updatedAt ? row.updatedAt.toISOString() : null,
+      metrics,
+      ...(def.id === AUTOMATION_EMAIL_IDS.collectorWinback ? { winbackDays } : {}),
+      ...(def.id === AUTOMATION_EMAIL_IDS.cartRecovery ? { cartRecoveryPromoCode: promoCode } : {}),
+    };
+  });
 }
 
-function buildWelcomeFollowupDocument(siteName: string, siteUrl: string): NewsletterDocument {
-  const portfolioUrl = absoluteUrl('/portfolio', siteUrl);
-  const updatesUrl = absoluteUrl('/updates', siteUrl);
-  const contactUrl = absoluteUrl('/contact', siteUrl);
-  return {
-    subject: `Inside the studio — ${siteName}`,
-    preheader: 'A quick look at recent pieces, works in progress, and custom commissions.',
-    fromName: siteName,
-    blocks: [
-      {
-        id: 'followup-body',
-        type: 'text',
-        html: `<h2>A closer look inside the studio</h2><p>Hi {{first_name}},</p><p>Thanks again for following along. If you have not had a chance yet, you can browse <a href="${escapeHtml(portfolioUrl)}">recent portfolio pieces</a>, read <a href="${escapeHtml(updatesUrl)}">studio updates</a>, or reply directly to this email anytime with questions about framing, prints, or commissions.</p>`,
-      },
-      {
-        id: 'followup-cta',
-        type: 'button',
-        label: 'Browse the portfolio',
-        href: portfolioUrl,
-      },
-      {
-        id: 'followup-contact',
-        type: 'text',
-        html: `<p>Looking for something specific? <a href="${escapeHtml(contactUrl)}">Send a note to the studio</a>.</p>`,
-      },
-    ],
-  };
+export async function getAutomationEmailSummary(id: AutomationEmailId): Promise<AutomationEmailSummary> {
+  const list = await listAutomationEmailSummaries();
+  const found = list.find((entry) => entry.id === id);
+  if (!found) throw new ApiError(404, 'Automation email not found', 'NOT_FOUND');
+  return found;
 }
 
-function buildCollectorWinbackDocument(siteName: string, siteUrl: string): NewsletterDocument {
-  const shopUrl = absoluteUrl('/shop', siteUrl);
-  const updatesUrl = absoluteUrl('/updates', siteUrl);
-  return {
-    subject: `Fresh from the studio — ${siteName}`,
-    preheader: 'New artwork and studio notes waiting whenever you want a look.',
-    fromName: siteName,
-    blocks: [
-      {
-        id: 'winback-body',
-        type: 'text',
-        html: `<h2>A quiet note from the studio</h2><p>Hi {{first_name}},</p><p>It has been a little while since we last crossed paths. Whenever you feel like taking a slow look, there are fresh pieces in the shop and recent notes over in <a href="${escapeHtml(updatesUrl)}">Studio Updates</a>.</p>`,
+export async function saveAutomationEmail(
+  id: AutomationEmailId,
+  payload: {
+    document?: NewsletterDocument;
+    resetToDefault?: boolean;
+    enabled?: boolean;
+    winbackDays?: number;
+    cartRecoveryPromoCode?: string;
+  },
+): Promise<AutomationEmailSummary> {
+  const def = getAutomationEmailDefinition(id);
+  const renderContext = await getNewsletterRenderContext();
+
+  if (payload.document && !payload.resetToDefault) {
+    const sanitized = sanitizeNewsletterDocument(payload.document);
+    const issues = newsletterContentIssues(sanitized, { siteUrl: renderContext.siteUrl }, { audienceKind: def.audienceKind });
+    if (issues.length > 0) throw new ApiError(400, issues[0].message, 'NOT_READY', issues);
+
+    await ensureAutomationCampaign(id);
+    await db.emailCampaign.update({
+      where: { id },
+      data: {
+        name: def.title,
+        templateId: def.templateId,
+        content: sanitized as unknown as Prisma.InputJsonValue,
       },
-      {
-        id: 'winback-cta',
-        type: 'button',
-        label: 'See what is new',
-        href: shopUrl,
+    });
+  } else if (payload.resetToDefault) {
+    await ensureAutomationCampaign(id);
+    await db.emailCampaign.update({
+      where: { id },
+      data: {
+        name: def.title,
+        templateId: def.templateId,
+        content: Prisma.DbNull,
       },
-    ],
-  };
+    });
+  }
+
+  const settingUpdates: Array<{ key: string; value: string }> = [];
+  if (typeof payload.enabled === 'boolean') {
+    settingUpdates.push({ key: def.settingKey, value: payload.enabled ? 'true' : 'false' });
+  }
+  if (id === AUTOMATION_EMAIL_IDS.collectorWinback && typeof payload.winbackDays === 'number') {
+    const clamped = Math.max(14, Math.min(365, Math.round(payload.winbackDays)));
+    settingUpdates.push({ key: 'WINBACK_INACTIVE_DAYS', value: String(clamped) });
+  }
+  if (id === AUTOMATION_EMAIL_IDS.cartRecovery && typeof payload.cartRecoveryPromoCode === 'string') {
+    settingUpdates.push({ key: 'CART_RECOVERY_PROMO_CODE', value: payload.cartRecoveryPromoCode.trim().slice(0, 64) });
+  }
+  if (settingUpdates.length > 0) {
+    await setConfigMany(settingUpdates);
+  }
+
+  return getAutomationEmailSummary(id);
+}
+
+export async function processDueCartRecovery(now = new Date()): Promise<CampaignProcessSummary> {
+  const [cartEnabled, delivery] = await Promise.all([
+    getConfig('CART_ABANDONMENT_ENABLED'),
+    getEmailDeliveryStatus(),
+  ]);
+  if (!isEnabled(cartEnabled, false) || delivery.mode !== 'smtp') {
+    return { attempted: 0, completed: 0, needsAttention: 0, failed: 0 };
+  }
+
+  const staleBefore = new Date(now.getTime() - 60 * 60 * 1000);
+  const windowStart = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const [events, recentOrders] = await Promise.all([
+    db.analyticsEvent.findMany({
+      where: {
+        eventName: { in: ['add_to_cart', 'begin_checkout', 'purchase', 'cart_abandoned'] },
+        timestamp: { gte: windowStart },
+      },
+      orderBy: { timestamp: 'desc' },
+      take: 1000,
+    }).catch(() => []),
+    db.order.findMany({
+      where: {
+        createdAt: { gte: windowStart },
+        status: { notIn: ['cancelled', 'refunded'] },
+      },
+      select: { userEmail: true, userId: true },
+    }).catch(() => []),
+  ]);
+
+  const completedActors = new Set<string>();
+  const completedEmails = new Set<string>();
+  const recoveredActors = new Set<string>();
+  const recoveredEmails = new Set<string>();
+  const cartSignals = [] as any[];
+
+  for (const order of recentOrders) {
+    if (order.userId) completedActors.add(`user:${order.userId}`);
+    const orderEmail = normalizeEmailValue(order.userEmail);
+    if (orderEmail) completedEmails.add(orderEmail);
+  }
+
+  for (const event of events) {
+    const key = eventActorKey(event);
+    const props = parseJsonObject(event.properties);
+    const propEmail = normalizeEmailValue(props.recipient_email || props.email);
+    if (event.eventName === 'purchase') {
+      if (key) completedActors.add(key);
+      if (propEmail) completedEmails.add(propEmail);
+    }
+    if (event.eventName === 'cart_abandoned') {
+      if (key) recoveredActors.add(key);
+      if (propEmail) recoveredEmails.add(propEmail);
+    }
+    if (
+      (event.eventName === 'add_to_cart' || event.eventName === 'begin_checkout')
+      && new Date(event.timestamp) <= staleBefore
+    ) {
+      cartSignals.push(event);
+    }
+  }
+
+  const userIds = Array.from(new Set(cartSignals.map((event) => event.userId).filter(Boolean)));
+  const [users, profiles] = await Promise.all([
+    userIds.length ? db.user.findMany({ where: { id: { in: userIds } }, select: { id: true, email: true, firstName: true, name: true } }).catch(() => []) : [],
+    userIds.length ? dbWithMarketing.customerProfile.findMany({ where: { id: { in: userIds } }, select: { id: true, email: true } }).catch(() => []) : [],
+  ]);
+  const recipientsById = new Map<string, CampaignRecipient>();
+  for (const user of users as any[]) {
+    if (user.email) recipientsById.set(user.id, { email: user.email, name: user.firstName || user.name, userId: user.id });
+  }
+  for (const profile of profiles as any[]) {
+    if (profile.email && !recipientsById.has(profile.id)) {
+      recipientsById.set(profile.id, { email: profile.email, customerProfileId: profile.id });
+    }
+  }
+
+  const [brand, promoCodeRaw] = await Promise.all([getEmailBrand(), getConfig('CART_RECOVERY_PROMO_CODE')]);
+  const promoCode = (promoCodeRaw || '').trim();
+  const campaignId = AUTOMATION_CAMPAIGN_IDS.cartRecovery;
+  await ensureAutomationCampaign(campaignId);
+  const doc = await resolveAutomationDocument(campaignId, { siteName: brand.siteName, promoCode });
+
+  const summary: CampaignProcessSummary = { attempted: 0, completed: 0, needsAttention: 0, failed: 0 };
+  const processedActors = new Set<string>();
+  const processedEmails = new Set<string>();
+
+  for (const signal of cartSignals) {
+    const key = eventActorKey(signal);
+    const properties = parseJsonObject(signal.properties);
+    const recipient: CampaignRecipient | undefined = typeof properties.email === 'string' && properties.email.trim()
+      ? { email: properties.email.trim(), name: typeof properties.name === 'string' ? properties.name : null, userId: signal.userId }
+      : signal.userId ? recipientsById.get(signal.userId) : undefined;
+    const normalizedEmail = normalizeEmailValue(recipient?.email);
+    if (!normalizedEmail) continue;
+    if (
+      (key && (completedActors.has(key) || recoveredActors.has(key) || processedActors.has(key)))
+      || completedEmails.has(normalizedEmail)
+      || recoveredEmails.has(normalizedEmail)
+      || processedEmails.has(normalizedEmail)
+    ) {
+      continue;
+    }
+
+    if (key) processedActors.add(key);
+    processedEmails.add(normalizedEmail);
+    summary.attempted += 1;
+    const requestedPath = typeof properties.recovery_path === 'string' ? parseInternalPath(properties.recovery_path.trim()) : null;
+    const recoveryPath = requestedPath ? `${requestedPath.pathname}${requestedPath.search}` : '/checkout';
+    const checkoutUrl = absoluteUrl(recoveryPath, brand.siteUrl);
+    const firstName = recipient?.name?.trim().split(' ')[0] || null;
+
+    const result = await sendNewsletterEmails(
+      doc,
+      [{ email: normalizedEmail, firstName, profileId: recipient?.customerProfileId ?? signal.userId ?? undefined }],
+      undefined,
+      {
+        automationId: campaignId,
+        extraMergeValues: () => ({
+          checkout_url: checkoutUrl,
+          promo_code: promoCode,
+        }),
+      },
+    );
+    const ok = result.delivered > 0;
+    if (ok) summary.completed += 1;
+    else summary.failed += 1;
+
+    await recordAutomationDelivery(campaignId, normalizedEmail, ok, 'cart_recovery', signal.userId);
+    await db.analyticsEvent.create({
+      data: {
+        eventName: 'cart_abandoned',
+        userId: signal.userId,
+        sessionId: signal.sessionId,
+        properties: JSON.stringify({
+          cart_event_id: signal.id,
+          campaign_id: campaignId,
+          recipient_email: normalizedEmail,
+          delivery_success: ok,
+          promo_code: promoCode || undefined,
+        }),
+        timestamp: now,
+      },
+    }).catch(() => undefined);
+  }
+
+  return summary;
 }
 
 /**
@@ -757,7 +952,7 @@ export async function sendNewsletterWelcomeEmail(
   }
 
   const campaignId = AUTOMATION_CAMPAIGN_IDS.newsletterWelcome;
-  await ensureAutomationCampaign(campaignId, 'Newsletter welcome', 'automated-welcome');
+  await ensureAutomationCampaign(campaignId);
 
   const alreadySent = await db.emailCampaignDelivery.findUnique({
     where: { campaignId_email: { campaignId, email: normalizedEmail } },
@@ -776,7 +971,7 @@ export async function sendNewsletterWelcomeEmail(
   ]);
   const firstName = user?.firstName?.trim() || user?.name?.trim().split(' ')[0] || null;
 
-  const doc = buildNewsletterWelcomeDocument(brand.siteName, brand.siteUrl);
+  const doc = await resolveAutomationDocument(campaignId, { siteName: brand.siteName });
   const result = await sendNewsletterEmails(doc, [{
     email: normalizedEmail,
     firstName,
@@ -820,7 +1015,7 @@ export async function processDueSubscriberAutomations(now = new Date()): Promise
 
   if (runFollowup) {
     const campaignId = AUTOMATION_CAMPAIGN_IDS.newsletterWelcomeFollowup;
-    await ensureAutomationCampaign(campaignId, 'Welcome series follow-up', 'automated-welcome-followup');
+    await ensureAutomationCampaign(campaignId);
     const sentRows = await db.emailCampaignDelivery.findMany({
       where: { campaignId, status: 'sent' },
       select: { email: true },
@@ -836,7 +1031,7 @@ export async function processDueSubscriberAutomations(now = new Date()): Promise
       .slice(0, AUTOMATION_BATCH_LIMIT);
 
     if (eligible.length > 0) {
-      const doc = buildWelcomeFollowupDocument(brand.siteName, brand.siteUrl);
+      const doc = await resolveAutomationDocument(campaignId, { siteName: brand.siteName });
       await sendNewsletterEmails(
         doc,
         eligible.map((s) => ({ email: s.email, firstName: s.firstName, profileId: s.profileId })),
@@ -854,7 +1049,7 @@ export async function processDueSubscriberAutomations(now = new Date()): Promise
     const inactiveDays = parseWinbackInactiveDays(winbackDaysRaw);
     const cutoff = new Date(nowMs - inactiveDays * dayMs);
     const campaignId = AUTOMATION_CAMPAIGN_IDS.collectorWinback;
-    await ensureAutomationCampaign(campaignId, 'Collector win-back', 'automated-winback');
+    await ensureAutomationCampaign(campaignId);
 
     const [sentRows, profiles, recentOrders] = await Promise.all([
       db.emailCampaignDelivery.findMany({
@@ -894,7 +1089,7 @@ export async function processDueSubscriberAutomations(now = new Date()): Promise
       .slice(0, AUTOMATION_BATCH_LIMIT);
 
     if (eligible.length > 0) {
-      const doc = buildCollectorWinbackDocument(brand.siteName, brand.siteUrl);
+      const doc = await resolveAutomationDocument(campaignId, { siteName: brand.siteName });
       await sendNewsletterEmails(
         doc,
         eligible.map((s) => ({ email: s.email, firstName: s.firstName, profileId: s.profileId })),

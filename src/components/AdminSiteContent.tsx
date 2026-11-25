@@ -29,6 +29,7 @@ import {
   SITE_CONTENT_DEFAULTS,
   SITE_CONTENT_PAGES,
   SITE_CONTENT_PREVIEW_HREF,
+  findSimilarCategoryMatch,
   mergePortfolioCategoriesFromTags,
   normalizePortfolioCategoryKey,
   type HomeSectionKey,
@@ -339,6 +340,10 @@ function PortfolioCategoryEditor({
     (starter) => !items.some((item) => normalizePortfolioCategoryKey(item.key) === normalizePortfolioCategoryKey(starter)),
   );
   const importableCount = mergePortfolioCategoriesFromTags(items, artworkTags).length - items.length;
+  const similarCategory = findSimilarCategoryMatch(
+    draftLabel,
+    items.map((item) => item.label),
+  );
 
   return (
     <div className="space-y-3">
@@ -407,23 +412,44 @@ function PortfolioCategoryEditor({
           />
         </div>
       ))}
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="min-w-[12rem] flex-1">
-          <TextField
-            label="Add category"
-            value={draftLabel}
-            onChange={setDraftLabel}
-            help="Example: Paintings, Works on paper, Commissions"
-          />
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="min-w-[12rem] flex-1">
+            <TextField
+              label="Add category"
+              value={draftLabel}
+              onChange={setDraftLabel}
+              help="Example: Paintings, Works on paper, Commissions"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => addCategory(draftLabel)}
+            disabled={!draftLabel.trim() || Boolean(similarCategory?.exact)}
+            className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {similarCategory && !similarCategory.exact ? 'Add anyway' : 'Add'}
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => addCategory(draftLabel)}
-          disabled={!draftLabel.trim()}
-          className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Add
-        </button>
+        {similarCategory && (
+          <div
+            role="status"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+          >
+            <span>
+              {similarCategory.exact
+                ? `“${similarCategory.match}” is already in your portfolio categories.`
+                : `Looks similar to existing “${similarCategory.match}”.`}
+            </span>
+            <button
+              type="button"
+              onClick={() => setDraftLabel('')}
+              className="font-medium text-amber-950 underline underline-offset-2 hover:text-amber-800"
+            >
+              Keep “{similarCategory.match}”
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

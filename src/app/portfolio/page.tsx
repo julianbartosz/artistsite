@@ -8,13 +8,19 @@ import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
 export const dynamic = 'force-dynamic';
 
 export async function generateMetadata(): Promise<Metadata> {
-  const portfolio = await getSiteContent('portfolio');
+  const [portfolio, identity] = await Promise.all([
+    getSiteContent('portfolio'),
+    getSiteContent('identity'),
+  ]);
+  const description = portfolio.subtitle.trim()
+    || identity.tagline.trim()
+    || 'Selected artworks and portfolio archive.';
   return {
     title: portfolio.title || 'Portfolio',
-    description: portfolio.subtitle || undefined,
+    description,
     openGraph: {
       title: portfolio.title || 'Portfolio',
-      description: portfolio.subtitle || undefined,
+      description,
       type: 'website',
     },
     alternates: { canonical: '/portfolio' },

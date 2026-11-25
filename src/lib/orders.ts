@@ -407,9 +407,14 @@ export async function getAllOrders(filters: {
   search?: string | null;
 } = {}): Promise<Order[]> {
   const search = filters.search?.trim();
+  const needsShipping = filters.status === 'needs_shipping';
   const orders = await db.order.findMany({
     where: {
-      ...(filters.status ? { status: filters.status } : {}),
+      ...(needsShipping
+        ? { paymentStatus: 'paid', status: { in: ['confirmed', 'processing'] } }
+        : filters.status
+          ? { status: filters.status }
+          : {}),
       ...(search ? {
         OR: [
           { orderNumber: { contains: search, mode: 'insensitive' } },
@@ -418,7 +423,7 @@ export async function getAllOrders(filters: {
       } : {}),
     },
     include: orderInclude,
-    orderBy: { createdAt: 'desc' },
+    orderBy: { createdAt: needsShipping ? 'asc' : 'desc' },
   });
 
   return Promise.all(orders.map(toDomainOrder));
@@ -508,7 +513,9 @@ export async function markOrderPaid(
     const timeline = OrderManager.createTimelineEntry(
       'confirmed',
       OrderManager.getStatusMessage('confirmed'),
-      'Payment confirmed by Stripe',
+      paymentMethod === 'manual' && !paymentIntentId
+        ? 'Manual payment confirmed by studio'
+        : 'Payment confirmed by Stripe',
       undefined
     );
     await tx.orderTimelineEntry.create({
@@ -692,21 +699,25 @@ export async function refundOrder(orderId: string): Promise<Order> {
   if (!OrderManager.canRefundOrder(existing)) {
     throw new Error('Order cannot be refunded in its current state');
   }
-  if (!existing.paymentIntentId) {
-    throw new Error('This order has no Stripe payment on file');
-  }
 
   const paymentIntentId = existing.paymentIntentId;
-  const liveStripe = isLiveStripePaymentIntent(paymentIntentId);
+  const isManualPayment = !paymentIntentId && existing.paymentMethod === 'manual';
+  const liveStripe = !isManualPayment && isLiveStripePaymentIntent(paymentIntentId);
 
-  if (liveStripe) {
-    const stripe = await getStripe();
-    await stripe.refunds.create(
-      { payment_intent: paymentIntentId },
-      { idempotencyKey: `refund-order-${orderId}` },
-    );
-  } else if (!paymentIntentId.startsWith('e2e_payment_')) {
-    throw new Error('Order payment intent is not refundable through Stripe');
+  if (!isManualPayment) {
+    if (!paymentIntentId) {
+      throw new Error('This order has no Stripe payment on file');
+    }
+
+    if (liveStripe) {
+      const stripe = await getStripe();
+      await stripe.refunds.create(
+        { payment_intent: paymentIntentId },
+        { idempotencyKey: `refund-order-${orderId}` },
+      );
+    } else if (!paymentIntentId.startsWith('e2e_payment_')) {
+      throw new Error('Order payment intent is not refundable through Stripe');
+    }
   }
 
   await InventoryService.releaseStockForOrder(
@@ -746,7 +757,9 @@ export async function refundOrder(orderId: string): Promise<Order> {
         OrderManager.getStatusMessage('refunded'),
         liveStripe
           ? `Stripe refund issued for payment ${paymentIntentId}`
-          : `Test refund recorded for payment ${paymentIntentId}`,
+          : isManualPayment
+            ? 'Manual payment marked refunded by studio'
+            : `Test refund recorded for payment ${paymentIntentId}`,
         undefined
       ),
     },

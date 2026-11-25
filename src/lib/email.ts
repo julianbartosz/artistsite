@@ -387,3 +387,116 @@ View order details: ${orderUrl}
     return sendTemplateEmail(order.customerEmail, template);
   }
 }
+
+export async function sendStudioReplyEmail(options: {
+  to: string;
+  collectorName?: string | null;
+  subject: string;
+  message: string;
+  orderNumber?: string | null;
+  orderId?: string | null;
+}): Promise<{ mode: EmailDeliveryStatus['mode']; delivered: boolean }> {
+  const status = await getEmailDeliveryStatus();
+  if (status.mode !== 'smtp') {
+    return { mode: status.mode, delivered: false };
+  }
+
+  const brand = await getEmailBrand();
+  const replyTo = (await getConfig('CONTACT_EMAIL'))
+    || (await getConfig('ARTIST_EMAIL'))
+    || (await getConfig('SMTP_FROM'))
+    || undefined;
+  const greeting = options.collectorName?.trim()
+    ? `Hi ${escapeHtml(options.collectorName.trim())},`
+    : 'Hello,';
+  const cleanSubject = options.subject.trim() || 'Studio reply';
+  const emailSubject = /^re:/i.test(cleanSubject) ? cleanSubject : `Re: ${cleanSubject}`;
+  const ctaPath = options.orderId ? createOrderTrackingPath(options.orderId) : '/account';
+  const ctaUrl = absoluteUrl(ctaPath, brand.siteUrl);
+
+  const delivered = await sendTemplateEmail(
+    options.to,
+    {
+      subject: emailSubject,
+      html: brandedEmailHtml(brand, {
+        title: options.orderNumber ? `Update on order ${options.orderNumber}` : `Reply from ${brand.siteName}`,
+        intro: `${greeting} ${escapeHtml(brand.siteName)} sent you a message.`,
+        sections: [
+          { html: emailQuoteHtml(options.message, brand) },
+        ],
+        cta: { label: options.orderId ? 'View order' : 'View conversation', href: ctaUrl },
+        closing: 'You can reply directly to this email to continue the conversation.',
+      }),
+      text: `${options.collectorName?.trim() ? `Hi ${options.collectorName.trim()},` : 'Hello,'}\n\n${brand.siteName} sent you a message:\n\n${options.message}\n\nReply directly to this email or view online: ${ctaUrl}`,
+    },
+    replyTo ? { replyTo } : undefined,
+  );
+
+  return { mode: status.mode, delivered };
+}
+
+export async function sendManualOrderRequestEmails(
+  order: Order,
+  instructions: string,
+): Promise<{ customerDelivered: boolean; artistDelivered: boolean }> {
+  const status = await getEmailDeliveryStatus();
+  if (status.mode !== 'smtp') {
+    return { customerDelivered: false, artistDelivered: false };
+  }
+
+  const brand = await getEmailBrand();
+  const orderUrl = absoluteUrl(createOrderTrackingPath(order.id), brand.siteUrl);
+  const customerName = `${order.shippingAddress.firstName} ${order.shippingAddress.lastName}`.trim() || order.customerEmail;
+  const artistRecipient = (await getConfig('CONTACT_EMAIL'))
+    || (await getConfig('ARTIST_EMAIL'))
+    || (await getConfig('SMTP_FROM'))
+    || (await getConfig('SMTP_USER'));
+
+  const itemRows: Array<[string, string]> = order.items.map((item) => [
+    `${item.quantity} × ${item.product.title}`,
+    escapeHtml(money(item.totalPrice)),
+  ]);
+  itemRows.push(['Shipping', escapeHtml(order.shipping === 0 ? 'Free' : money(order.shipping))]);
+  itemRows.push(['Requested total', `<strong>${escapeHtml(money(order.total))} ${escapeHtml(order.currency)}</strong>`]);
+
+  const customerDelivered = await sendTemplateEmail(
+    order.customerEmail,
+    {
+      subject: `Purchase request received — ${order.orderNumber}`,
+      html: orderEmailHtml(brand, {
+        title: 'Purchase request received',
+        intro: `Thank you, ${escapeHtml(customerName)}. Your request for order <strong>${escapeHtml(order.orderNumber)}</strong> has been sent to the studio.`,
+        sections: [
+          { heading: 'Payment & next steps', html: `<p style="margin:0;">${escapeHtml(instructions)}</p>` },
+          { heading: 'Requested items', html: emailDetailRows(itemRows) },
+        ],
+        cta: { label: 'View request', href: orderUrl },
+        closing: 'No payment has been charged yet. Reply to this email if you have any questions.',
+      }),
+      text: `Purchase request received — ${order.orderNumber}\n\n${instructions}\n\nRequested total: ${money(order.total)} ${order.currency}\nView request: ${orderUrl}`,
+    },
+    artistRecipient ? { replyTo: artistRecipient } : undefined,
+  );
+
+  const artistDelivered = artistRecipient
+    ? await sendTemplateEmail(
+        artistRecipient,
+        {
+          subject: `New purchase request — ${order.orderNumber} (${money(order.total)})`,
+          html: brandedEmailHtml(brand, {
+            title: `Purchase request ${order.orderNumber}`,
+            intro: `${escapeHtml(customerName)} (${escapeHtml(order.customerEmail)}) requested to purchase from your shop. Confirm availability and send payment details, then mark the order paid in Studio → Orders.`,
+            sections: [
+              { heading: 'Requested items', html: emailDetailRows(itemRows) },
+              ...(order.giftMessage ? [{ heading: 'Note from collector', html: emailQuoteHtml(order.giftMessage, brand) }] : []),
+            ],
+            cta: { label: 'Open Studio Orders', href: absoluteUrl('/admin?tab=orders', brand.siteUrl) },
+          }),
+          text: `New purchase request ${order.orderNumber}\nFrom: ${customerName} <${order.customerEmail}>\nTotal: ${money(order.total)} ${order.currency}\nOpen Studio Orders: ${absoluteUrl('/admin?tab=orders', brand.siteUrl)}`,
+        },
+        { replyTo: order.customerEmail },
+      )
+    : false;
+
+  return { customerDelivered, artistDelivered };
+}

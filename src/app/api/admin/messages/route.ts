@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ZodError, z } from 'zod';
 import { ApiError } from '@/lib/api-error-handler';
 import { requireAdmin } from '@/lib/auth';
+import { getEmailDeliveryStatus, sendStudioReplyEmail } from '@/lib/email';
 import { countUnreadThreadsForAdmin, createAdminOrderMessage, listStudioThreadsForAdmin } from '@/lib/studio-inbox';
 import { getOrderById } from '@/lib/orders';
 
@@ -13,11 +14,16 @@ const createThreadSchema = z.object({
 export async function GET() {
   try {
     await requireAdmin();
-    const [threads, unreadCount] = await Promise.all([
+    const [threads, unreadCount, emailStatus] = await Promise.all([
       listStudioThreadsForAdmin(),
       countUnreadThreadsForAdmin(),
+      getEmailDeliveryStatus(),
     ]);
-    return NextResponse.json({ threads, unreadCount });
+    return NextResponse.json({
+      threads,
+      unreadCount,
+      emailDeliveryMode: emailStatus.mode,
+    });
   } catch (error) {
     if (error instanceof ApiError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
@@ -34,17 +40,31 @@ export async function POST(request: NextRequest) {
     const order = await getOrderById(payload.orderId);
     if (!order) throw new ApiError(404, 'Order not found', 'ORDER_NOT_FOUND');
 
+    const collectorName = `${order.shippingAddress.firstName} ${order.shippingAddress.lastName}`.trim() || order.customerEmail;
+
     const result = await createAdminOrderMessage({
       orderId: order.id,
       orderNumber: order.orderNumber,
       customerEmail: order.customerEmail,
       customerUserId: order.customerId,
-      customerName: order.customerEmail,
+      customerName: collectorName,
       message: payload.message,
       artistUserId: session.user.id,
     });
 
-    return NextResponse.json({ threadId: result.thread.id }, { status: 201 });
+    const emailDelivery = await sendStudioReplyEmail({
+      to: order.customerEmail,
+      collectorName,
+      subject: `Order #${order.orderNumber}`,
+      message: payload.message,
+      orderNumber: order.orderNumber,
+      orderId: order.id,
+    }).catch((err) => {
+      console.error('Failed to email collector order message:', err);
+      return { mode: 'smtp' as const, delivered: false };
+    });
+
+    return NextResponse.json({ threadId: result.thread.id, emailDelivery }, { status: 201 });
   } catch (error) {
     if (error instanceof ApiError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });

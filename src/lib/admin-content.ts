@@ -51,6 +51,12 @@ export const productPayloadSchema = z.object({
     international: z.coerce.number().min(0).default(0),
     domesticEnabled: z.coerce.boolean().optional(),
     internationalEnabled: z.coerce.boolean().optional(),
+    parcel: z.object({
+      weightOz: z.preprocess((v) => (v === '' || v === null || v === undefined ? undefined : v), z.coerce.number().positive().optional()),
+      lengthIn: z.preprocess((v) => (v === '' || v === null || v === undefined ? undefined : v), z.coerce.number().positive().optional()),
+      widthIn: z.preprocess((v) => (v === '' || v === null || v === undefined ? undefined : v), z.coerce.number().positive().optional()),
+      heightIn: z.preprocess((v) => (v === '' || v === null || v === undefined ? undefined : v), z.coerce.number().positive().optional()),
+    }).optional(),
   }),
   specifications: z.object({
     framed: z.coerce.boolean().default(false),

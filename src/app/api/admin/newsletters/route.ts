@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth';
-import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 import { jsonErrorResponse } from '@/lib/api-error-handler';
 import { newsletterCampaignData } from '@/lib/admin-content';
-import { getNewsletterSendContext, getNewsletterSummary, listNewsletterSummaries } from '@/lib/marketing/campaign-execution';
+import {
+  getNewsletterSendContext,
+  getNewsletterSummary,
+  listAutomationEmailSummaries,
+  listNewsletterSummaries,
+} from '@/lib/marketing/campaign-execution';
 import { newsletterDocumentSchema, type NewsletterAdminContext } from '@/lib/newsletter';
 
 export const dynamic = 'force-dynamic';
@@ -15,21 +19,21 @@ const createSchema = z.object({ document: newsletterDocumentSchema });
 export async function GET() {
   try {
     const session = await requireAdmin();
-    const [newsletters, sendContext, cronSecret, admin] = await Promise.all([
+    const [newsletters, automations, sendContext, admin] = await Promise.all([
       listNewsletterSummaries(),
+      listAutomationEmailSummaries(),
       getNewsletterSendContext(),
-      getConfig('CRON_SECRET'),
       db.user.findUnique({ where: { id: session.user.id }, select: { email: true, firstName: true, name: true } }),
     ]);
     const context: NewsletterAdminContext = {
       ...sendContext,
-      schedulingAvailable: Boolean(cronSecret || process.env.CRON_SECRET),
+      schedulingAvailable: true,
       testRecipient: {
         email: admin?.email || session.user.email || '',
         firstName: admin?.firstName || admin?.name?.split(' ')[0] || '',
       },
     };
-    return NextResponse.json({ newsletters, context });
+    return NextResponse.json({ newsletters, automations, context });
   } catch (error) {
     return jsonErrorResponse(error, 'Failed to load newsletters');
   }

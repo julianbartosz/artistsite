@@ -180,7 +180,7 @@ export function Footer({
 
         <div className="border-t border-white/15 mt-6 pt-5 md:mt-8 md:pt-6 flex flex-row flex-wrap items-start justify-between gap-x-6 gap-y-2">
           <p className="text-white/75 text-sm">
-            © {currentYear} {siteIdentity.copyrightName.trim()}. All rights reserved.
+            {`© ${currentYear} ${siteIdentity.copyrightName.trim()}. All rights reserved.`}
           </p>
           <p className="text-white/75 text-sm max-w-md text-left sm:text-right leading-relaxed">
             {siteIdentity.footerTagline}

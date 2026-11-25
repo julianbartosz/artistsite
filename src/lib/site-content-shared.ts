@@ -944,6 +944,99 @@ export function normalizePortfolioCategoryKey(value: string): string {
   return chars.join('') || 'category';
 }
 
+function singularizeCategoryWord(word: string): string {
+  if (word.length <= 3) return word;
+  if (word.endsWith('ies') && word.length > 4) {
+    return `${word.slice(0, -3)}y`;
+  }
+  if (
+    word.length > 4
+    && (
+      word.endsWith('ches')
+      || word.endsWith('shes')
+      || word.endsWith('xes')
+      || word.endsWith('zes')
+      || word.endsWith('ses')
+    )
+  ) {
+    return word.slice(0, -2);
+  }
+  if (
+    word.endsWith('s')
+    && !word.endsWith('ss')
+    && !word.endsWith('us')
+    && !word.endsWith('is')
+    && !word.endsWith('as')
+  ) {
+    return word.slice(0, -1);
+  }
+  return word;
+}
+
+/**
+ * Normalizes a category/medium/tag label into a punctuation-, case-, and plural-insensitive stem
+ * so near-duplicates like "print" vs "Prints" or "mixed-media" vs "Mixed Media" can be flagged.
+ */
+export function canonicalCategoryStem(value: string): string {
+  const folded = value
+    .normalize('NFKD')
+    .toLowerCase();
+  const words: string[] = [];
+  let current = '';
+  for (const char of folded) {
+    const isAlphaNum = (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9');
+    if (isAlphaNum) {
+      current += char;
+    } else if (current) {
+      words.push(singularizeCategoryWord(current));
+      current = '';
+    }
+  }
+  if (current) {
+    words.push(singularizeCategoryWord(current));
+  }
+  return words.join('');
+}
+
+export interface SimilarCategoryMatch {
+  match: string;
+  exact: boolean;
+}
+
+/**
+ * Finds an existing category/medium/tag that matches `draft` either exactly (ignoring case/spacing)
+ * or as a near-duplicate (pluralization, hyphens, punctuation).
+ */
+export function findSimilarCategoryMatch(
+  draft: string,
+  existing: readonly string[],
+): SimilarCategoryMatch | null {
+  const cleanDraft = draft.trim();
+  if (!cleanDraft) return null;
+  const draftLower = cleanDraft.toLowerCase();
+  const draftStem = canonicalCategoryStem(cleanDraft);
+
+  for (const rawOption of existing) {
+    const option = rawOption.trim();
+    if (!option) continue;
+    if (option.toLowerCase() === draftLower) {
+      return { match: option, exact: true };
+    }
+  }
+
+  if (!draftStem) return null;
+
+  for (const rawOption of existing) {
+    const option = rawOption.trim();
+    if (!option) continue;
+    if (canonicalCategoryStem(option) === draftStem) {
+      return { match: option, exact: false };
+    }
+  }
+
+  return null;
+}
+
 export function normalizePortfolioCategories(value: unknown): PortfolioCategory[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();

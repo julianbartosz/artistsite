@@ -94,8 +94,8 @@ export async function runScheduledAutomations() {
 }
 
 /**
- * Runs automations on clock-aligned intervals inside the server process while an
- * automation secret is configured, so no external scheduler is required.
+ * Runs automations on clock-aligned intervals inside the server process with a database
+ * lease so scheduled newsletters and follow-ups work automatically without an external cron service.
  */
 export function startAutomationScheduler(): void {
   if (schedulerStarted) return;
@@ -105,9 +105,7 @@ export function startAutomationScheduler(): void {
   const scheduleNext = () => {
     setTimeout(async () => {
       try {
-        if (await resolveCronSecret()) {
-          await runScheduledAutomations();
-        }
+        await runScheduledAutomations();
       } catch (error) {
         console.error('Scheduled automations failed:', error);
       }

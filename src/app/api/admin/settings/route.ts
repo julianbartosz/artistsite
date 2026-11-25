@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth';
 import { ApiError } from '@/lib/api-error-handler';
 import { getConfig, isSecretSettingKey, maskSecret, setConfig } from '@/lib/config';
+import { brandedEmailHtml, getEmailBrand, getEmailDeliveryStatus, sendTemplateEmail } from '@/lib/email';
+import { escapeHtml } from '@/lib/email-shell';
 import { sanitizeRichHtml } from '@/lib/content-sanitize';
 import { SITE_CONTENT_KEYS } from '@/lib/site-content-shared';
 
@@ -11,6 +13,8 @@ const SETTING_KEYS = [
   'ADMIN_EMAILS',
   'NEXT_PUBLIC_SITE_URL',
   'NEXT_PUBLIC_BASE_URL',
+  'CHECKOUT_MODE',
+  'MANUAL_PAYMENT_INSTRUCTIONS',
   'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY',
   'STRIPE_SECRET_KEY',
   'STRIPE_WEBHOOK_SECRET',
@@ -148,6 +152,15 @@ export async function PUT(request: NextRequest) {
     if (updatedKeys.has('LEGAL_PRIVACY_HTML')) revalidatePath('/privacy');
     if (updatedKeys.has('LEGAL_TERMS_HTML')) revalidatePath('/terms');
     if (
+      updatedKeys.has('CHECKOUT_MODE')
+      || updatedKeys.has('MANUAL_PAYMENT_INSTRUCTIONS')
+      || updatedKeys.has('STRIPE_AUTOMATIC_TAX_ENABLED')
+      || updatedKeys.has('STRIPE_SECRET_KEY')
+      || updatedKeys.has('NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY')
+    ) {
+      revalidatePath('/checkout');
+    }
+    if (
       updatedKeys.has('CONTACT_EMAIL')
       || updatedKeys.has('ARTIST_EMAIL')
       || updatedKeys.has('SUPPORT_EMAIL')
@@ -173,5 +186,53 @@ export async function PUT(request: NextRequest) {
     }
 
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed to update settings' }, { status: 500 });
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const session = await requireAdmin();
+    const body = await request.json().catch(() => ({}));
+    if (body?.action !== 'send_test_email') {
+      return NextResponse.json({ error: 'Unsupported action' }, { status: 400 });
+    }
+
+    const to = typeof body?.to === 'string' && body.to.trim()
+      ? body.to.trim()
+      : (session.user.email || (await getConfig('CONTACT_EMAIL')) || '');
+    if (!to) {
+      return NextResponse.json({ error: 'Add a contact email or sign in with an email address first.' }, { status: 400 });
+    }
+
+    const delivery = await getEmailDeliveryStatus();
+    if (delivery.mode !== 'smtp') {
+      return NextResponse.json(
+        { error: delivery.mode === 'log' ? 'Switch Email delivery to SMTP and save before sending a live test email.' : 'Complete SMTP host, username, and password, then save before testing.' },
+        { status: 400 },
+      );
+    }
+
+    const brand = await getEmailBrand();
+    const delivered = await sendTemplateEmail(to, {
+      subject: `Test email from ${brand.siteName}`,
+      html: brandedEmailHtml(brand, {
+        title: 'SMTP email delivery is working',
+        intro: `This test email was sent from ${escapeHtml(brand.siteName)} Studio Settings to verify your SMTP configuration.`,
+        sections: [],
+        closing: 'Order confirmations, collector replies, and newsletters can now be delivered directly from your studio.',
+      }),
+      text: `SMTP email delivery is working.\n\nThis test email was sent from ${brand.siteName} Studio Settings to verify your SMTP configuration.`,
+    });
+
+    if (!delivered) {
+      return NextResponse.json({ error: 'SMTP refused the test email. Double-check your host, port, username, password, and From address.' }, { status: 502 });
+    }
+
+    return NextResponse.json({ ok: true, to });
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    }
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed to send test email' }, { status: 500 });
   }
 }

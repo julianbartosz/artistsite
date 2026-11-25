@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth';
-import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 import { ApiError, jsonErrorResponse } from '@/lib/api-error-handler';
 import { newsletterCampaignData } from '@/lib/admin-content';
@@ -10,14 +9,23 @@ import {
   deliverEmailCampaign,
   getNewsletterSendContext,
   getNewsletterSummary,
+  saveAutomationEmail,
 } from '@/lib/marketing/campaign-execution';
-import { newsletterDocumentSchema, newsletterSendIssues } from '@/lib/newsletter';
+import { isAutomationEmailId, newsletterDocumentSchema, newsletterSendIssues } from '@/lib/newsletter';
 
 export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 const updateSchema = z.object({ document: newsletterDocumentSchema });
+
+const automationUpdateSchema = z.object({
+  document: newsletterDocumentSchema.optional(),
+  resetToDefault: z.boolean().optional(),
+  enabled: z.boolean().optional(),
+  winbackDays: z.number().int().min(14).max(365).optional(),
+  cartRecoveryPromoCode: z.string().max(64).optional(),
+});
 
 const actionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('send') }),
@@ -47,7 +55,13 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
   try {
     await requireAdmin();
     const { id } = await params;
-    const { document } = updateSchema.parse(await request.json());
+    const body = await request.json();
+    if (isAutomationEmailId(id)) {
+      const payload = automationUpdateSchema.parse(body);
+      const automation = await saveAutomationEmail(id, payload);
+      return NextResponse.json({ automation });
+    }
+    const { document } = updateSchema.parse(body);
     await requireEditable(id);
     return await updateEditable(id, newsletterCampaignData(document));
   } catch (error) {
@@ -59,6 +73,9 @@ export async function DELETE(_request: NextRequest, { params }: RouteContext) {
   try {
     await requireAdmin();
     const { id } = await params;
+    if (isAutomationEmailId(id)) {
+      throw new ApiError(400, 'Built-in automation emails cannot be deleted. Turn them off or reset to default instead.', 'AUTOMATION_PROTECTED');
+    }
     const newsletter = await getNewsletterSummary(id);
     if (newsletter.status === 'active') {
       throw new ApiError(409, 'This newsletter is sending right now. Delete it after it finishes.', 'SENDING');
@@ -74,6 +91,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
   try {
     await requireAdmin();
     const { id } = await params;
+    if (isAutomationEmailId(id)) {
+      throw new ApiError(400, 'Automation emails send automatically on their trigger. Use Send test to preview.', 'AUTOMATION_PROTECTED');
+    }
     const payload = actionSchema.parse(await request.json());
 
     if (payload.action === 'send') {
@@ -91,9 +111,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       return await updateEditable(id, { status: 'draft', scheduledAt: null });
     }
 
-    if (!(await getConfig('CRON_SECRET') || process.env.CRON_SECRET)) {
-      throw new ApiError(400, 'Scheduling needs the automation secret in Settings.', 'SCHEDULING_UNAVAILABLE');
-    }
     const scheduledAt = new Date(payload.scheduledAt);
     const ahead = scheduledAt.getTime() - Date.now();
     if (ahead <= 0) throw new ApiError(400, 'Pick a time in the future.', 'INVALID_SCHEDULE');

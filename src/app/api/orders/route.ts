@@ -10,6 +10,7 @@ import {
   getOrdersByCustomer
 } from '@/lib/orders';
 import { getAllProducts } from '@/lib/commerce-server';
+import { getShippingFulfillmentContext } from '@/lib/shipping-provider';
 import { requireAdmin, requireUser } from '@/lib/auth';
 import { ApiError } from '@/lib/api-error-handler';
 import type { CartItemVariant, Product } from '@/lib/commerce';
@@ -211,10 +212,14 @@ export async function GET(request: NextRequest) {
     const session = await requireUser();
 
     if (session.user.isAdmin && scope === 'all') {
-      const orders = await getAllOrders({ status, search });
+      const [orders, shippingContext] = await Promise.all([
+        getAllOrders({ status, search }),
+        getShippingFulfillmentContext(),
+      ]);
       return NextResponse.json({
         success: true,
-        orders
+        orders,
+        shippingContext,
       });
     }
 

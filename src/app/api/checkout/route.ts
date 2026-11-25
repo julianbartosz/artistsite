@@ -26,8 +26,10 @@ import {
 } from '@/lib/orders';
 import { InventoryService } from '@/lib/inventory';
 import { getConfigBool, getSiteUrl } from '@/lib/config';
+import { sendManualOrderRequestEmails } from '@/lib/email';
 import { resolvePromoDiscount, roundPromoMoney } from '@/lib/promo-codes';
-import { getStripe } from '@/lib/stripe';
+import { getCheckoutRuntimeConfig, getStripe, upsertStripeCheckoutCustomer } from '@/lib/stripe';
+import { createOrderInquiryThread } from '@/lib/studio-inbox';
 
 // Stripe requires sessions to live at least 30 minutes from its own creation time. Holds
 // outlive the session so stock stays reserved for as long as the session can be paid.
@@ -96,6 +98,10 @@ export async function POST(req: NextRequest) {
     const tax = 0;
     const total = roundMoney(subtotal + shipping + tax);
 
+    const isE2e = process.env.PLAYWRIGHT_E2E === 'true';
+    const checkoutConfig = isE2e ? null : await getCheckoutRuntimeConfig();
+    const isManualCheckout = !isE2e && checkoutConfig?.checkoutMode === 'manual';
+
     const order: Order = {
       id: crypto.randomUUID(),
       orderNumber: OrderManager.generateOrderNumber(),
@@ -111,6 +117,7 @@ export async function POST(req: NextRequest) {
       shippingAddress,
       billingAddress: shippingAddress,
       paymentStatus: 'pending',
+      paymentMethod: isManualCheckout ? 'manual' : undefined,
       shippingMethod: 'standard',
       giftMessage: typeof giftMessage === 'string' && giftMessage.trim()
         ? giftMessage.trim().slice(0, 500)
@@ -118,15 +125,66 @@ export async function POST(req: NextRequest) {
       timeline: [
         OrderManager.createTimelineEntry(
           'pending',
-          OrderManager.getStatusMessage('pending'),
-          process.env.PLAYWRIGHT_E2E === 'true'
+          isManualCheckout
+            ? 'Purchase request received'
+            : OrderManager.getStatusMessage('pending'),
+          isE2e
             ? 'E2E checkout session created'
-            : 'Stripe checkout session created and awaiting payment confirmation'
+            : isManualCheckout
+              ? 'Manual purchase request submitted — awaiting studio confirmation and payment'
+              : 'Stripe checkout session created and awaiting payment confirmation'
         ),
       ],
       createdAt: new Date(),
       updatedAt: new Date(),
     };
+
+    if (isManualCheckout) {
+      for (const item of orderItems) {
+        const purchasable = await InventoryService.isPurchasable(item.productId, item.product.availability);
+        if (!purchasable) {
+          return NextResponse.json(
+            { error: `Product is no longer available: ${item.product.title}` },
+            { status: 409 },
+          );
+        }
+      }
+
+      const persistedOrder = await createOrder(order);
+      const customerName = `${shippingAddress.firstName} ${shippingAddress.lastName}`.trim() || customerInfo.email;
+      const itemSummary = orderItems.map((item) => `${item.quantity} × ${item.product.title} ($${item.totalPrice.toFixed(2)})`).join('\n');
+      const inboxNote = [
+        `New purchase request for order #${persistedOrder.orderNumber} ($${persistedOrder.total.toFixed(2)} ${persistedOrder.currency}).`,
+        itemSummary,
+        `Ship to: ${shippingAddress.address1}, ${shippingAddress.city}, ${shippingAddress.state} ${shippingAddress.postalCode}, ${shippingAddress.country}`,
+        persistedOrder.giftMessage ? `Collector note: ${persistedOrder.giftMessage}` : null,
+      ].filter(Boolean).join('\n\n');
+
+      await createOrderInquiryThread({
+        userId: persistedOrder.customerId ?? null,
+        userEmail: persistedOrder.customerEmail,
+        userName: customerName,
+        orderId: persistedOrder.id,
+        orderNumber: persistedOrder.orderNumber,
+        message: inboxNote,
+      }).catch((err) => {
+        console.error('Failed to link manual purchase request to Studio Inbox:', err);
+      });
+
+      await sendManualOrderRequestEmails(
+        persistedOrder,
+        checkoutConfig.manualPaymentInstructions,
+      ).catch((err) => {
+        console.error('Failed to email manual purchase request notification:', err);
+      });
+
+      return NextResponse.json({
+        manualRequest: true,
+        orderId: persistedOrder.id,
+        orderNumber: persistedOrder.orderNumber,
+        accessToken: createOrderAccessToken(persistedOrder.id),
+      });
+    }
 
     const persistedOrder = await createOrder(order);
 
@@ -144,7 +202,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (process.env.PLAYWRIGHT_E2E === 'true') {
+    if (isE2e) {
       await finalizePaidOrder(persistedOrder.id, {
         paymentIntentId: `e2e_payment_${persistedOrder.id}`,
         paymentMethod: 'card',
@@ -166,104 +224,109 @@ export async function POST(req: NextRequest) {
       t: createOrderAccessToken(persistedOrder.id),
     })}`;
 
-    const discountCoupon = promoDiscount.amount > 0
-      ? await stripe.coupons.create({
-          amount_off: toCents(promoDiscount.amount),
-          currency: 'usd',
-          duration: 'once',
-          name: promoDiscount.code ? `Promo ${promoDiscount.code}` : 'Artwork discount',
-        })
-      : undefined;
-
     let session;
     try {
+      const [discountCoupon, { customer: stripeCustomer, params: customerParams }, automaticTaxEnabled] = await Promise.all([
+        promoDiscount.amount > 0
+          ? stripe.coupons.create({
+              amount_off: toCents(promoDiscount.amount),
+              currency: 'usd',
+              duration: 'once',
+              name: promoDiscount.code ? `Promo ${promoDiscount.code}` : 'Artwork discount',
+            })
+          : Promise.resolve(undefined),
+        upsertStripeCheckoutCustomer(stripe, {
+          email: customerInfo.email,
+          firstName: shippingAddress.firstName,
+          lastName: shippingAddress.lastName,
+          address1: shippingAddress.address1,
+          address2: shippingAddress.address2,
+          city: shippingAddress.city,
+          state: shippingAddress.state,
+          postalCode: shippingAddress.postalCode,
+          country: shippingAddress.country,
+          phone: shippingAddress.phone,
+        }),
+        getConfigBool('STRIPE_AUTOMATIC_TAX_ENABLED'),
+      ]);
+
       session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: orderItems.map((item) => {
-        const itemDescription = [item.product.medium, item.product.dimensions].filter(Boolean).join(' • ');
-        return {
-          price_data: {
-            currency: 'usd',
-            product_data: {
-              name: item.product.title,
-              ...(itemDescription ? { description: itemDescription } : {}),
-              images: absoluteStripeImageUrls(checkoutOrigin, productImageSrc(item.product)),
-              metadata: {
-                productId: item.product.id,
-                category: item.product.category,
-              },
-            },
-            unit_amount: toCents(item.unitPrice),
-          },
-          quantity: item.quantity,
-        };
-      }),
-      ...(shipping > 0 && {
-        shipping_options: [
-          {
-            shipping_rate_data: {
-              type: 'fixed_amount',
-              fixed_amount: {
-                amount: Math.round(shipping * 100),
-                currency: 'usd',
-              },
-              display_name: 'Standard Shipping',
-              delivery_estimate: {
-                minimum: {
-                  unit: 'business_day',
-                  value: 5,
-                },
-                maximum: {
-                  unit: 'business_day',
-                  value: 10,
+        payment_method_types: ['card'],
+        line_items: orderItems.map((item) => {
+          const itemDescription = [item.product.medium, item.product.dimensions].filter(Boolean).join(' • ');
+          return {
+            price_data: {
+              currency: 'usd',
+              product_data: {
+                name: item.product.title,
+                ...(itemDescription ? { description: itemDescription } : {}),
+                images: absoluteStripeImageUrls(checkoutOrigin, productImageSrc(item.product)),
+                metadata: {
+                  productId: item.product.id,
+                  category: item.product.category,
                 },
               },
+              unit_amount: toCents(item.unitPrice),
             },
-          },
-        ],
-      }),
-      automatic_tax: {
-        enabled: await getConfigBool('STRIPE_AUTOMATIC_TAX_ENABLED'),
-      },
-      ...(discountCoupon ? { discounts: [{ coupon: discountCoupon.id }] } : {}),
-      mode: 'payment',
-      expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_SESSION_MINUTES * 60,
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      customer_email: customerInfo.email,
-      client_reference_id: persistedOrder.id,
-      billing_address_collection: 'required',
-      ...(!shippingPolicy.isPickupOnly
-        ? {
-            shipping_address_collection: {
-              allowed_countries: shippingPolicy.countries,
+            quantity: item.quantity,
+          };
+        }),
+        ...(shipping > 0 && {
+          shipping_options: [
+            {
+              shipping_rate_data: {
+                type: 'fixed_amount',
+                fixed_amount: {
+                  amount: Math.round(shipping * 100),
+                  currency: 'usd',
+                },
+                display_name: 'Standard Shipping',
+                delivery_estimate: {
+                  minimum: {
+                    unit: 'business_day',
+                    value: 5,
+                  },
+                  maximum: {
+                    unit: 'business_day',
+                    value: 10,
+                  },
+                },
+              },
             },
-          }
-        : {}),
-      metadata: {
-        orderId: persistedOrder.id,
-        orderNumber: persistedOrder.orderNumber,
-        customerEmail: customerInfo.email,
-        customerName: `${customerInfo.firstName} ${customerInfo.lastName}`,
-        orderTotal: total.toString(),
-        itemCount: orderItems.length.toString(),
-        ...(promoDiscount.code ? {
-          promoCode: promoDiscount.code,
-          promoDiscount: promoDiscount.amount.toString(),
-        } : {}),
-      },
-      custom_fields: [
-        {
-          key: 'phone',
-          label: {
-            type: 'custom',
-            custom: 'Phone Number',
-          },
-          type: 'text',
-          optional: false,
+          ],
+        }),
+        automatic_tax: {
+          enabled: automaticTaxEnabled,
         },
-      ],
-    });
+        ...(discountCoupon ? { discounts: [{ coupon: discountCoupon.id }] } : {}),
+        mode: 'payment',
+        expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_SESSION_MINUTES * 60,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        customer: stripeCustomer.id,
+        customer_update: {
+          address: 'auto',
+          name: 'auto',
+        },
+        client_reference_id: persistedOrder.id,
+        billing_address_collection: 'auto',
+        payment_intent_data: {
+          receipt_email: customerParams.email,
+          ...(!shippingPolicy.isPickupOnly ? { shipping: customerParams.shipping } : {}),
+        },
+        metadata: {
+          orderId: persistedOrder.id,
+          orderNumber: persistedOrder.orderNumber,
+          customerEmail: customerParams.email,
+          customerName: customerParams.name,
+          orderTotal: total.toString(),
+          itemCount: orderItems.length.toString(),
+          ...(promoDiscount.code ? {
+            promoCode: promoDiscount.code,
+            promoDiscount: promoDiscount.amount.toString(),
+          } : {}),
+        },
+      });
     } catch (stripeError) {
       await InventoryService.releaseActiveReservationsForOrder(persistedOrder.id);
       throw stripeError;

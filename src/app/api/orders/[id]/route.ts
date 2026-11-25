@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { 
   UpdateOrderRequest, 
+  finalizePaidOrder,
   getOrderById,
   refundOrder,
   updateOrder,
@@ -9,7 +10,8 @@ import {
 import { OrderEmailService } from '@/lib/email';
 import { requireAdmin, requireUser } from '@/lib/auth';
 import { ApiError } from '@/lib/api-error-handler';
-import { buyShippingLabel } from '@/lib/shipping-provider';
+import { buyShippingLabel, quoteShippingRates } from '@/lib/shipping-provider';
+import type { OptionalParcelDimensions } from '@/lib/shipping';
 
 export async function GET(
   request: NextRequest,
@@ -90,7 +92,12 @@ export async function PUT(
     const { id } = await params;
     const orderId = id;
     await requireAdmin();
-    const body: UpdateOrderRequest & { action?: string } = await request.json();
+    const body: UpdateOrderRequest & {
+      action?: string;
+      shipmentId?: string;
+      rateId?: string;
+      parcel?: OptionalParcelDimensions;
+    } = await request.json();
     
     const existingOrder = await getOrderById(orderId);
     if (!existingOrder) {
@@ -98,6 +105,44 @@ export async function PUT(
         { error: 'Order not found' },
         { status: 404 }
       );
+    }
+
+    if (body.action === 'mark_paid') {
+      if (existingOrder.paymentStatus === 'paid') {
+        return NextResponse.json({
+          success: true,
+          order: {
+            id: existingOrder.id,
+            orderNumber: existingOrder.orderNumber,
+            status: existingOrder.status,
+            paymentStatus: existingOrder.paymentStatus,
+            paymentMethod: existingOrder.paymentMethod,
+            timeline: existingOrder.timeline,
+          },
+        });
+      }
+      const order = await finalizePaidOrder(orderId, {
+        paymentMethod: existingOrder.paymentMethod || 'manual',
+        paidTotals: {
+          shipping: existingOrder.shipping,
+          tax: existingOrder.tax,
+          total: existingOrder.total,
+        },
+      });
+      if (!order) {
+        return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+      }
+      return NextResponse.json({
+        success: true,
+        order: {
+          id: order.id,
+          orderNumber: order.orderNumber,
+          status: order.status,
+          paymentStatus: order.paymentStatus,
+          paymentMethod: order.paymentMethod,
+          timeline: order.timeline,
+        },
+      });
     }
 
     if (body.action === 'refund') {
@@ -113,8 +158,17 @@ export async function PUT(
           id: order.id,
           orderNumber: order.orderNumber,
           status: order.status,
+          paymentStatus: order.paymentStatus,
           timeline: order.timeline,
         },
+      });
+    }
+
+    if (body.action === 'quote_rates') {
+      const quote = await quoteShippingRates(existingOrder, body.parcel);
+      return NextResponse.json({
+        success: true,
+        quote,
       });
     }
 
@@ -127,8 +181,20 @@ export async function PUT(
 
     let label;
     if (body.action === 'buy_label') {
-      label = await buyShippingLabel(existingOrder);
+      label = await buyShippingLabel(existingOrder, {
+        shipmentId: body.shipmentId,
+        rateId: body.rateId,
+        parcel: body.parcel,
+      });
     }
+
+    const labelSummary = label
+      ? [
+          label.carrier ? label.carrier.toUpperCase() : '',
+          label.service || '',
+          typeof label.rate === 'number' ? `$${label.rate.toFixed(2)}` : '',
+        ].filter(Boolean).join(' · ')
+      : '';
 
     const order = await updateOrder(orderId, label ? {
       status: 'shipped',
@@ -138,7 +204,7 @@ export async function PUT(
       shippingLabelUrl: label.labelUrl,
       estimatedDelivery: label.estimatedDelivery,
       message: 'Shipping label purchased',
-      details: `Shipping label purchased with ${label.provider}`,
+      details: labelSummary ? `${labelSummary} via ${label.provider}` : `Shipping label purchased with ${label.provider}`,
     } : body);
     if (!order) {
       return NextResponse.json(

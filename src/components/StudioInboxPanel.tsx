@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
+import { adminSettingFieldHref } from '@/components/AdminSettings';
 import { updatesPostPath } from '@/lib/site-content-shared';
 import { CRM_STAGES, type CrmStage, type StudioMessageRecord, type StudioThreadSummary } from '@/lib/studio-inbox-shared';
 
@@ -39,7 +40,8 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
     error: threadsError,
     isLoading: loading,
     mutate: mutateThreads,
-  } = useSWR<{ threads?: StudioThreadSummary[] }>(apiBase, inboxFetcher, inboxSwrOptions);
+  } = useSWR<{ threads?: StudioThreadSummary[]; emailDeliveryMode?: 'smtp' | 'log' | 'unconfigured' }>(apiBase, inboxFetcher, inboxSwrOptions);
+  const emailDeliveryMode = threadsData?.emailDeliveryMode;
   const threads: StudioThreadSummary[] = useMemo(
     () => (Array.isArray(threadsData?.threads) ? threadsData.threads : []),
     [threadsData],
@@ -50,6 +52,7 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
   const [crmStage, setCrmStage] = useState<CrmStage>('new');
   const [tagsInput, setTagsInput] = useState('');
   const [saving, setSaving] = useState(false);
+  const [copiedEmail, setCopiedEmail] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [listQuery, setListQuery] = useState('');
@@ -93,6 +96,7 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
     if (!selectedId || !reply.trim()) return;
     setSaving(true);
     setActionError(null);
+    setStatusMessage(null);
     try {
       const response = await fetch(`${apiBase}/${selectedId}`, {
         method: 'POST',
@@ -103,11 +107,28 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
       if (!response.ok) throw new Error(data.error || 'Failed to send reply');
       setThread(data.thread || null);
       setReply('');
+      if (mode === 'admin' && data.thread?.userEmail) {
+        if (data.emailDelivery?.delivered) {
+          setStatusMessage(`Reply saved and emailed to ${data.thread.userEmail}.`);
+        } else {
+          setStatusMessage(`Reply saved to conversation. Email delivery is off — use Email directly above to notify ${data.thread.userEmail}.`);
+        }
+      }
       await loadThreads();
     } catch (sendError) {
       setActionError(sendError instanceof Error ? sendError.message : 'Failed to send reply');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function copyCollectorEmail(email: string) {
+    try {
+      await navigator.clipboard.writeText(email);
+      setCopiedEmail(true);
+      window.setTimeout(() => setCopiedEmail(false), 2000);
+    } catch {
+      setStatusMessage(`Collector email: ${email}`);
     }
   }
 
@@ -315,9 +336,22 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
                 </span>
               </div>
               {mode === 'admin' && (
-                <p className="text-sm text-gray-500">
-                  {thread.userName ? `${thread.userName} · ${thread.userEmail}` : thread.userEmail}
-                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500">
+                  <span>{thread.userName ? `${thread.userName} · ${thread.userEmail}` : thread.userEmail}</span>
+                  <a
+                    href={`mailto:${encodeURIComponent(thread.userEmail)}?subject=${encodeURIComponent(/^re:/i.test(thread.subject) ? thread.subject : `Re: ${thread.subject}`)}`}
+                    className="text-xs font-medium text-primary underline underline-offset-2 hover:opacity-80"
+                  >
+                    Email directly
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => void copyCollectorEmail(thread.userEmail)}
+                    className="text-xs font-medium text-gray-600 hover:text-gray-900"
+                  >
+                    {copiedEmail ? 'Copied' : 'Copy email'}
+                  </button>
+                </div>
               )}
               {mode === 'admin' && (
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -401,7 +435,17 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
                   placeholder={mode === 'admin' ? 'Write a reply to the collector...' : 'Write a reply to the artist...'}
                 />
-                <div className="mt-2 flex justify-end">
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  {mode === 'admin' && emailDeliveryMode && emailDeliveryMode !== 'smtp' ? (
+                    <p className="text-xs text-gray-500">
+                      Email delivery is off — replies save to the collector’s account only. Use <strong>Email directly</strong> above for guest inquiries, or{' '}
+                      <Link href={adminSettingFieldHref('EMAIL_DELIVERY_MODE')} className="font-medium text-gray-700 underline hover:text-gray-900">
+                        enable SMTP →
+                      </Link>
+                    </p>
+                  ) : (
+                    <span />
+                  )}
                   <button type="button" disabled={saving || !reply.trim()} onClick={() => void sendReply()} className="btn-primary px-4 py-2 text-sm disabled:opacity-50">
                     {saving ? 'Sending...' : 'Send reply'}
                   </button>

@@ -28,6 +28,14 @@ import {
 } from '@/lib/commerce';
 import { humanizeOrderTimelineEntry } from '@/lib/order-status-shared';
 import { resolvePublicAssetUrl } from '@/lib/public-asset';
+import { buildStripeCustomerParams, upsertStripeCheckoutCustomer } from '@/lib/stripe';
+import {
+  formatShippingAddressBlock,
+  formatShippingAddressLines,
+  inferOrderParcel,
+  parseTrackingInput,
+  STUDIO_SHIPPING_PRESETS,
+} from '@/lib/shipping';
 import { normalizeProductPayload, productPayloadSchema } from '@/lib/admin-content';
 import { splitPlainParagraphs } from '@/lib/site-content-shared';
 import {
@@ -1241,6 +1249,181 @@ describe('per-category low-stock thresholds and order timeline humanization', ()
     },
   ])('humanizes order timeline entry "$input.message"', ({ input, expected }) => {
     expect(humanizeOrderTimelineEntry(input)).toEqual(expected);
+  });
+});
+
+describe('Shipping fulfillment helpers', () => {
+  it.each([
+    {
+      raw: 'https://tools.usps.com/go/TrackConfirmAction?tLabels=9400111899223847123456',
+      expected: { trackingNumber: '9400111899223847123456', carrier: 'usps', cleanedFromUrl: true },
+    },
+    {
+      raw: 'https://www.ups.com/track?tracknum=1Z999AA10123456784',
+      expected: { trackingNumber: '1Z999AA10123456784', carrier: 'ups', cleanedFromUrl: true },
+    },
+    {
+      raw: 'https://www.fedex.com/fedextrack/?trknbr=123456789012',
+      expected: { trackingNumber: '123456789012', carrier: 'fedex', cleanedFromUrl: true },
+    },
+    {
+      raw: '1Z 999A A101 2345 6784',
+      expected: { trackingNumber: '1Z999AA10123456784', carrier: 'ups', cleanedFromUrl: false },
+    },
+    {
+      raw: '9400 1118 9922 3847 1234 56',
+      expected: { trackingNumber: '9400111899223847123456', carrier: 'usps', cleanedFromUrl: false },
+    },
+    {
+      raw: '1234 5678 9012',
+      expected: { trackingNumber: '123456789012', carrier: 'fedex', cleanedFromUrl: false },
+    },
+    {
+      raw: 'JD0146000038219234',
+      expected: { trackingNumber: 'JD0146000038219234', carrier: 'dhl', cleanedFromUrl: false },
+    },
+    {
+      raw: 'CUSTOM-COURIER-42',
+      expected: { trackingNumber: 'CUSTOM-COURIER-42', carrier: undefined, cleanedFromUrl: false },
+    },
+  ])('parses tracking input %j', ({ raw, expected }) => {
+    expect(parseTrackingInput(raw)).toEqual(expected);
+  });
+
+  it('infers combined parcel dimensions from product shipping metadata and falls back cleanly', () => {
+    const inferred = inferOrderParcel([
+      { quantity: 2, product: { shipping: { parcel: { weightOz: 12, lengthIn: 14, widthIn: 11, heightIn: 1 } } } },
+      { quantity: 1, product: { shipping: { parcel: { weightOz: 30, lengthIn: 18, widthIn: 14, heightIn: 3 } } } },
+    ]);
+    expect(inferred).toEqual({ weightOz: 54, lengthIn: 18, widthIn: 14, heightIn: 5 });
+
+    const fallback = inferOrderParcel([{ quantity: 1, product: {} }], {
+      weightOz: 40,
+      lengthIn: 20,
+      widthIn: 16,
+      heightIn: 4,
+    });
+    expect(fallback).toEqual({ weightOz: 40, lengthIn: 20, widthIn: 16, heightIn: 4 });
+  });
+
+  it('formats shipping addresses for display and clipboard copy', () => {
+    const address = {
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      company: 'Analytical Studio',
+      address1: '10 Gallery Way',
+      address2: 'Apt 4B',
+      city: 'Brooklyn',
+      state: 'NY',
+      postalCode: '11201',
+      country: 'US',
+      phone: '555-0100',
+    };
+    expect(formatShippingAddressLines(address)).toEqual([
+      'Ada Lovelace',
+      'Analytical Studio',
+      '10 Gallery Way',
+      'Apt 4B',
+      'Brooklyn, NY 11201',
+    ]);
+    expect(formatShippingAddressLines({ ...address, country: 'CA' })).toContain('CA');
+    expect(formatShippingAddressBlock(address)).toContain('Brooklyn, NY 11201');
+  });
+
+  it('normalizes and validates optional product shipping parcel metadata', () => {
+    const preset = STUDIO_SHIPPING_PRESETS[0];
+    const normalized = normalizeShipping({
+      domestic: preset.domestic,
+      international: preset.international,
+      parcel: preset.parcel,
+    });
+    expect(normalized.parcel).toEqual(preset.parcel);
+    expect(normalizeShipping({ domestic: 10, international: 25, parcel: { weightOz: 0 } }).parcel).toBeUndefined();
+
+    const parsed = productPayloadSchema.parse({
+      title: 'Signed Archival Print',
+      price: 95,
+      category: 'Prints',
+      images: { thumbnail: '/images/test.jpg', gallery: [] },
+      specifications: { framed: false, signed: true, certificate: true },
+      shipping: {
+        domestic: 12,
+        international: 30,
+        domesticEnabled: true,
+        internationalEnabled: true,
+        parcel: { weightOz: 14, lengthIn: 14, widthIn: 11, heightIn: 1 },
+      },
+    });
+    expect(parsed.shipping?.parcel).toEqual({ weightOz: 14, lengthIn: 14, widthIn: 11, heightIn: 1 });
+    expect(normalizeProductPayload(parsed).shipping.parcel).toEqual({
+      weightOz: 14,
+      lengthIn: 14,
+      widthIn: 11,
+      heightIn: 1,
+    });
+  });
+
+  it('builds and upserts prefilled Stripe Customer payloads for checkout', async () => {
+    const input = {
+      email: ' Collector@Example.com ',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      address1: '10 Gallery Way',
+      address2: 'Apt 4B',
+      city: 'Milwaukee',
+      state: 'WI',
+      postalCode: '53202',
+      country: 'us',
+      phone: '414-555-0199',
+    };
+
+    const params = buildStripeCustomerParams(input);
+    expect(params).toEqual({
+      email: 'collector@example.com',
+      name: 'Ada Lovelace',
+      phone: '414-555-0199',
+      address: {
+        line1: '10 Gallery Way',
+        line2: 'Apt 4B',
+        city: 'Milwaukee',
+        state: 'WI',
+        postal_code: '53202',
+        country: 'US',
+      },
+      shipping: {
+        name: 'Ada Lovelace',
+        phone: '414-555-0199',
+        address: {
+          line1: '10 Gallery Way',
+          line2: 'Apt 4B',
+          city: 'Milwaukee',
+          state: 'WI',
+          postal_code: '53202',
+          country: 'US',
+        },
+      },
+    });
+
+    const create = jest.fn().mockResolvedValue({ id: 'cus_new' });
+    const update = jest.fn().mockResolvedValue({ id: 'cus_existing' });
+    const list = jest.fn()
+      .mockResolvedValueOnce({ data: [] })
+      .mockResolvedValueOnce({ data: [{ id: 'cus_existing' }] });
+    const mockStripe = { customers: { list, create, update } } as unknown as import('stripe').default;
+
+    const createdResult = await upsertStripeCheckoutCustomer(mockStripe, input);
+    expect(createdResult.customer.id).toBe('cus_new');
+    expect(create).toHaveBeenCalledWith(params);
+    expect(update).not.toHaveBeenCalled();
+
+    const updatedResult = await upsertStripeCheckoutCustomer(mockStripe, input);
+    expect(updatedResult.customer.id).toBe('cus_existing');
+    expect(update).toHaveBeenCalledWith('cus_existing', {
+      name: params.name,
+      phone: params.phone,
+      address: params.address,
+      shipping: params.shipping,
+    });
   });
 });
 

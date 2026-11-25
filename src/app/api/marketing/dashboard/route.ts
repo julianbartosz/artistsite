@@ -414,6 +414,8 @@ async function getAutomationSummary(startDate: Date) {
     winbackEnabledRaw,
     winbackDaysRaw,
     cartEnabledRaw,
+    socialProviderRaw,
+    socialPublishModeRaw,
   ] = await Promise.all([
     countEvents(['email_sent'], startDate),
     countEvents(['cart_abandoned'], startDate),
@@ -433,12 +435,20 @@ async function getAutomationSummary(startDate: Date) {
     getConfig('WINBACK_EMAIL_ENABLED'),
     getConfig('WINBACK_INACTIVE_DAYS'),
     getConfig('CART_ABANDONMENT_ENABLED'),
+    getConfig('SOCIAL_PROVIDER'),
+    getConfig('SOCIAL_PUBLISH_MODE'),
   ]);
 
   const welcomeEnabled = isConfigEnabled(welcomeEnabledRaw, true);
   const welcomeSeriesEnabled = isConfigEnabled(welcomeSeriesEnabledRaw, false);
   const winbackEnabled = isConfigEnabled(winbackEnabledRaw, false);
   const cartEnabled = isConfigEnabled(cartEnabledRaw, false);
+  const normalizedSocialProvider = (socialProviderRaw || '').trim().toLowerCase();
+  const socialAutoPublish = (socialPublishModeRaw || '').trim().toLowerCase() === 'auto'
+    && (normalizedSocialProvider === 'meta' || normalizedSocialProvider === 'ayrshare');
+  const socialProvider = normalizedSocialProvider === 'meta' || normalizedSocialProvider === 'ayrshare'
+    ? normalizedSocialProvider
+    : 'assist';
 
   return {
     email: {
@@ -450,15 +460,19 @@ async function getAutomationSummary(startDate: Date) {
       welcomeEnabled,
       welcomeSeriesEnabled,
       welcomeSent: welcomeSent + welcomeFollowupSent,
+      welcomeInstantSent: welcomeSent,
+      welcomeFollowupSent,
       winbackEnabled,
       winbackInactiveDays: parseWinbackInactiveDays(winbackDaysRaw),
       winbackSent,
       cartEnabled,
     },
     social: {
-      active: socialPosts > 0 ? 1 : 0,
+      active: socialAutoPublish ? 1 : 0,
       total: 1,
       posts: socialPosts,
+      provider: socialProvider,
+      autoPublish: socialAutoPublish,
     },
   };
 }

@@ -56,6 +56,9 @@ jest.mock('@/lib/db', () => {
       upsert: jest.fn().mockResolvedValue({ id: '1', email: 'subscriber@example.com' }),
     },
     emailCampaign: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+      update: jest.fn().mockResolvedValue({}),
       upsert: jest.fn().mockResolvedValue({ id: 'auto-newsletter-welcome' }),
     },
     emailCampaignDelivery: {
@@ -438,6 +441,27 @@ describe('Newsletter production default & duplicate handling', () => {
     expect(data.mode).toBe('site');
   });
 
+  it('saves subscriber on-site when Mailchimp mode is selected without complete credentials', async () => {
+    (process.env as Record<string, string | undefined>).NODE_ENV = 'production';
+    (getConfig as jest.Mock).mockImplementation(async (key: string) => {
+      if (key === 'NEWSLETTER_DELIVERY_MODE') return 'mailchimp';
+      if (key === 'MAILCHIMP_API_KEY') return 'mc-key-only';
+      return null;
+    });
+
+    const request = new NextRequest('http://localhost:3000/api/newsletter', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'graceful@example.com' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const response = await newsletterPost(request);
+    const data = await response.json();
+    expect(response.status).toBe(200);
+    expect(data.mode).toBe('site');
+    expect(data.mailchimpSynced).toBe(false);
+  });
+
   it('returns 409 for duplicate on-site subscriber', async () => {
     (db.customerProfile.findUnique as jest.Mock).mockResolvedValueOnce({
       email: 'existing@example.com',
@@ -636,6 +660,7 @@ describe('Newsletter welcome, collector profile cookie, and built-in automations
     (db.customerProfile.findUnique as jest.Mock).mockResolvedValue(null);
     (db.customerProfile.upsert as jest.Mock).mockResolvedValue({ id: 'prof-new', email: 'eliyah@example.com' });
     (db.analyticsEvent.findMany as jest.Mock).mockResolvedValue([]);
+    (db.emailCampaign.findUnique as jest.Mock).mockResolvedValue(null);
     (db.emailCampaignDelivery.findUnique as jest.Mock).mockResolvedValue(null);
     (db.emailCampaignDelivery.findMany as jest.Mock).mockResolvedValue([]);
     (sendTemplateEmail as jest.Mock).mockResolvedValue(true);
@@ -786,5 +811,73 @@ describe('Newsletter welcome, collector profile cookie, and built-in automations
     expect(sendTemplateEmail).toHaveBeenCalledTimes(2);
     expect((sendTemplateEmail as jest.Mock).mock.calls[0][0]).toBe('day5@example.com');
     expect((sendTemplateEmail as jest.Mock).mock.calls[1][0]).toBe('quiet@example.com');
+  });
+
+  it('processDueCartRecovery uses saved custom template, deduplicates by email across sessions, and skips paid buyers', async () => {
+    const { processDueCartRecovery } = await import('@/lib/marketing/campaign-execution');
+    const { getConfig } = await import('@/lib/config');
+    const { sendTemplateEmail } = await import('@/lib/email');
+
+    const now = new Date('2026-11-25T12:00:00.000Z');
+    const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+    const configMap: Record<string, string> = {
+      EMAIL_DELIVERY_MODE: 'smtp',
+      SMTP_HOST: 'smtp.resend.com',
+      SMTP_USER: 'resend',
+      SMTP_PASSWORD: 're_test_password',
+      SMTP_FROM: 'Michal Elena <hello@michalelena.art>',
+      CART_ABANDONMENT_ENABLED: 'true',
+      CART_RECOVERY_PROMO_CODE: 'STUDIO15',
+    };
+    (getConfig as jest.Mock).mockImplementation(async (key: string) => configMap[key] ?? undefined);
+    (db.emailCampaign.findUnique as jest.Mock).mockResolvedValueOnce({
+      id: 'auto-cart-recovery',
+      content: {
+        subject: 'Custom cart subject for {{first_name}}',
+        preheader: '',
+        fromName: 'Studio',
+        blocks: [
+          { id: 'b1', type: 'text', html: '<p>Code {{promo_code}} awaits.</p>' },
+          { id: 'b2', type: 'button', label: 'Resume checkout', href: '{{checkout_url}}' },
+        ],
+      },
+    });
+    (db.analyticsEvent.findMany as jest.Mock).mockResolvedValueOnce([
+      {
+        id: 'evt-1',
+        eventName: 'begin_checkout',
+        userId: null,
+        sessionId: 'sess-1',
+        properties: JSON.stringify({ email: 'collector@example.com', name: 'Ada Lovelace', recovery_path: '/checkout' }),
+        timestamp: twoHoursAgo,
+      },
+      {
+        id: 'evt-2',
+        eventName: 'begin_checkout',
+        userId: null,
+        sessionId: 'sess-2',
+        properties: JSON.stringify({ email: 'COLLECTOR@example.com', name: 'Ada Lovelace' }),
+        timestamp: twoHoursAgo,
+      },
+      {
+        id: 'evt-paid',
+        eventName: 'begin_checkout',
+        userId: null,
+        sessionId: 'sess-3',
+        properties: JSON.stringify({ email: 'already-paid@example.com', name: 'Paid Buyer' }),
+        timestamp: twoHoursAgo,
+      },
+    ]);
+    (db.order.findMany as jest.Mock).mockResolvedValueOnce([{ userEmail: 'already-paid@example.com', userId: null }]);
+
+    const summary = await processDueCartRecovery(now);
+    expect(summary).toEqual({ attempted: 1, completed: 1, needsAttention: 0, failed: 0 });
+    expect(sendTemplateEmail).toHaveBeenCalledTimes(1);
+    const [recipient, template] = (sendTemplateEmail as jest.Mock).mock.calls[0];
+    expect(recipient).toBe('collector@example.com');
+    expect(template.subject).toBe('Custom cart subject for Ada');
+    expect(template.html).toContain('STUDIO15');
+    expect(template.html).toContain('/checkout');
+    expect(template.html).not.toContain('Unsubscribe');
   });
 });

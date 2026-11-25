@@ -18,6 +18,8 @@ import { viewerCanAccessPost } from '@/lib/markdown';
 import { buildCatalogPriceRanges } from '@/lib/search-params';
 import { buildLaunchReadinessItems } from '@/lib/setup-readiness';
 import {
+  canonicalCategoryStem,
+  findSimilarCategoryMatch,
   homeHeroImagePositionClass,
   portfolioPageSchema,
   SITE_CONTENT_DEFAULTS,
@@ -28,10 +30,15 @@ import { htmlHasVisibleText } from '@/lib/content-sanitize';
 import { render, screen } from '@testing-library/react';
 import { MDXContent } from '@/components/MDXContent';
 import {
+  AUTOMATION_EMAIL_CATALOG,
+  AUTOMATION_EMAIL_IDS,
   applyMergeFields,
+  buildDefaultAutomationDocument,
   newsletterContentIssues,
   newsletterDocumentFromContent,
+  newsletterMergeValues,
   newsletterSendIssues,
+  personalizeNewsletter,
   renderNewsletter,
   type NewsletterBlock,
   type NewsletterDocument,
@@ -558,6 +565,36 @@ describe('launch readiness checklist', () => {
       complete: false,
     },
     {
+      name: 'incomplete when SMTP mode is missing SMTP_HOST or SMTP_PASSWORD',
+      settings: new Map([
+        ['CONTACT_EMAIL', 'configured' as const],
+        ['EMAIL_DELIVERY_MODE', 'configured' as const],
+        ['SMTP_FROM', 'configured' as const],
+        ['SMTP_USER', 'configured' as const],
+      ]),
+      settingValues: new Map([
+        ['EMAIL_DELIVERY_MODE', 'smtp'],
+        ['SMTP_FROM', 'Michal Elena <hello@michalelena.art>'],
+      ]),
+      complete: false,
+    },
+    {
+      name: 'complete when SMTP mode has host, user, password, and verified From',
+      settings: new Map([
+        ['CONTACT_EMAIL', 'configured' as const],
+        ['EMAIL_DELIVERY_MODE', 'configured' as const],
+        ['SMTP_HOST', 'configured' as const],
+        ['SMTP_USER', 'configured' as const],
+        ['SMTP_PASSWORD', 'configured' as const],
+        ['SMTP_FROM', 'configured' as const],
+      ]),
+      settingValues: new Map([
+        ['EMAIL_DELIVERY_MODE', 'smtp'],
+        ['SMTP_FROM', 'Michal Elena <hello@michalelena.art>'],
+      ]),
+      complete: true,
+    },
+    {
       name: 'complete when SMTP_FROM uses Resend sandbox domain in log mode',
       settings: new Map([
         ['CONTACT_EMAIL', 'configured' as const],
@@ -598,7 +635,7 @@ describe('launch readiness checklist', () => {
     }
   });
 
-  it('requires both Stripe keys before payments are ready', () => {
+  it('marks payments ready for manual purchase requests or when both Stripe keys are configured', () => {
     const partial = buildLaunchReadinessItems({
       settings: new Map([['STRIPE_SECRET_KEY', 'configured']]),
     });
@@ -608,8 +645,13 @@ describe('launch readiness checklist', () => {
         ['NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY', 'configured'],
       ]),
     });
+    const manual = buildLaunchReadinessItems({
+      settings: new Map([['CHECKOUT_MODE', 'configured']]),
+      settingValues: new Map([['CHECKOUT_MODE', 'manual']]),
+    });
     expect(partial.find((item) => item.key === 'payments')?.complete).toBe(false);
     expect(both.find((item) => item.key === 'payments')?.complete).toBe(true);
+    expect(manual.find((item) => item.key === 'payments')?.complete).toBe(true);
   });
 
   it('marks updates optional when hidden in navigation or disabled on home', () => {
@@ -735,11 +777,54 @@ describe('newsletter composition', () => {
     expect(newsletterContentIssues(doc(blocks, subject), { siteUrl }).map((issue) => issue.key)).toEqual(keys);
   });
 
-  it('newsletterSendIssues also requires address, real delivery, and an audience', () => {
+  it('newsletterSendIssues also requires address, real delivery, verified sender, and an audience', () => {
     const ready = doc([{ id: 'a', type: 'text', html: '<p>Hello</p>' }], 'News');
-    expect(newsletterSendIssues(ready, { ...context, subscriberCount: 3, deliveryMode: 'smtp' })).toEqual([]);
+    expect(newsletterSendIssues(ready, { ...context, subscriberCount: 3, deliveryMode: 'smtp', fromAddress: 'hello@ana.art' })).toEqual([]);
+    expect(newsletterSendIssues(ready, { ...context, subscriberCount: 3, deliveryMode: 'smtp', fromAddress: 'Ana <onboarding@resend.dev>' }).map((issue) => issue.key))
+      .toEqual(['sandbox-sender']);
     expect(newsletterSendIssues(ready, { ...context, footerAddress: ' ', subscriberCount: 0, deliveryMode: 'log' }).map((issue) => issue.key))
       .toEqual(['address', 'delivery', 'audience']);
+  });
+
+  it.each(AUTOMATION_EMAIL_CATALOG.map((def) => ({
+    id: def.id,
+    audienceKind: def.audienceKind,
+    promoCode: def.id === AUTOMATION_EMAIL_IDS.cartRecovery ? 'SAVE10' : undefined,
+  })))('default automation document $id validates cleanly and renders personalized email', ({ id, audienceKind, promoCode }) => {
+    const defaultDoc = buildDefaultAutomationDocument(id, { siteName: context.siteName, promoCode });
+    expect(newsletterContentIssues(defaultDoc, { siteUrl: context.siteUrl }, { audienceKind })).toEqual([]);
+    const rendered = personalizeNewsletter(
+      renderNewsletter(defaultDoc, {
+        ...context,
+        ...(audienceKind === 'checkout'
+          ? { footerReason: 'You began checking out at Ana Studio.', includeUnsubscribe: false }
+          : {}),
+      }),
+      newsletterMergeValues(
+        { email: 'ada@example.com', firstName: 'Ada' },
+        context,
+        'https://ana.art/unsubscribe',
+        audienceKind === 'checkout' ? { checkout_url: 'https://ana.art/checkout', promo_code: 'SAVE10' } : undefined,
+      ),
+    );
+    expect(rendered.html).toContain('Hi Ada,');
+    if (audienceKind === 'checkout') {
+      expect(rendered.html).toContain('href="https://ana.art/checkout"');
+      expect(rendered.html).toContain('SAVE10');
+      expect(rendered.html).not.toContain('Unsubscribe');
+    } else {
+      expect(rendered.html).toContain('https://ana.art/unsubscribe');
+    }
+  });
+
+  it('rejects checkout-only merge fields in regular newsletters while allowing them in cart recovery', () => {
+    const checkoutDoc = doc([
+      { id: 't', type: 'text', html: '<p>Use {{promo_code}}</p>' },
+      { id: 'b', type: 'button', label: 'Return', href: '{{checkout_url}}' },
+    ], 'Cart waiting');
+    expect(newsletterContentIssues(checkoutDoc, { siteUrl: context.siteUrl }, { audienceKind: 'checkout' })).toEqual([]);
+    expect(newsletterContentIssues(checkoutDoc, { siteUrl: context.siteUrl }).map((issue) => issue.key))
+      .toEqual(['field-{{promo_code}}', 'field-{{checkout_url}}']);
   });
 
   it('newsletterDocumentFromContent upgrades legacy campaigns to one text block', () => {
@@ -838,5 +923,53 @@ describe('studio content authoring & presentation defaults', () => {
       'https://artist.blob.core.windows.net/assets/videos/reel.mp4',
       'https://artist.blob.core.windows.net/assets/images/still.jpg',
     ]);
+  });
+
+  it.each([
+    {
+      draft: 'prints',
+      existing: ['Originals', 'Prints', 'Postcards'],
+      expected: { match: 'Prints', exact: true },
+    },
+    {
+      draft: 'print',
+      existing: ['Originals', 'Prints', 'Postcards'],
+      expected: { match: 'Prints', exact: false },
+    },
+    {
+      draft: 'Paintings',
+      existing: ['Painting', 'Sculpture'],
+      expected: { match: 'Painting', exact: false },
+    },
+    {
+      draft: 'mixed-media',
+      existing: ['Mixed Media', 'Acrylic'],
+      expected: { match: 'Mixed Media', exact: false },
+    },
+    {
+      draft: 'sketches',
+      existing: ['Sketch', 'Watercolor'],
+      expected: { match: 'Sketch', exact: false },
+    },
+    {
+      draft: 'studies',
+      existing: ['Study', 'Prints'],
+      expected: { match: 'Study', exact: false },
+    },
+    {
+      draft: 'Ceramics',
+      existing: ['Originals', 'Prints', 'Canvas'],
+      expected: null,
+    },
+  ])('flags exact and near-duplicate category "$draft"', ({ draft, existing, expected }) => {
+    expect(findSimilarCategoryMatch(draft, existing)).toEqual(expected);
+  });
+
+  it('keeps distinct short or -ss/-us/-is/-as words consistent in canonicalCategoryStem', () => {
+    expect(canonicalCategoryStem('Glass')).toBe('glass');
+    expect(canonicalCategoryStem('Canvas')).toBe('canvas');
+    expect(canonicalCategoryStem('Canvases')).toBe('canvas');
+    expect(canonicalCategoryStem('Oil')).toBe('oil');
+    expect(canonicalCategoryStem('Prints')).toBe(canonicalCategoryStem('print'));
   });
 });

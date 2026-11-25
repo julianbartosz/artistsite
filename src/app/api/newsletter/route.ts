@@ -18,6 +18,7 @@ async function finalizeSubscription(
   digest: boolean,
   sessionId: string | undefined,
   mode: 'site' | 'development' | 'production',
+  mailchimpSynced?: boolean,
 ): Promise<NextResponse> {
   const profileId = await recordNewsletterSubscriber(email, digest);
 
@@ -35,6 +36,7 @@ async function finalizeSubscription(
     email,
     mode,
     emailSent: welcome.delivered,
+    ...(mailchimpSynced !== undefined ? { mailchimpSynced } : {}),
   });
 
   if (profileId) {
@@ -65,7 +67,12 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
     throw new ApiError(400, 'Valid email address is required', 'INVALID_EMAIL');
   }
 
-  // Check for optional Mailchimp sync; default to on-site subscribers (matching Settings UI).
+  if (await isNewsletterSubscriber(email)) {
+    throw new ApiError(409, 'This email is already subscribed to our newsletter', 'ALREADY_SUBSCRIBED');
+  }
+
+  // Always save subscribers on-site; Mailchimp is an optional best-effort copy so
+  // incomplete credentials or third-party outages never lose a collector signup.
   const apiKey = await getConfig('MAILCHIMP_API_KEY');
   const listId = await getConfig('MAILCHIMP_LIST_ID');
   const serverPrefix = await getConfig('MAILCHIMP_SERVER_PREFIX');
@@ -73,9 +80,6 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
   const isE2eLogMode = process.env.PLAYWRIGHT_E2E === 'true';
 
   if (deliveryMode !== 'mailchimp' || isE2eLogMode) {
-    if (await isNewsletterSubscriber(email)) {
-      throw new ApiError(409, 'This email is already subscribed to our newsletter', 'ALREADY_SUBSCRIBED');
-    }
     return finalizeSubscription(
       email,
       digest,
@@ -85,18 +89,18 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
   }
 
   if (!apiKey || !listId || !serverPrefix) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new ApiError(503, 'Newsletter service is not configured', 'ESP_UNCONFIGURED');
-    }
-
-    console.warn('Mailchimp environment variables not configured, logging email instead:', email);
-
-    // Fallback: just log the subscription for development
-    return finalizeSubscription(email, digest, sessionId, 'development');
+    console.warn('Mailchimp sync enabled but credentials incomplete; saved subscriber on-site:', email);
+    return finalizeSubscription(
+      email,
+      digest,
+      sessionId,
+      process.env.NODE_ENV === 'production' ? 'site' : 'development',
+      false,
+    );
   }
 
+  let mailchimpSynced = false;
   try {
-    // Mailchimp API integration
     const url = `https://${serverPrefix}.api.mailchimp.com/3.0/lists/${listId}/members`;
 
     const response = await fetch(url, {
@@ -108,33 +112,25 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
       body: JSON.stringify({
         email_address: email,
         status: 'subscribed',
-        tags: ['website-signup'], // Tag to identify website signups
+        tags: ['website-signup'],
       }),
     });
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      // Handle Mailchimp-specific errors
-      if (data.title === 'Member Exists') {
-        if (await isNewsletterSubscriber(email)) {
-          throw new ApiError(409, 'This email is already subscribed to our newsletter', 'ALREADY_SUBSCRIBED');
-        }
-        return finalizeSubscription(email, digest, sessionId, 'production');
-      }
-
-      console.error('Mailchimp API error:', data);
-      throw new ApiError(500, 'Failed to subscribe to newsletter', 'ESP_ERROR');
+    const data = await response.json().catch(() => ({}));
+    if (response.ok || data.title === 'Member Exists') {
+      mailchimpSynced = true;
+    } else {
+      console.error('Mailchimp sync failed; saved subscriber on-site:', data);
     }
-
-    console.log(`Newsletter subscription successful: ${email}`);
-    return finalizeSubscription(email, digest, sessionId, 'production');
   } catch (error) {
-    if (error instanceof ApiError) {
-      throw error;
-    }
-
-    console.error('Newsletter subscription error:', error);
-    throw new ApiError(500, 'Failed to subscribe to newsletter', 'NETWORK_ERROR');
+    console.error('Mailchimp sync network error; saved subscriber on-site:', error);
   }
+
+  return finalizeSubscription(
+    email,
+    digest,
+    sessionId,
+    mailchimpSynced ? 'production' : (process.env.NODE_ENV === 'production' ? 'site' : 'development'),
+    mailchimpSynced,
+  );
 });

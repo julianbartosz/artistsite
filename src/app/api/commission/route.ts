@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { ApiError, withApiErrorHandler } from '@/lib/api-error-handler';
-import { brandedEmailHtml, emailDetailRows, emailQuoteHtml, getEmailBrand, sendTemplateEmail } from '@/lib/email';
+import { brandedEmailHtml, emailDetailRows, emailQuoteHtml, getEmailBrand, getEmailDeliveryStatus, sendTemplateEmail } from '@/lib/email';
 import { escapeHtml } from '@/lib/email-shell';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
@@ -135,8 +135,6 @@ async function handleCommissionRequest(req: NextRequest) {
   const requestId = `COMM-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
   try {
-    await sendCommissionRequestEmails(data, requestId);
-
     const inboxBody = [
       `Commission request ${requestId}`,
       data.productId ? `Related product: ${data.productId}` : null,
@@ -148,17 +146,18 @@ async function handleCommissionRequest(req: NextRequest) {
       data.specialRequests ? `\nSpecial requests:\n${data.specialRequests}` : null,
     ].filter((line) => line !== null).join('\n');
 
-    try {
-      await linkContactSubmissionToInbox({
-        name: data.customerInfo.name,
-        email: data.customerInfo.email,
-        subject: `Commission request ${requestId}`,
-        message: inboxBody,
-        inquiryType: 'commission',
-      });
-    } catch (inboxError) {
-      console.error('Failed to persist commission request to studio inbox:', inboxError);
-    }
+    await linkContactSubmissionToInbox({
+      name: data.customerInfo.name,
+      email: data.customerInfo.email,
+      subject: `Commission request ${requestId}`,
+      message: inboxBody,
+      inquiryType: 'commission',
+    });
+
+    const emailSent = await sendCommissionRequestEmails(data, requestId).catch((emailError) => {
+      console.error('Failed to send commission notification emails (request saved in Studio Inbox):', emailError);
+      return false;
+    });
 
     return NextResponse.json({
       success: true,
@@ -166,7 +165,9 @@ async function handleCommissionRequest(req: NextRequest) {
       message: 'Commission request submitted successfully',
       estimatedResponse: '24-48 hours',
       nextSteps: [
-        'You will receive a confirmation email shortly',
+        emailSent
+          ? 'You will receive a confirmation email shortly'
+          : 'Your commission request is saved directly in the studio inbox',
         data.type === 'consultation' 
           ? 'We will contact you to schedule a consultation call'
           : 'We will review your request and provide a detailed proposal',
@@ -194,17 +195,12 @@ function commissionDetails(data: CommissionRequestData): Array<[string, string]>
   ];
 }
 
-async function sendCommissionRequestEmails(data: CommissionRequestData, requestId: string) {
-  const isE2eLogMode = process.env.PLAYWRIGHT_E2E === 'true';
-  const deliveryMode = isE2eLogMode
-    ? 'log'
-    : (await getConfig('EMAIL_DELIVERY_MODE')) || (process.env.NODE_ENV === 'production' ? 'smtp' : 'log');
-  const artistEmail = await getConfig('ARTIST_EMAIL') || await getConfig('CONTACT_EMAIL') || await getConfig('SMTP_FROM') || await getConfig('SMTP_USER');
-  if (!artistEmail && deliveryMode !== 'log') {
-    throw new ApiError(503, 'Artist email recipient is not configured', 'ARTIST_RECIPIENT_UNCONFIGURED');
-  }
-  const resolvedArtistEmail = artistEmail || 'commission-log@localhost';
+async function sendCommissionRequestEmails(data: CommissionRequestData, requestId: string): Promise<boolean> {
+  if (process.env.PLAYWRIGHT_E2E === 'true') return false;
+  const emailStatus = await getEmailDeliveryStatus();
+  if (emailStatus.mode !== 'smtp') return false;
 
+  const artistEmail = await getConfig('ARTIST_EMAIL') || await getConfig('CONTACT_EMAIL') || await getConfig('SMTP_FROM') || await getConfig('SMTP_USER');
   const brand = await getEmailBrand();
   const { name, email, preferredContact, phone } = data.customerInfo;
   const details = commissionDetails(data);
@@ -242,14 +238,12 @@ async function sendCommissionRequestEmails(data: CommissionRequestData, requestI
     text: `New commission request\n\nRequest ID: ${requestId}\nCustomer: ${name} <${email}>\nPreferred Contact: ${preferredContact}\n${detailText}\n\n${data.description}\n\n${data.specialRequests || ''}`,
   };
 
-  const [customerDelivered, artistDelivered] = await Promise.all([
+  const [customerDelivered] = await Promise.all([
     sendTemplateEmail(email, customerEmailContent),
-    sendTemplateEmail(resolvedArtistEmail, artistEmailContent, { replyTo: email }),
+    artistEmail ? sendTemplateEmail(artistEmail, artistEmailContent, { replyTo: email }) : Promise.resolve(false),
   ]);
 
-  if (!customerDelivered || !artistDelivered) {
-    throw new Error('Failed to send commission request emails');
-  }
+  return customerDelivered;
 }
 
 export const POST = withApiErrorHandler(handleCommissionRequest);

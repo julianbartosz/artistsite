@@ -63,6 +63,13 @@ export interface Product {
     domesticEnabled?: boolean;
     /** Defaults to true when omitted (legacy listings). */
     internationalEnabled?: boolean;
+    /** Optional parcel metadata used when quoting/buying EasyPost labels. */
+    parcel?: {
+      weightOz?: number;
+      lengthIn?: number;
+      widthIn?: number;
+      heightIn?: number;
+    };
   };
   specifications: {
     framed: boolean;
@@ -262,14 +269,37 @@ export const CHECKOUT_COUNTRY_LABELS: Record<SupportedCheckoutCountry, string> =
   AU: 'Australia',
 };
 
+function normalizeShippingParcel(
+  parcel: NonNullable<Product['shipping']['parcel']> | undefined | null,
+): Product['shipping']['parcel'] | undefined {
+  if (!parcel || typeof parcel !== 'object') return undefined;
+  const positive = (v: unknown) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 10) / 10 : undefined;
+  };
+  const weightOz = positive(parcel.weightOz);
+  const lengthIn = positive(parcel.lengthIn);
+  const widthIn = positive(parcel.widthIn);
+  const heightIn = positive(parcel.heightIn);
+  if (!weightOz && !lengthIn && !widthIn && !heightIn) return undefined;
+  return {
+    ...(weightOz ? { weightOz } : {}),
+    ...(lengthIn ? { lengthIn } : {}),
+    ...(widthIn ? { widthIn } : {}),
+    ...(heightIn ? { heightIn } : {}),
+  };
+}
+
 export function normalizeShipping(value: Product['shipping'] | undefined | null): Product['shipping'] {
   const domesticRaw = Number(value?.domestic ?? 0);
   const internationalRaw = Number(value?.international ?? 0);
+  const parcel = normalizeShippingParcel(value?.parcel);
   return {
     domestic: Number.isFinite(domesticRaw) && domesticRaw >= 0 ? domesticRaw : 0,
     international: Number.isFinite(internationalRaw) && internationalRaw >= 0 ? internationalRaw : 0,
     domesticEnabled: value?.domesticEnabled !== false,
     internationalEnabled: value?.internationalEnabled !== false,
+    ...(parcel ? { parcel } : {}),
   };
 }
 

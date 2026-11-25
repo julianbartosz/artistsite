@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { getConfig } from '@/lib/config';
 
 interface SystemMetrics {
   timestamp: string;
@@ -36,14 +37,21 @@ export async function GET(req: NextRequest) {
   requestCount++;
 
   try {
-    // Test external service connectivity
+    const [stripeKey, newsletterMode, mailchimpKey, mailchimpPrefix] = await Promise.all([
+      getConfig('STRIPE_SECRET_KEY').catch(() => process.env.STRIPE_SECRET_KEY),
+      getConfig('NEWSLETTER_DELIVERY_MODE').catch(() => process.env.NEWSLETTER_DELIVERY_MODE),
+      getConfig('MAILCHIMP_API_KEY').catch(() => process.env.MAILCHIMP_API_KEY),
+      getConfig('MAILCHIMP_SERVER_PREFIX').catch(() => process.env.MAILCHIMP_SERVER_PREFIX),
+    ]);
+
+    // Test external service connectivity (only for integrations actively enabled)
     const externalServices: string[] = [];
     
     // Test Stripe connectivity (non-blocking)
-    if (process.env.STRIPE_SECRET_KEY) {
+    if (stripeKey) {
       try {
         const response = await fetch('https://api.stripe.com/v1/account', {
-          headers: { Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}` },
+          headers: { Authorization: `Bearer ${stripeKey}` },
           signal: AbortSignal.timeout(3000)
         });
         externalServices.push(response.ok ? 'stripe:healthy' : 'stripe:degraded');
@@ -52,12 +60,13 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Test Mailchimp connectivity (non-blocking)
-    if (process.env.MAILCHIMP_API_KEY) {
+    // Test Mailchimp connectivity only when Mailchimp mirror mode is active
+    const mailchimpActive = newsletterMode === 'mailchimp' && Boolean(mailchimpKey);
+    if (mailchimpActive && mailchimpKey) {
       try {
-        const serverPrefix = process.env.MAILCHIMP_SERVER_PREFIX || 'us15';
+        const serverPrefix = mailchimpPrefix || 'us15';
         const response = await fetch(`https://${serverPrefix}.api.mailchimp.com/3.0/ping`, {
-          headers: { Authorization: `Bearer ${process.env.MAILCHIMP_API_KEY}` },
+          headers: { Authorization: `Bearer ${mailchimpKey}` },
           signal: AbortSignal.timeout(3000)
         });
         externalServices.push(response.ok ? 'mailchimp:healthy' : 'mailchimp:degraded');
@@ -97,8 +106,8 @@ export async function GET(req: NextRequest) {
       },
       services: {
         database: databaseStatus,
-        stripe: process.env.STRIPE_SECRET_KEY ? 'configured' : 'not_configured',
-        mailchimp: process.env.MAILCHIMP_API_KEY ? 'configured' : 'not_configured',
+        stripe: stripeKey ? 'configured' : 'not_configured',
+        mailchimp: mailchimpActive ? 'configured' : 'not_configured',
         external: externalServices,
       },
       errors: {

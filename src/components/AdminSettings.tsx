@@ -1,7 +1,9 @@
 'use client';
 
 import React, { FormEvent, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import useSWR from 'swr';
+import { useUnsavedChangesGuard } from '@/components/admin/useUnsavedChangesGuard';
 import { isResendSandboxSender } from '@/lib/email-shell';
 
 type SettingRecord = {
@@ -35,10 +37,15 @@ const BOOL_OPTIONS: SettingFieldOption[] = [
   { value: 'true', label: 'Yes' },
 ];
 
+const isStripeCheckout = (draft: Record<string, string>) => (draft.CHECKOUT_MODE || 'manual') === 'stripe';
+const isManualCheckout = (draft: Record<string, string>) => (draft.CHECKOUT_MODE || 'manual') === 'manual';
 const isSmtpMode = (draft: Record<string, string>) => (draft.EMAIL_DELIVERY_MODE || 'log') === 'smtp';
 const isMailchimpMode = (draft: Record<string, string>) => (draft.NEWSLETTER_DELIVERY_MODE || 'log') === 'mailchimp';
 const isWinbackEnabled = (draft: Record<string, string>) => (draft.WINBACK_EMAIL_ENABLED || 'false') === 'true';
+const isCartAbandonmentEnabled = (draft: Record<string, string>) => (draft.CART_ABANDONMENT_ENABLED || 'false') === 'true';
 const isEasyPostMode = (draft: Record<string, string>) => (draft.SHIPPING_PROVIDER || 'manual') === 'easypost';
+const hasGa4MeasurementId = (draft: Record<string, string>) => Boolean(draft.NEXT_PUBLIC_GA4_MEASUREMENT_ID?.trim());
+const hasFacebookPixelId = (draft: Record<string, string>) => Boolean(draft.FACEBOOK_PIXEL_ID?.trim());
 const isMetaSocial = (draft: Record<string, string>) => (draft.SOCIAL_PROVIDER || 'assist') === 'meta';
 const isAyrshareSocial = (draft: Record<string, string>) => (draft.SOCIAL_PROVIDER || 'assist') === 'ayrshare';
 const isAutoSocialCapable = (draft: Record<string, string>) => (draft.SOCIAL_PROVIDER || 'assist') !== 'assist';
@@ -55,10 +62,9 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     id: 'site-identity',
     title: 'Site Identity',
-    description: 'Public URLs, studio contact routing, and footer social profiles.',
+    description: 'Public URL, studio contact routing, and footer social profiles.',
     keys: [
       { key: 'NEXT_PUBLIC_SITE_URL', label: 'Public site URL', help: 'The address collectors use, such as https://yourstudio.com' },
-      { key: 'NEXT_PUBLIC_BASE_URL', label: 'Application base URL', help: 'Usually the same as your public site URL.' },
       { key: 'CONTACT_EMAIL', label: 'Contact recipient email', help: 'Receives contact form submissions and studio inquiries.' },
       { key: 'ARTIST_EMAIL', label: 'Artist email', help: 'Receives internal studio notifications and new order alerts.' },
       { key: 'SUPPORT_EMAIL', label: 'Support email', help: 'Shown to collectors on receipts and shipping updates for help.' },
@@ -71,38 +77,56 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     id: 'payments',
     title: 'Payments',
-    description: 'Stripe powers checkout. Secret fields stay encrypted and are never shown after saving.',
+    description: 'Accept manual purchase requests with zero setup, or connect Stripe for instant card checkout.',
     keys: [
-      { key: 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY', label: 'Stripe publishable key' },
-      { key: 'STRIPE_SECRET_KEY', label: 'Stripe secret key', type: 'password' },
-      { key: 'STRIPE_WEBHOOK_SECRET', label: 'Stripe webhook secret', type: 'password' },
+      {
+        key: 'CHECKOUT_MODE',
+        label: 'Checkout mode',
+        options: [
+          { value: 'manual', label: 'Manual purchase requests (no Stripe needed)' },
+          { value: 'stripe', label: 'Stripe card checkout' },
+        ],
+        help: 'Manual mode lets collectors submit purchase requests straight into Orders & Inbox so you can collect payment via Venmo, Zelle, invoice, or studio pickup.',
+      },
+      {
+        key: 'MANUAL_PAYMENT_INSTRUCTIONS',
+        label: 'Payment instructions shown at checkout',
+        visibleWhen: isManualCheckout,
+        help: 'Optional note shown on the review and confirmation screens (for example, which payment methods you accept or how fast you reply).',
+      },
+      { key: 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY', label: 'Stripe publishable key', visibleWhen: isStripeCheckout },
+      { key: 'STRIPE_SECRET_KEY', label: 'Stripe secret key', type: 'password', visibleWhen: isStripeCheckout },
+      { key: 'STRIPE_WEBHOOK_SECRET', label: 'Stripe webhook secret', type: 'password', visibleWhen: isStripeCheckout },
       {
         key: 'STRIPE_AUTOMATIC_TAX_ENABLED',
         label: 'Calculate tax automatically with Stripe',
         options: BOOL_OPTIONS,
         defaultValue: 'false',
+        visibleWhen: isStripeCheckout,
+        help: 'Leave off to include tax in your artwork prices, or turn on after enabling Stripe Tax in your Stripe dashboard.',
       },
     ],
   },
   {
     id: 'email-delivery',
     title: 'Email Delivery',
-    description: 'SMTP sends contact and order-status emails. Use log mode until SMTP is ready.',
+    description: 'Contact inquiries and order notes always save to Studio Inbox. Connect SMTP when you want automated order confirmations, replies, and newsletters sent from your site.',
     keys: [
       {
         key: 'EMAIL_DELIVERY_MODE',
         label: 'Email delivery mode',
         options: [
-          { value: 'log', label: 'Log only (safe for testing)' },
-          { value: 'smtp', label: 'Send with SMTP' },
+          { value: 'log', label: 'Off — manual only (inquiries still save to Studio Inbox)' },
+          { value: 'smtp', label: 'Send emails with SMTP' },
         ],
         defaultValue: 'log',
       },
       {
         key: 'WELCOME_EMAIL_ENABLED',
-        label: 'Send welcome email to new collectors',
+        label: 'Send welcome email on collector account signup',
         options: BOOL_OPTIONS,
         defaultValue: 'false',
+        help: 'Sent when someone registers a storefront account. Newsletter signup welcomes are managed in Grow → Newsletter → Automations.',
       },
       { key: 'SMTP_HOST', label: 'SMTP host', visibleWhen: isSmtpMode },
       { key: 'SMTP_PORT', label: 'SMTP port', visibleWhen: isSmtpMode },
@@ -138,17 +162,17 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     id: 'shipping',
     title: 'Shipping',
-    description: 'Manual carrier tracking always works. Switch to EasyPost only when you want in-site rates and labels.',
+    description: 'Collectors pay each product’s flat shipping rate at checkout. Fulfill manually with any carrier, or switch to EasyPost to compare live rates and buy printable PDF labels in Orders.',
     keys: [
       {
         key: 'SHIPPING_PROVIDER',
         label: 'Shipping provider',
         options: [
           { value: 'manual', label: 'Manual tracking' },
-          { value: 'easypost', label: 'EasyPost labels & rates' },
+          { value: 'easypost', label: 'EasyPost in-site labels' },
         ],
         defaultValue: 'manual',
-        help: 'Manual remains the fallback if EasyPost is unavailable.',
+        help: 'Manual works with Pirate Ship, USPS, UPS, or any carrier. EasyPost adds rate comparison and PDF label purchase in Studio → Orders.',
       },
       { key: 'EASYPOST_API_KEY', label: 'EasyPost API key', type: 'password', visibleWhen: isEasyPostMode },
       { key: 'SHIP_FROM_NAME', label: 'Ship-from name', visibleWhen: isEasyPostMode },
@@ -169,25 +193,22 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     id: 'marketing-signals',
     title: 'Marketing Signals',
-    description: 'Optional measurement and social publishing credentials.',
+    description: 'Built-in Studio analytics already work with zero setup. Add GA4, Meta Pixel, or social auto-publishing only when you want external tracking or direct posting.',
     keys: [
-      { key: 'NEXT_PUBLIC_GA4_MEASUREMENT_ID', label: 'GA4 measurement ID' },
-      { key: 'GA_API_SECRET', label: 'GA4 API secret', type: 'password' },
-      { key: 'GOOGLE_ADS_CUSTOMER_ID', label: 'Google Ads customer ID' },
-      { key: 'FACEBOOK_PIXEL_ID', label: 'Facebook pixel ID', help: 'Used for site analytics. Instagram Business posts use the Meta provider below.' },
-      { key: 'FACEBOOK_CONVERSION_API_TOKEN', label: 'Facebook conversion API token', type: 'password' },
-      { key: 'PINTEREST_ACCESS_TOKEN', label: 'Pinterest access token', type: 'password' },
-      { key: 'PINTEREST_BOARD_ID', label: 'Pinterest board ID' },
+      { key: 'NEXT_PUBLIC_GA4_MEASUREMENT_ID', label: 'GA4 measurement ID', help: 'Optional Google Analytics 4 ID (for example G-XXXXXXXXXX).' },
+      { key: 'GA_API_SECRET', label: 'GA4 API secret', type: 'password', help: 'Optional — forwards server-side Core Web Vitals to GA4.', visibleWhen: hasGa4MeasurementId },
+      { key: 'FACEBOOK_PIXEL_ID', label: 'Facebook pixel ID', help: 'Optional — tracks storefront visits in Meta Events Manager.' },
+      { key: 'FACEBOOK_CONVERSION_API_TOKEN', label: 'Facebook conversion API token', type: 'password', help: 'Optional — sends server-side Stripe purchase events to Meta.', visibleWhen: hasFacebookPixelId },
       {
         key: 'SOCIAL_PROVIDER',
         label: 'Social publishing provider',
         options: [
-          { value: 'assist', label: 'Assist (copy drafts for you)' },
+          { value: 'assist', label: 'Assist — copy drafts & open platform' },
           { value: 'meta', label: 'Meta (Facebook / Instagram)' },
           { value: 'ayrshare', label: 'Ayrshare (multi-platform)' },
         ],
         defaultValue: 'assist',
-        help: 'Ayrshare is recommended when you publish to several networks.',
+        help: 'Assist works out of the box with no API keys. Connect Meta or Ayrshare only if you want hands-off auto-publishing.',
       },
       { key: 'FACEBOOK_ACCESS_TOKEN', label: 'Facebook access token', type: 'password', visibleWhen: isMetaSocial },
       { key: 'FACEBOOK_PAGE_ID', label: 'Facebook page ID', visibleWhen: isMetaSocial },
@@ -210,15 +231,15 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     id: 'automation',
     title: 'Automation',
-    description: 'Built-in email automations (welcome series, win-back, cart recovery) and scheduled marketing jobs — all sent through Resend without Mailchimp.',
+    description: 'Built-in email automations (welcome series, win-back, cart recovery) and scheduled newsletters run automatically while your site is online — sent through your Email Delivery (SMTP) settings with no external cron service required.',
     keys: [
-      { key: 'CRON_SECRET', label: 'Automation secret', type: 'password', help: 'Turns on automatic runs every 30 minutes and protects the scheduling URL.' },
+      { key: 'CRON_SECRET', label: 'External cron secret (optional)', type: 'password', help: 'Optional — only needed if you wire an external cron service to /api/cron/marketing. Built-in scheduling and “Run automations now” work without it.' },
       {
         key: 'NEWSLETTER_WELCOME_ENABLED',
         label: 'Send welcome email on newsletter signup',
         options: BOOL_OPTIONS,
         defaultValue: 'true',
-        help: 'Sends a studio-branded welcome email immediately when someone subscribes via Resend SMTP.',
+        help: 'Sends a studio-branded welcome email immediately when someone subscribes via your Email Delivery (SMTP) settings.',
       },
       {
         key: 'NEWSLETTER_WELCOME_SERIES_ENABLED',
@@ -247,7 +268,12 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
         options: BOOL_OPTIONS,
         defaultValue: 'false',
       },
-      { key: 'CART_RECOVERY_PROMO_CODE', label: 'Cart recovery promo code', help: 'Optional existing promo code to include in recovery emails.' },
+      {
+        key: 'CART_RECOVERY_PROMO_CODE',
+        label: 'Cart recovery promo code',
+        help: 'Optional existing promo code to include in recovery emails.',
+        visibleWhen: isCartAbandonmentEnabled,
+      },
     ],
   },
 ];
@@ -297,10 +323,17 @@ function scrollToSettingsElement(elementId: string): void {
 
 function buildEditableDraft(records: SettingRecord[]): Record<string, string> {
   const raw: Record<string, string> = {};
+  const byKey = new Map(records.map((item) => [item.key, item]));
   for (const item of records) {
     if (EDITABLE_SETTING_KEYS.has(item.key)) {
       raw[item.key] = item.value || '';
     }
+  }
+  if (!raw.CHECKOUT_MODE) {
+    const hasStripeKeys =
+      byKey.get('STRIPE_SECRET_KEY')?.status === 'configured'
+      && byKey.get('NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY')?.status === 'configured';
+    raw.CHECKOUT_MODE = hasStripeKeys ? 'stripe' : 'manual';
   }
   return applySettingFieldDefaults(raw);
 }
@@ -340,22 +373,59 @@ function applySettingFieldDefaults(values: Record<string, string>): Record<strin
 }
 
 function integrationStatuses(settings: Record<string, SettingRecord>, draft: Record<string, string>) {
-  const stripeOk = settings.STRIPE_SECRET_KEY?.status === 'configured' || Boolean(draft.STRIPE_SECRET_KEY?.trim());
+  const checkoutMode = draft.CHECKOUT_MODE || 'manual';
+  const hasStripeSecret = settings.STRIPE_SECRET_KEY?.status === 'configured' || Boolean(draft.STRIPE_SECRET_KEY?.trim());
+  const hasStripePublishable =
+    settings.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.status === 'configured'
+    || Boolean(draft.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim());
+  const stripeReady = hasStripeSecret && hasStripePublishable;
+  const paymentsOk = checkoutMode === 'manual' || stripeReady;
+
   const emailMode = draft.EMAIL_DELIVERY_MODE || 'log';
   const emailSandboxSender = emailMode === 'smtp' && isResendSandboxSender(draft.SMTP_FROM);
-  const emailOk = emailMode === 'smtp' && Boolean(draft.SMTP_HOST?.trim()) && !emailSandboxSender;
+  const smtpComplete = Boolean(
+    draft.SMTP_HOST?.trim()
+    && draft.SMTP_USER?.trim()
+    && (settings.SMTP_PASSWORD?.status === 'configured' || draft.SMTP_PASSWORD?.trim()),
+  );
+  const emailOk = emailMode === 'smtp' && smtpComplete && !emailSandboxSender;
   const shippingProvider = draft.SHIPPING_PROVIDER || 'manual';
-  const shippingOk = shippingProvider === 'manual' || settings.EASYPOST_API_KEY?.status === 'configured' || Boolean(draft.EASYPOST_API_KEY?.trim());
+  const easyPostHasKey = settings.EASYPOST_API_KEY?.status === 'configured' || Boolean(draft.EASYPOST_API_KEY?.trim());
+  const easyPostHasReturnAddress = Boolean(
+    (draft.SHIP_FROM_NAME?.trim() || draft.SHIP_FROM_COMPANY?.trim()) &&
+    draft.SHIP_FROM_STREET1?.trim() &&
+    draft.SHIP_FROM_CITY?.trim() &&
+    draft.SHIP_FROM_STATE?.trim() &&
+    draft.SHIP_FROM_POSTAL_CODE?.trim()
+  );
+  const shippingOk = shippingProvider === 'manual' || (easyPostHasKey && easyPostHasReturnAddress);
   const newsletterMode = draft.NEWSLETTER_DELIVERY_MODE || 'log';
   const newsletterAddressOk = Boolean(draft.NEWSLETTER_FOOTER_ADDRESS?.trim());
-  const newsletterOk = newsletterAddressOk && (newsletterMode === 'log' || settings.MAILCHIMP_API_KEY?.status === 'configured');
+  const mailchimpReady = Boolean(
+    (settings.MAILCHIMP_API_KEY?.status === 'configured' || draft.MAILCHIMP_API_KEY?.trim())
+    && draft.MAILCHIMP_LIST_ID?.trim()
+    && draft.MAILCHIMP_SERVER_PREFIX?.trim()
+  );
+  const newsletterOk = newsletterAddressOk && (newsletterMode === 'log' || mailchimpReady);
 
   return [
     {
-      label: 'Stripe payments',
-      ok: stripeOk,
-      detail: stripeOk ? 'Connected' : 'Add Stripe keys to accept payments',
-      targetId: adminSettingFieldId('STRIPE_SECRET_KEY'),
+      label: 'Payments',
+      ok: paymentsOk,
+      detail: checkoutMode === 'manual'
+        ? 'Manual purchase requests'
+        : stripeReady
+          ? 'Stripe connected'
+          : !hasStripePublishable
+            ? 'Add Stripe publishable key'
+            : 'Add Stripe secret key',
+      targetId: adminSettingFieldId(
+        checkoutMode === 'manual'
+          ? 'CHECKOUT_MODE'
+          : !hasStripePublishable
+            ? 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY'
+            : 'STRIPE_SECRET_KEY',
+      ),
     },
     {
       label: 'Email delivery',
@@ -364,24 +434,52 @@ function integrationStatuses(settings: Record<string, SettingRecord>, draft: Rec
         ? emailSandboxSender
           ? 'Sandbox sender (resend.dev) — verify your domain'
           : emailOk
-            ? 'SMTP configured'
-            : 'Add SMTP host to send emails'
-        : 'Log mode — emails are not sent',
-      targetId: adminSettingFieldId(emailSandboxSender ? 'SMTP_FROM' : 'EMAIL_DELIVERY_MODE'),
+            ? 'SMTP ready'
+            : 'Finish SMTP host, user, and password'
+        : 'Off — inquiries save to Studio Inbox',
+      targetId: adminSettingFieldId(
+        emailSandboxSender
+          ? 'SMTP_FROM'
+          : emailMode === 'smtp' && !smtpComplete
+            ? (!draft.SMTP_HOST?.trim() ? 'SMTP_HOST' : !draft.SMTP_USER?.trim() ? 'SMTP_USER' : 'SMTP_PASSWORD')
+            : 'EMAIL_DELIVERY_MODE',
+      ),
     },
     {
       label: 'Shipping labels',
       ok: shippingOk,
-      detail: shippingProvider === 'easypost' ? 'EasyPost ready' : 'Manual tracking only',
-      targetId: adminSettingFieldId('SHIPPING_PROVIDER'),
+      detail: shippingProvider !== 'easypost'
+        ? 'Manual tracking'
+        : !easyPostHasKey
+          ? 'Add EasyPost API key'
+          : !easyPostHasReturnAddress
+            ? 'Add ship-from return address'
+            : 'EasyPost labels ready',
+      targetId: adminSettingFieldId(
+        shippingProvider !== 'easypost'
+          ? 'SHIPPING_PROVIDER'
+          : !easyPostHasKey
+            ? 'EASYPOST_API_KEY'
+            : 'SHIP_FROM_STREET1'
+      ),
     },
     {
       label: 'Newsletter',
       ok: newsletterOk,
       detail: !newsletterAddressOk
         ? 'Add a footer mailing address'
-        : newsletterMode === 'mailchimp' ? 'Signups copied to Mailchimp' : 'Ready — sends with Email delivery',
-      targetId: adminSettingFieldId('NEWSLETTER_FOOTER_ADDRESS'),
+        : newsletterMode === 'mailchimp'
+          ? mailchimpReady
+            ? 'Signups copied to Mailchimp'
+            : 'Finish Mailchimp key, list ID, and server prefix (site signups still work)'
+          : 'Ready — sends with Email delivery',
+      targetId: adminSettingFieldId(
+        !newsletterAddressOk
+          ? 'NEWSLETTER_FOOTER_ADDRESS'
+          : newsletterMode === 'mailchimp' && !mailchimpReady
+            ? 'MAILCHIMP_API_KEY'
+            : 'NEWSLETTER_FOOTER_ADDRESS'
+      ),
     },
   ];
 }
@@ -401,6 +499,7 @@ export default function AdminSettings() {
   const [savedDraft, setSavedDraft] = useState<Record<string, string>>({});
   const [initialized, setInitialized] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [testingEmail, setTestingEmail] = useState(false);
   const [runningAutomation, setRunningAutomation] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -476,11 +575,31 @@ export default function AdminSettings() {
     }
   }
 
+  async function sendTestEmail() {
+    setTestingEmail(true);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'send_test_email' }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to send test email');
+      setMessage({ type: 'success', text: `Test email sent to ${data.to}.` });
+    } catch (error) {
+      setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Failed to send test email' });
+    } finally {
+      setTestingEmail(false);
+    }
+  }
+
   const statuses = useMemo(() => integrationStatuses(settings, draft), [settings, draft]);
   const isDirty = useMemo(
     () => Object.keys({ ...savedDraft, ...draft }).some((key) => (draft[key] || '') !== (savedDraft[key] || '')),
     [draft, savedDraft],
   );
+  useUnsavedChangesGuard(isDirty);
   const displayMessage = message || (swrError instanceof Error ? { type: 'error' as const, text: swrError.message } : null);
 
   if (loading) {
@@ -623,21 +742,29 @@ export default function AdminSettings() {
               <p className="mt-2 text-sm text-gray-600">{group.description}</p>
               <div className="mt-5">{body}</div>
               {group.id === 'automation' && (
-                <div className="mt-6 border-t border-gray-100 pt-4">
+                <div className="mt-6 border-t border-gray-100 pt-4 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="text-sm text-gray-600">
                       Last run: {settings.CRON_LAST_RUN_AT?.value ? new Date(settings.CRON_LAST_RUN_AT.value).toLocaleString() : 'Not recorded yet'}
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => void runAutomationsNow()}
-                      disabled={runningAutomation}
-                      className="rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-50"
-                    >
-                      {runningAutomation ? 'Running...' : 'Run automations now'}
-                    </button>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Link
+                        href="/admin?tab=newsletter&view=automations"
+                        className="rounded border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                      >
+                        Edit automation emails →
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => void runAutomationsNow()}
+                        disabled={runningAutomation}
+                        className="rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+                      >
+                        {runningAutomation ? 'Running...' : 'Run automations now'}
+                      </button>
+                    </div>
                   </div>
-                  <p className="mt-2 text-xs text-gray-500">
+                  <p className="text-xs text-gray-500">
                     External scheduler endpoint:{' '}
                     <code className="rounded bg-gray-100 px-1.5 py-0.5">
                       {typeof window !== 'undefined' ? `${window.location.origin}/api/cron/marketing` : '/api/cron/marketing'}
@@ -660,6 +787,23 @@ export default function AdminSettings() {
               <p className="mt-1 text-sm text-gray-600">{group.description}</p>
             </div>
             {body}
+            {group.id === 'email-delivery' && isSmtpMode(draft) && (
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4">
+                <p className="text-xs text-gray-500">
+                  {isDirty
+                    ? 'Save settings first, then send a test email to verify your SMTP credentials.'
+                    : 'Send a quick test email to your signed-in admin address using your saved SMTP settings.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void sendTestEmail()}
+                  disabled={testingEmail || isDirty}
+                  className="rounded-md border border-gray-300 bg-white px-3.5 py-2 text-xs font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {testingEmail ? 'Sending test…' : 'Send test email'}
+                </button>
+              </div>
+            )}
           </section>
         );
       })}

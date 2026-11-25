@@ -81,8 +81,20 @@ function isEmailDeliveryReady(
 ): boolean {
   if (!isConfigured(settings, 'CONTACT_EMAIL')) return false;
   if (isUsingResendSandbox(values)) return false;
+  const mode = values?.get('EMAIL_DELIVERY_MODE')?.trim().toLowerCase();
+  if (mode === 'smtp') {
+    return hasAllConfigured(settings, ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASSWORD']);
+  }
   if (isConfigured(settings, 'EMAIL_DELIVERY_MODE')) return true;
   return hasAllConfigured(settings, ['SMTP_FROM', 'SMTP_USER']);
+}
+
+function isPaymentsReady(
+  settings: Map<string, 'configured' | 'not_set'> | undefined,
+  values?: Map<string, string>,
+): boolean {
+  if (values?.get('CHECKOUT_MODE')?.trim().toLowerCase() === 'manual') return true;
+  return hasAllConfigured(settings, ['STRIPE_SECRET_KEY', 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY']);
 }
 
 export function buildLaunchReadinessItems(input: LaunchReadinessInput): LaunchReadinessItem[] {
@@ -140,12 +152,14 @@ export function buildLaunchReadinessItems(input: LaunchReadinessInput): LaunchRe
     },
     {
       key: 'payments',
-      label: 'Configure Stripe checkout',
-      complete: hasAllConfigured(settings, ['STRIPE_SECRET_KEY', 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY']),
+      label: values?.get('CHECKOUT_MODE')?.trim().toLowerCase() === 'manual'
+        ? 'Checkout accepts manual purchase requests'
+        : 'Configure checkout payments',
+      complete: isPaymentsReady(settings, values),
       tab: 'settings',
-      action: 'Open Stripe settings',
-      helpText: 'Paste Stripe keys from dashboard.stripe.com under Settings → Payments.',
-      settingKey: 'STRIPE_SECRET_KEY',
+      action: 'Open payment settings',
+      helpText: 'Choose Manual purchase requests (no Stripe needed) or connect Stripe card checkout under Settings → Payments.',
+      settingKey: 'CHECKOUT_MODE',
     },
     {
       key: 'email',
@@ -184,8 +198,7 @@ export function buildLaunchReadinessItems(input: LaunchReadinessInput): LaunchRe
       complete: !cronStale,
       tab: 'settings',
       action: 'Open automation settings',
-      helpText: 'In Settings, click Run automations now to send cart recovery and scheduled marketing jobs. Optional until you want hands-off follow-up.',
-      settingKey: 'CRON_SECRET',
+      helpText: 'Scheduled newsletters and follow-ups run automatically while your site is online, or click Run automations now in Settings anytime.',
       optional: true,
     },
     {

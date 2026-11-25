@@ -2,6 +2,7 @@
 
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { X } from 'lucide-react';
+import { findSimilarCategoryMatch } from '@/lib/site-content-shared';
 
 function sanitizeDecimalDraft(raw: string): string {
   // Strip currency signs, commas, and whitespace so pasting "$1,250.50" works smoothly.
@@ -61,11 +62,7 @@ export function MoneyField({
   const [focused, setFocused] = useState(false);
   const [draft, setDraft] = useState(() => formatNumberDraft(value));
 
-  useEffect(() => {
-    if (!focused) {
-      setDraft(formatNumberDraft(value));
-    }
-  }, [value, focused]);
+  const displayValue = focused ? draft : formatNumberDraft(value);
 
   function handleChange(event: React.ChangeEvent<HTMLInputElement>) {
     const nextDraft = sanitizeDecimalDraft(event.target.value);
@@ -115,9 +112,12 @@ export function MoneyField({
           inputMode="decimal"
           autoComplete="off"
           disabled={disabled}
-          value={draft}
+          value={displayValue}
           placeholder={placeholder}
-          onFocus={() => setFocused(true)}
+          onFocus={() => {
+            setDraft(formatNumberDraft(value));
+            setFocused(true);
+          }}
           onChange={handleChange}
           onBlur={handleBlur}
           className={`block h-10 w-full rounded-md border border-gray-300 py-2 pr-3 text-sm font-normal ${showCurrency ? 'pl-7' : 'px-3'} disabled:cursor-not-allowed`}
@@ -282,7 +282,12 @@ export function TagInput({
     if (event.key === 'Enter') {
       if (draft.trim()) {
         event.preventDefault();
-        commitRaw(draft);
+        if (draftSimilarMatch) {
+          onChange(appendUniqueTags(tags, [draftSimilarMatch.match]));
+          setDraft('');
+        } else {
+          commitRaw(draft);
+        }
       }
       return;
     }
@@ -295,6 +300,10 @@ export function TagInput({
   const availableSuggestions = suggestions
     .filter((suggestion) => suggestion.trim() && !selectedKeys.has(suggestion.trim().toLowerCase()))
     .slice(0, 8);
+  const draftSimilarMatch = findSimilarCategoryMatch(draft, [...tags, ...suggestions]);
+  const draftMatchAlreadySelected = Boolean(
+    draftSimilarMatch && selectedKeys.has(draftSimilarMatch.match.toLowerCase()),
+  );
 
   return (
     <div className="block text-sm font-medium text-gray-700">
@@ -332,12 +341,49 @@ export function TagInput({
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onBlur={() => {
-            if (draft.trim()) commitRaw(draft);
+            if (draft.trim() && !draftSimilarMatch) commitRaw(draft);
           }}
           placeholder={tags.length === 0 ? placeholder : 'Add another…'}
           className="min-w-[10rem] flex-1 border-0 bg-transparent p-1 text-sm font-normal text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0"
         />
       </div>
+      {draftSimilarMatch && (
+        <div
+          role="status"
+          className="mt-1.5 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-normal text-amber-900"
+        >
+          <span>
+            {draftSimilarMatch.exact
+              ? `“${draftSimilarMatch.match}” already exists.`
+              : `Similar to existing “${draftSimilarMatch.match}”.`}
+          </span>
+          <div className="flex items-center gap-2">
+            {!draftMatchAlreadySelected && (
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  onChange(appendUniqueTags(tags, [draftSimilarMatch.match]));
+                  setDraft('');
+                }}
+                className="font-medium text-amber-950 underline underline-offset-2 hover:text-amber-800"
+              >
+                Use “{draftSimilarMatch.match}”
+              </button>
+            )}
+            {!draftSimilarMatch.exact && (
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => commitRaw(draft)}
+                className="text-amber-800 hover:text-amber-950"
+              >
+                Add anyway
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {help ? <span className="mt-1 block text-xs font-normal text-gray-500">{help}</span> : null}
       {availableSuggestions.length > 0 && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -406,11 +452,29 @@ export function CategorySelectField({
 
   const matchedValue =
     dedupedOptions.find((option) => option.toLowerCase() === value.trim().toLowerCase()) || '';
+  const similarMatch = addingCustom
+    ? findSimilarCategoryMatch(customDraft, dedupedOptions)
+    : null;
 
-  function applyCustom() {
+  function applyCustom(forceCustom = false) {
     const clean = customDraft.trim();
     if (!clean) return;
+    if (similarMatch?.exact) {
+      onChange(similarMatch.match);
+      setCustomDraft('');
+      setAddingCustom(false);
+      return;
+    }
+    if (similarMatch && !forceCustom) {
+      return;
+    }
     onChange(clean);
+    setCustomDraft('');
+    setAddingCustom(false);
+  }
+
+  function selectExistingMatch(existing: string) {
+    onChange(existing);
     setCustomDraft('');
     setAddingCustom(false);
   }
@@ -444,18 +508,22 @@ export function CategorySelectField({
         <option value={CUSTOM_OPTION_VALUE}>{addOptionLabel}</option>
       </select>
       {addingCustom && (
-        <div className="mt-2 flex gap-2">
+        <div className="mt-2 space-y-2">
           <input
             type="text"
             value={customDraft}
             onChange={(event) => setCustomDraft(event.target.value)}
             onBlur={() => {
-              if (customDraft.trim()) applyCustom();
+              if (customDraft.trim() && !similarMatch) applyCustom();
             }}
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
                 event.preventDefault();
-                applyCustom();
+                if (similarMatch) {
+                  selectExistingMatch(similarMatch.match);
+                } else {
+                  applyCustom();
+                }
               }
             }}
             placeholder={customPlaceholder}
@@ -463,26 +531,48 @@ export function CategorySelectField({
             className="block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm font-normal"
             autoFocus
           />
-          <button
-            type="button"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={applyCustom}
-            disabled={!customDraft.trim()}
-            className="shrink-0 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
-          >
-            Add
-          </button>
-          <button
-            type="button"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => {
-              setAddingCustom(false);
-              setCustomDraft('');
-            }}
-            className="shrink-0 rounded-md px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-800"
-          >
-            Cancel
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => (similarMatch?.exact ? selectExistingMatch(similarMatch.match) : applyCustom(true))}
+              disabled={!customDraft.trim()}
+              className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {similarMatch?.exact ? 'Use existing' : similarMatch ? 'Add anyway' : 'Add'}
+            </button>
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                setAddingCustom(false);
+                setCustomDraft('');
+              }}
+              className="rounded-md px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-800"
+            >
+              Cancel
+            </button>
+          </div>
+          {similarMatch && (
+            <div
+              role="status"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-normal text-amber-900"
+            >
+              <span>
+                {similarMatch.exact
+                  ? `“${similarMatch.match}” already exists.`
+                  : `Looks similar to existing “${similarMatch.match}”.`}
+              </span>
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => selectExistingMatch(similarMatch.match)}
+                className="font-medium text-amber-950 underline underline-offset-2 hover:text-amber-800"
+              >
+                Use “{similarMatch.match}”
+              </button>
+            </div>
+          )}
         </div>
       )}
       {help ? <span className="mt-1 block text-xs font-normal text-gray-500">{help}</span> : null}

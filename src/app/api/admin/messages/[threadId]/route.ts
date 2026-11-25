@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ZodError, z } from 'zod';
 import { ApiError } from '@/lib/api-error-handler';
 import { requireAdmin } from '@/lib/auth';
+import { sendStudioReplyEmail } from '@/lib/email';
 import { appendStudioMessage, getStudioThreadForViewer, updateThreadCrm } from '@/lib/studio-inbox';
 import { CRM_STAGES } from '@/lib/studio-inbox-shared';
 
@@ -55,13 +56,24 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       senderUserId: session.user.id,
     });
 
+    const emailDelivery = await sendStudioReplyEmail({
+      to: existing.userEmail,
+      collectorName: existing.userName,
+      subject: existing.subject,
+      message: payload.message,
+      orderId: existing.relatedOrderId,
+    }).catch((err) => {
+      console.error('Failed to email studio inbox reply:', err);
+      return { mode: 'smtp' as const, delivered: false };
+    });
+
     const thread = await getStudioThreadForViewer(threadId, {
       id: session.user.id,
       email: session.user.email,
       isAdmin: true,
     });
 
-    return NextResponse.json({ thread });
+    return NextResponse.json({ thread, emailDelivery });
   } catch (error) {
     if (error instanceof ApiError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });

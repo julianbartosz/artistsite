@@ -9,6 +9,7 @@ export default function NewsletterSubscribers({ onChange }: { onChange: () => vo
   const [query, setQuery] = useState('');
   const [data, setData] = useState<{ subscribers: Subscriber[]; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [newEmail, setNewEmail] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -53,6 +54,18 @@ export default function NewsletterSubscribers({ onChange }: { onChange: () => vo
     void mutate(email, () => newsletterRequest(`/api/admin/newsletters/subscribers?email=${encodeURIComponent(email)}`, { method: 'DELETE' }));
   }
 
+  async function handleCopyEmails() {
+    const emails = subscribers.map((subscriber) => subscriber.email).filter(Boolean);
+    if (emails.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(emails.join(', '));
+      setNotice(`Copied ${emails.length} ${emails.length === 1 ? 'email' : 'emails'} to clipboard.`);
+      window.setTimeout(() => setNotice(null), 2500);
+    } catch {
+      setError('Could not access clipboard in this browser.');
+    }
+  }
+
   const subscribers = data?.subscribers ?? [];
 
   return (
@@ -83,6 +96,14 @@ export default function NewsletterSubscribers({ onChange }: { onChange: () => vo
           </form>
           <button
             type="button"
+            disabled={subscribers.length === 0}
+            onClick={() => void handleCopyEmails()}
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Copy emails
+          </button>
+          <button
+            type="button"
             onClick={() => window.location.assign('/api/admin/newsletters/subscribers?format=csv')}
             className="rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
@@ -91,6 +112,7 @@ export default function NewsletterSubscribers({ onChange }: { onChange: () => vo
         </div>
       </div>
 
+      {notice && <div role="status" className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</div>}
       {error && <div role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
 
       {data === null ? (

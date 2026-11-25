@@ -8,6 +8,14 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
   title: 'Terms of Service',
   alternates: { canonical: '/terms' },
+  robots: {
+    index: false,
+    follow: true,
+    googleBot: {
+      index: false,
+      follow: true,
+    },
+  },
 };
 
 export default async function TermsPage() {

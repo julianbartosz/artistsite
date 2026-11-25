@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getConfig, getConfigBool } from '@/lib/config';
+import { getConfig } from '@/lib/config';
+import { getCheckoutRuntimeConfig } from '@/lib/stripe';
 
 const PUBLIC_CONFIG_KEYS = [
   'NEXT_PUBLIC_BASE_URL',
@@ -16,17 +17,17 @@ const PUBLIC_CONFIG_KEYS = [
 ] as const;
 
 export async function GET() {
-  const entries = await Promise.all(
-    PUBLIC_CONFIG_KEYS.map(async (key) => [key, await getConfig(key)] as const)
-  );
-
-  const stripeAutomaticTaxEnabled = await getConfigBool('STRIPE_AUTOMATIC_TAX_ENABLED');
-
-  const facebookPixelId = await getConfig('FACEBOOK_PIXEL_ID');
+  const [entries, checkoutConfig, facebookPixelId] = await Promise.all([
+    Promise.all(PUBLIC_CONFIG_KEYS.map(async (key) => [key, await getConfig(key)] as const)),
+    getCheckoutRuntimeConfig(),
+    getConfig('FACEBOOK_PIXEL_ID'),
+  ]);
 
   return NextResponse.json({
     ...Object.fromEntries(entries),
-    STRIPE_AUTOMATIC_TAX_ENABLED: stripeAutomaticTaxEnabled,
+    CHECKOUT_MODE: checkoutConfig.checkoutMode,
+    MANUAL_PAYMENT_INSTRUCTIONS: checkoutConfig.manualPaymentInstructions,
+    STRIPE_AUTOMATIC_TAX_ENABLED: checkoutConfig.automaticTaxEnabled,
     FACEBOOK_PIXEL_ID: facebookPixelId || '',
   });
 }
