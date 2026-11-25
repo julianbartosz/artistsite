@@ -9,12 +9,8 @@ export const metadata: Metadata = {
   title: 'Terms of Service',
   alternates: { canonical: '/terms' },
   robots: {
-    index: false,
+    index: true,
     follow: true,
-    googleBot: {
-      index: false,
-      follow: true,
-    },
   },
 };
 
