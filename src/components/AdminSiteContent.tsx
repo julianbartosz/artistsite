@@ -832,7 +832,7 @@ export default function AdminSiteContent() {
                   label="Logo (optional)"
                   value={content.identity.logoImage}
                   onChange={(value) => setContent({ ...content, identity: { ...content.identity, logoImage: value } })}
-                  help="A signature or wordmark shown in place of your name in the header. A transparent PNG or WebP works best. Your browser tab icon is made from your initials and main color."
+                  help="A signature or wordmark shown in place of your name in the header. A transparent PNG or WebP works best. Your browser tab and Google Search icon are made from your initials and main color."
                 />
               </div>
             </div>

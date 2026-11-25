@@ -73,7 +73,11 @@ export async function generateMetadata(): Promise<Metadata> {
       images: [ogImage],
     },
     icons: {
-      icon: [{ url: brandIconPath(identity, 32), sizes: '32x32', type: 'image/png' }],
+      icon: [
+        { url: brandIconPath(identity, 48), sizes: '48x48', type: 'image/png' },
+        { url: brandIconPath(identity, 192), sizes: '192x192', type: 'image/png' },
+        { url: '/favicon.ico', sizes: '48x48', type: 'image/png' },
+      ],
       apple: [{ url: brandIconPath(identity, 180), sizes: '180x180', type: 'image/png' }],
     },
     robots: {

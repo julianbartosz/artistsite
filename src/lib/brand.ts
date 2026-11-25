@@ -2,7 +2,8 @@ import type { SiteIdentityContent } from '@/lib/site-content-shared';
 
 type BrandIdentity = Pick<SiteIdentityContent, 'siteName' | 'headerName' | 'logoImage' | 'theme'>;
 
-export const BRAND_ICON_SIZES = [32, 180, 192, 512] as const;
+/** 48 is Google Search's minimum favicon size; keep 32 for compact UI chrome. */
+export const BRAND_ICON_SIZES = [32, 48, 180, 192, 512] as const;
 export type BrandIconSize = (typeof BRAND_ICON_SIZES)[number];
 
 /** Up to two initials from the site name, e.g. "Michal Elena" → "ME". */
@@ -31,9 +32,12 @@ export function brandAssetVersion(identity: BrandIdentity): string {
   return hash.toString(36);
 }
 
-/** Pass the identity when available so the URL is versioned and long-cacheable. */
+/**
+ * Crawlable brand icon URL (outside /api so robots.txt allows Googlebot).
+ * Pass the identity when available so the URL is versioned and long-cacheable.
+ */
 export function brandIconPath(identity: BrandIdentity | null, size: BrandIconSize = 512): string {
-  const base = `/api/brand/icon?size=${size}`;
+  const base = `/brand/icon?size=${size}`;
   return identity ? `${base}&v=${brandAssetVersion(identity)}` : base;
 }
 

@@ -43,6 +43,8 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     '/api/og': ['./src/app/fonts/og/**'],
     '/api/brand/icon': ['./src/app/fonts/og/**'],
+    '/brand/icon': ['./src/app/fonts/og/**'],
+    '/favicon.ico': ['./src/app/fonts/og/**'],
   },
   
   // Server external packages

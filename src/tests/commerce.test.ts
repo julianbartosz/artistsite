@@ -807,10 +807,11 @@ describe('site theme utilities', () => {
     expect(brandMonogram('studio')).toBe('S');
     const identity = DEFAULT_SITE_IDENTITY;
     const version = brandAssetVersion(identity);
-    expect(brandIconPath(identity, 192)).toBe(`/api/brand/icon?size=192&v=${version}`);
+    expect(brandIconPath(identity, 192)).toBe(`/brand/icon?size=192&v=${version}`);
     expect(brandAssetVersion({ ...identity, tagline: 'changed' } as typeof identity)).toBe(version);
     expect(brandAssetVersion({ ...identity, theme: { ...identity.theme, primaryColor: '#1a3a82' } })).not.toBe(version);
-    expect(brandIconPath(null, 32)).toBe('/api/brand/icon?size=32');
+    expect(brandIconPath(null, 32)).toBe('/brand/icon?size=32');
+    expect(brandIconPath(null, 48)).toBe('/brand/icon?size=48');
   });
 
   it('keeps lean homepage defaults for new sites', () => {

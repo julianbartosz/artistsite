@@ -51,7 +51,7 @@ export async function GET() {
     <name>${siteName}</name>
     <uri>${link('/')}</uri>
   </author>
-  <icon>${link(brandIconPath(identity, 32))}</icon>
+  <icon>${link(brandIconPath(identity, 48))}</icon>
   <logo>${link(brandIconPath(identity, 512))}</logo>
   <rights>Copyright © ${new Date().getFullYear()} ${escapeHtml(identity.copyrightName || identity.siteName)}</rights>
 ${atomItems}
