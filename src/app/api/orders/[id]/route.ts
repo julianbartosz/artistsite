@@ -31,9 +31,11 @@ export async function GET(
     }
 
     if (verifyOrderAccessToken(orderId, token)) {
+      const { listCertificatesByOrderIds } = await import('@/lib/certificates');
+      const certificates = (await listCertificatesByOrderIds([order.id]))[order.id] ?? [];
       return NextResponse.json({
         success: true,
-        order
+        order: { ...order, certificates }
       });
     }
 
@@ -63,9 +65,12 @@ export async function GET(
       );
     }
 
+    const { listCertificatesByOrderIds } = await import('@/lib/certificates');
+    const certificates = (await listCertificatesByOrderIds([order.id]))[order.id] ?? [];
+
     return NextResponse.json({
       success: true,
-      order
+      order: { ...order, certificates }
     });
 
   } catch (error) {
@@ -170,6 +175,18 @@ export async function PUT(
         success: true,
         quote,
       });
+    }
+
+    if (body.action === 'issue_coa') {
+      if (existingOrder.paymentStatus !== 'paid') {
+        return NextResponse.json(
+          { error: 'Mark the order as paid before issuing a Certificate of Authenticity.' },
+          { status: 400 }
+        );
+      }
+      const { issueCertificatesForOrder } = await import('@/lib/certificates');
+      const certificates = await issueCertificatesForOrder(orderId, { forceAllItems: true });
+      return NextResponse.json({ success: true, certificates });
     }
 
     if (body.status === 'refunded') {

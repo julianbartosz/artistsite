@@ -13,6 +13,7 @@ import ImageCarousel from '@/components/ImageCarousel';
 import ProductImage from '@/components/ProductImage';
 import AddToCartButton from '@/components/AddToCartButton';
 import { WishlistButton } from '@/components/WishlistButton';
+import { useEcommerceTracking } from '@/components/AnalyticsProvider';
 
 type ProductQuickLookProps = {
   product: Product;
@@ -22,6 +23,7 @@ type ProductQuickLookProps = {
 
 export default function ProductQuickLook({ product, open, onClose }: ProductQuickLookProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const { trackProductView } = useEcommerceTracking();
   const galleryImages = useMemo(() => productGalleryImages(product), [product]);
   const [activeIndex, setActiveIndex] = useState(0);
   const hasOptions = productHasPurchaseOptions(product);
@@ -31,7 +33,8 @@ export default function ProductQuickLook({ product, open, onClose }: ProductQuic
     if (!open) return;
     setActiveIndex(0);
     closeRef.current?.focus();
-  }, [open, product.id]);
+    trackProductView(product.id, product.title, product.category, product.price);
+  }, [open, product.id, product.title, product.category, product.price, trackProductView]);
 
   useEffect(() => {
     if (!open) return undefined;

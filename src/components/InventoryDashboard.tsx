@@ -65,9 +65,11 @@ function resolveRowStatus(
 type InventoryDashboardProps = {
   /** Navigate directly to the Products tab (optional productId to edit, or omit to create). */
   onOpenProduct?: (productId?: string) => void;
+  /** Omit the standalone page heading when embedded inside Products -> Stock & alerts. */
+  embedded?: boolean;
 };
 
-export function InventoryDashboard({ onOpenProduct }: InventoryDashboardProps = {}) {
+export function InventoryDashboard({ onOpenProduct, embedded = false }: InventoryDashboardProps = {}) {
   const { mutate: globalMutate } = useSWRConfig();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -110,12 +112,15 @@ export function InventoryDashboard({ onOpenProduct }: InventoryDashboardProps = 
 
   const {
     data: inventoriesPayload,
+    isLoading: inventoriesLoading,
     mutate: mutateInventories,
   } = useSWR<{ success?: boolean; inventories?: Record<string, InventoryStatus> }>(
     productIdsKey,
     swrFetcher,
     swrOptions,
   );
+
+  const inventoriesPending = Boolean(productIdsKey) && !inventoriesPayload && inventoriesLoading;
 
   const inventories = useMemo(() => inventoriesPayload?.inventories ?? {}, [inventoriesPayload]);
   const alerts = useMemo(() => alertsPayload?.alerts ?? [], [alertsPayload]);
@@ -425,30 +430,32 @@ export function InventoryDashboard({ onOpenProduct }: InventoryDashboardProps = 
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-gray-900">Inventory</h2>
-          <p className="mt-0.5 text-sm text-gray-600">
-            Update quantities inline — stock alerts update and clear automatically.
-          </p>
+      {!embedded && (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">Inventory</h2>
+            <p className="mt-0.5 text-sm text-gray-600">
+              Update quantities inline. Stock alerts update and clear automatically.
+            </p>
+          </div>
+          {onOpenProduct ? (
+            <button
+              type="button"
+              onClick={() => onOpenProduct()}
+              className="inline-flex shrink-0 items-center justify-center rounded-md border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 self-start sm:self-auto"
+            >
+              Add product
+            </button>
+          ) : (
+            <Link
+              href="/admin?tab=products&create=1"
+              className="inline-flex shrink-0 items-center justify-center rounded-md border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 self-start sm:self-auto"
+            >
+              Add product
+            </Link>
+          )}
         </div>
-        {onOpenProduct ? (
-          <button
-            type="button"
-            onClick={() => onOpenProduct()}
-            className="inline-flex shrink-0 items-center justify-center rounded-md border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 self-start sm:self-auto"
-          >
-            Add product
-          </button>
-        ) : (
-          <Link
-            href="/admin?tab=products&create=1"
-            className="inline-flex shrink-0 items-center justify-center rounded-md border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 self-start sm:self-auto"
-          >
-            Add product
-          </Link>
-        )}
-      </div>
+      )}
 
       {feedback && (
         <div
@@ -473,6 +480,7 @@ export function InventoryDashboard({ onOpenProduct }: InventoryDashboardProps = 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" role="group" aria-label="Filter inventory by stock status">
         {statCards.map((card) => {
           const active = statusFilter === card.id;
+          const countLoading = card.id !== 'all' && !dashboardData && inventoriesPending;
           return (
             <button
               key={card.id}
@@ -484,7 +492,13 @@ export function InventoryDashboard({ onOpenProduct }: InventoryDashboardProps = 
               }`}
             >
               <p className="text-xs font-medium text-gray-500">{card.label}</p>
-              <p className={`mt-1 text-2xl font-semibold ${card.tone}`}>{card.count}</p>
+              <p className={`mt-1 text-2xl font-semibold ${card.tone}`}>
+                {countLoading ? (
+                  <span className="inline-block h-7 w-8 animate-pulse rounded bg-gray-100 align-middle" />
+                ) : (
+                  card.count
+                )}
+              </p>
             </button>
           );
         })}
@@ -829,45 +843,54 @@ export function InventoryDashboard({ onOpenProduct }: InventoryDashboardProps = 
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
                         <div className="flex flex-col items-start gap-1">
-                          <StockIndicator
-                            productId={product.id}
-                            showDetails
-                            inventory={inventory}
-                          />
+                          {inventoriesPending ? (
+                            <span className="inline-block h-6 w-24 animate-pulse rounded-full bg-gray-100" aria-label="Loading stock status" />
+                          ) : (
+                            <StockIndicator
+                              productId={product.id}
+                              showDetails
+                              inventory={inventory}
+                              missingInventoryLabel={product.availability === 'sold' ? 'Sold out' : 'Untracked'}
+                            />
+                          )}
                           {rowAlert && (
                             <span className="text-[11px] text-amber-700">Alert active</span>
                           )}
                         </div>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
-                        <div
-                          className="w-24"
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter' && !isSaving) {
-                              event.preventDefault();
-                              void handleSetStock(product.id);
-                            }
-                          }}
-                        >
-                          <IntegerField
-                            label={`Quantity for ${product.title}`}
-                            labelHidden
-                            compact
-                            min={0}
-                            value={draftValue}
-                            onChange={(next) =>
-                              setStockDrafts((current) => {
-                                if (next !== '' && Number(next) === savedStock) {
-                                  if (!(product.id in current)) return current;
-                                  const copy = { ...current };
-                                  delete copy[product.id];
-                                  return copy;
-                                }
-                                return { ...current, [product.id]: next };
-                              })
-                            }
-                          />
-                        </div>
+                        {inventoriesPending ? (
+                          <span className="inline-block h-9 w-24 animate-pulse rounded-md bg-gray-100" aria-label="Loading quantity" />
+                        ) : (
+                          <div
+                            className="w-24"
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' && !isSaving) {
+                                event.preventDefault();
+                                void handleSetStock(product.id);
+                              }
+                            }}
+                          >
+                            <IntegerField
+                              label={`Quantity for ${product.title}`}
+                              labelHidden
+                              compact
+                              min={0}
+                              value={draftValue}
+                              onChange={(next) =>
+                                setStockDrafts((current) => {
+                                  if (next !== '' && Number(next) === savedStock) {
+                                    if (!(product.id in current)) return current;
+                                    const copy = { ...current };
+                                    delete copy[product.id];
+                                    return copy;
+                                  }
+                                  return { ...current, [product.id]: next };
+                                })
+                              }
+                            />
+                          </div>
+                        )}
                       </td>
                       <td className="hidden whitespace-nowrap px-4 py-3 text-sm text-gray-900 sm:table-cell">
                         {formatPrice(product.price, product.currency || 'USD')}

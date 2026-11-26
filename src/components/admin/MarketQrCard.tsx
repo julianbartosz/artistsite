@@ -21,7 +21,11 @@ interface PublicConfigResponse {
   NEXT_PUBLIC_BASE_URL?: string;
 }
 
-export function MarketQrCard({ onSelectTab }: { onSelectTab?: (tab: string) => void }) {
+export function MarketQrCard({
+  onSelectTab,
+}: {
+  onSelectTab?: (tab: string) => void;
+}) {
   const [siteOrigin, setSiteOrigin] = useState<string>('');
   const [originSource, setOriginSource] = useState<'configured' | 'fallback' | 'loading'>('loading');
   const [destination, setDestination] = useState<MarketQrDestination>('home');
@@ -213,7 +217,7 @@ export function MarketQrCard({ onSelectTab }: { onSelectTab?: (tab: string) => v
         copyTimeoutRef.current = null;
       }, 2000);
     } else {
-      setNotice('Could not copy automatically — select and copy the link directly.');
+      setNotice('Could not copy automatically. Select and copy the link directly.');
     }
   };
 
@@ -224,14 +228,16 @@ export function MarketQrCard({ onSelectTab }: { onSelectTab?: (tab: string) => v
       data-testid="market-qr-card"
       className="rounded-lg border bg-white p-6 space-y-4"
     >
-      <div>
-        <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
-          <QrCode className="h-5 w-5 text-gray-700" aria-hidden="true" />
-          Market QR code
-        </h3>
-        <p className="mt-0.5 text-sm text-gray-600">
-          Download or print a high-contrast QR code for art fairs, booths, or studio signage. Scans include UTM tags for Analytics.
-        </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
+            <QrCode className="h-5 w-5 text-gray-700" aria-hidden="true" />
+            Market QR code
+          </h3>
+          <p className="mt-0.5 text-sm text-gray-600">
+            Download or print a high-contrast QR code for art fairs, booths, or studio signage. Scans include UTM tags for Analytics.
+          </p>
+        </div>
       </div>
 
       {showLocalWarning && (

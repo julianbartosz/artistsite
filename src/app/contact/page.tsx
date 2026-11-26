@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { getConfig } from '@/lib/config';
 import { getSiteContent } from '@/lib/site-content';
+import { getCommissionSettings } from '@/lib/jobs';
 import ContactPageClient from '@/app/contact/ContactPageClient';
 
 export const dynamic = 'force-dynamic';
@@ -30,11 +31,12 @@ function firstParam(value: string | string[] | undefined): string {
 
 export default async function ContactPage({ searchParams }: ContactPageProps) {
   const params = searchParams ? await searchParams : {};
-  const [pageContent, contactEmailSetting, artistEmail, supportEmail] = await Promise.all([
+  const [pageContent, contactEmailSetting, artistEmail, supportEmail, commissionSettings] = await Promise.all([
     getSiteContent('contact'),
     getConfig('CONTACT_EMAIL'),
     getConfig('ARTIST_EMAIL'),
     getConfig('SUPPORT_EMAIL'),
+    getCommissionSettings(),
   ]);
 
   const contactEmail = contactEmailSetting || artistEmail || supportEmail || '';
@@ -45,6 +47,8 @@ export default async function ContactPage({ searchParams }: ContactPageProps) {
       contactEmail={contactEmail}
       initialSubject={firstParam(params.subject)}
       initialInquiryType={firstParam(params.inquiryType) || undefined}
+      commissionStatus={commissionSettings.status}
+      commissionNote={commissionSettings.note}
     />
   );
 }

@@ -7,23 +7,18 @@ import { signOut, useSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import useSWR from 'swr';
 import OrderCelebrationCard, { useOrderCelebration } from '@/components/admin/OrderCelebrationCard';
+import type { OrderCelebration } from '@/lib/order-celebration-shared';
 import { confirmLeaveWithUnsavedChanges } from '@/components/admin/useUnsavedChangesGuard';
 import { buildLaunchReadinessItems } from '@/lib/setup-readiness';
 import type { SiteContentByPage } from '@/lib/site-content-shared';
-
-/** Keep in sync with `adminSettingFieldId` in AdminSettings (avoid static-importing the Settings panel). */
-function adminSettingFieldId(key: string): string {
-  return `setting-${key}`;
-}
-import { 
-  FileText, 
-  ShoppingBag, 
+import {
+  FileText,
+  ShoppingBag,
   Image as ImageIcon,
   ClipboardList,
-  Package,
   Megaphone,
   Newspaper,
-  Plus, 
+  Plus,
   Settings,
   TrendingUp,
   LayoutTemplate,
@@ -31,7 +26,14 @@ import {
   Mail,
   MoreHorizontal,
   ExternalLink,
+  Store,
+  Sparkles,
 } from 'lucide-react';
+
+/** Keep in sync with `adminSettingFieldId` in AdminSettings (avoid static-importing the Settings panel). */
+function adminSettingFieldId(key: string): string {
+  return `setting-${key}`;
+}
 
 function TabPanelFallback() {
   return (
@@ -82,6 +84,18 @@ const StudioInboxPanel = dynamic(() => import('@/components/StudioInboxPanel'), 
   loading: () => <TabPanelFallback />,
   ssr: false,
 });
+const AdminMarkets = dynamic(() => import('@/components/AdminMarkets'), {
+  loading: () => <TabPanelFallback />,
+  ssr: false,
+});
+const AdminJobs = dynamic(() => import('@/components/AdminJobs'), {
+  loading: () => <TabPanelFallback />,
+  ssr: false,
+});
+const AdminConsignment = dynamic(() => import('@/components/AdminConsignment'), {
+  loading: () => <TabPanelFallback />,
+  ssr: false,
+});
 
 const fetcher = async (url: string) => {
   const res = await fetch(url);
@@ -98,27 +112,35 @@ const swrStudioOptions = {
 
 const ADMIN_TABS = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
-  { key: 'pages', label: 'Pages', icon: LayoutTemplate },
+  { key: 'inbox', label: 'Inbox', icon: Mail },
+  { key: 'analytics', label: 'Analytics', icon: TrendingUp },
+  { key: 'orders', label: 'Orders', icon: ClipboardList },
   { key: 'products', label: 'Products', icon: ShoppingBag },
+  { key: 'markets', label: 'Markets', icon: Store },
+  { key: 'pages', label: 'Pages', icon: LayoutTemplate },
   { key: 'portfolio', label: 'Portfolio', icon: ImageIcon },
   { key: 'posts', label: 'Updates', icon: FileText },
-  { key: 'inbox', label: 'Inbox', icon: Mail },
-  { key: 'orders', label: 'Orders', icon: ClipboardList },
-  { key: 'inventory', label: 'Inventory', icon: Package },
-  { key: 'marketing', label: 'Marketing', icon: Megaphone },
   { key: 'newsletter', label: 'Newsletter', icon: Newspaper },
-  { key: 'analytics', label: 'Analytics', icon: TrendingUp },
+  { key: 'automations', label: 'Automations', icon: Sparkles },
+  { key: 'marketing', label: 'Marketing', icon: Megaphone },
   { key: 'settings', label: 'Settings', icon: Settings },
 ] as const;
 
 type AdminTab = typeof ADMIN_TABS[number]['key'];
 
-/** Desktop chrome: four clean 3-tab areas matching how artists run their studio. */
+/**
+ * Desktop workspace areas organized around how artists actually work:
+ * - Home: daily pulse, collector messages, and whole-studio analytics
+ * - Shop: fulfillment, catalog/stock, and in-person markets
+ * - Site: everything published to the public website
+ * - Grow: newsletters, automated emails, and promos/social/ads
+ * Settings stays one click away in the top-right utility bar from every view.
+ */
 const ADMIN_TAB_GROUPS: Array<{ id: string; label: string; tabs: AdminTab[] }> = [
-  { id: 'site', label: 'Site', tabs: ['overview', 'pages', 'settings'] },
-  { id: 'shop', label: 'Shop', tabs: ['products', 'orders', 'inventory'] },
-  { id: 'content', label: 'Content', tabs: ['portfolio', 'posts', 'inbox'] },
-  { id: 'grow', label: 'Grow', tabs: ['marketing', 'newsletter', 'analytics'] },
+  { id: 'home', label: 'Home', tabs: ['overview', 'inbox', 'analytics'] },
+  { id: 'shop', label: 'Shop', tabs: ['orders', 'products', 'markets'] },
+  { id: 'site', label: 'Site', tabs: ['pages', 'portfolio', 'posts'] },
+  { id: 'grow', label: 'Grow', tabs: ['newsletter', 'automations', 'marketing'] },
 ];
 
 // Month-1 ops path: fulfillment + inbox stay one tap away once real orders arrive.
@@ -136,16 +158,26 @@ function isAdminTab(value: string): value is AdminTab {
 }
 
 function adminGroupForTab(tab: AdminTab) {
-  return ADMIN_TAB_GROUPS.find((group) => group.tabs.includes(tab)) ?? ADMIN_TAB_GROUPS[0];
+  return ADMIN_TAB_GROUPS.find((group) => group.tabs.includes(tab)) ?? null;
 }
 
-function resolveAdminTab(tabParam: string | null | undefined, initialTab?: string | null): AdminTab {
+function resolveAdminTab(
+  tabParam: string | null | undefined,
+  initialTab?: string | null,
+  viewParam?: string | null,
+  automationParam?: string | null,
+): AdminTab {
   const candidates = [
     tabParam,
     initialTab,
     typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null,
   ];
   for (const value of candidates) {
+    if (value === 'inventory') return 'products';
+    // Backwards compatibility for old ?tab=newsletter&view=automations or ?tab=newsletter&automation=<id> links.
+    if (value === 'newsletter' && (viewParam === 'automations' || Boolean(automationParam))) {
+      return 'automations';
+    }
     if (value && isAdminTab(value)) return value;
   }
   return 'overview';
@@ -165,6 +197,7 @@ interface DashboardStats {
   unreadMessagesCount?: number;
   lowStockCount?: number;
   activeAlertsCount?: number;
+  latestCelebration?: OrderCelebration | null;
 }
 
 type SettingRecord = {
@@ -181,8 +214,21 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const activeTab: AdminTab = resolveAdminTab(searchParams.get('tab'), initialTab);
+  const rawTabParam = searchParams.get('tab');
+  const rawViewParam = searchParams.get('view');
+  const rawAutomationParam = searchParams.get('automation');
+  const activeTab: AdminTab = resolveAdminTab(rawTabParam, initialTab, rawViewParam, rawAutomationParam);
   const activeGroup = adminGroupForTab(activeTab);
+  const productsView: 'catalog' | 'stock' | 'consignment' =
+    activeTab === 'products' &&
+    (rawViewParam === 'stock' || rawTabParam === 'inventory' || (!rawTabParam && initialTab === 'inventory'))
+      ? 'stock'
+      : activeTab === 'products' && rawViewParam === 'consignment'
+        ? 'consignment'
+        : 'catalog';
+  const ordersView: 'orders' | 'jobs' =
+    activeTab === 'orders' && rawViewParam === 'jobs' ? 'jobs' : 'orders';
+  const activeJobIdParam = activeTab === 'orders' ? searchParams.get('job') : null;
   const [readinessExpanded, setReadinessExpanded] = React.useState(true);
   const [mobileMoreOpen, setMobileMoreOpen] = React.useState(false);
   const moreTabs = ADMIN_TABS.filter((tab) => !ADMIN_BOTTOM_PRIMARY.has(tab.key));
@@ -191,7 +237,7 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
   const selectTab = useCallback((
     tab: AdminTab,
     hash?: string,
-    options?: { create?: boolean; product?: string },
+    options?: { create?: boolean; product?: string; view?: string; job?: string },
   ) => {
     if (tab !== activeTab && !confirmLeaveWithUnsavedChanges()) return;
     const params = new URLSearchParams(searchParams.toString());
@@ -202,16 +248,40 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
     }
     if (tab !== 'newsletter') {
       params.delete('newsletter');
+    }
+    if (tab !== 'automations') {
       params.delete('automation');
+    }
+    if (options?.view) {
+      if (
+        options.view === 'catalog' ||
+        options.view === 'orders' ||
+        options.view === 'newsletters' ||
+        options.view === 'promos'
+      ) {
+        params.delete('view');
+      } else {
+        params.set('view', options.view);
+      }
+    } else if (tab !== activeTab) {
       params.delete('view');
+    } else if (tab !== 'newsletter' && tab !== 'products' && tab !== 'orders' && tab !== 'marketing') {
+      params.delete('view');
+    }
+    if (tab === 'orders' && options?.job) {
+      params.set('job', options.job);
+    } else {
+      params.delete('job');
     }
     if (tab === 'products' && options?.product) {
       params.set('product', options.product);
+      params.delete('view');
     } else {
       params.delete('product');
     }
     if (options?.create) {
       params.set('create', '1');
+      if (tab === 'products') params.delete('view');
     } else {
       params.delete('create');
     }
@@ -223,6 +293,7 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
       window.history.replaceState(null, '', nextUrl);
       if (hash) {
         window.requestAnimationFrame(() => {
+          window.dispatchEvent(new HashChangeEvent('hashchange'));
           const target = document.getElementById(hash);
           target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         });
@@ -239,12 +310,13 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
     selectTab(group.tabs[0]);
   }, [activeTab, selectTab]);
 
-  // Overview readiness only — other tabs must not fan out these five requests on every visit.
-  const overviewActive = activeTab === 'overview';
+  // Keep lightweight operational counts warm for tab badges; gate heavier readiness calls to Overview only.
+  const isAdminSession = status === 'authenticated' && Boolean(session?.user?.isAdmin);
+  const overviewActive = isAdminSession && activeTab === 'overview';
   const { data: stats, error: statsError, isLoading: statsLoading } = useSWR<DashboardStats>(
-    overviewActive ? '/api/admin/stats' : null,
+    isAdminSession ? '/api/admin/stats' : null,
     fetcher,
-    swrStudioOptions,
+    { revalidateOnFocus: false, dedupingInterval: 30_000 },
   );
   const { data: settingsData, error: settingsError, isLoading: settingsLoading } = useSWR<{ settings: SettingRecord[] }>(
     overviewActive ? '/api/admin/settings' : null,
@@ -273,7 +345,7 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
     },
     swrStudioOptions,
   );
-  const { celebration, dismissCelebration } = useOrderCelebration();
+  const { celebration, dismissCelebration } = useOrderCelebration(stats?.latestCelebration ?? null);
 
   const overviewLoading = statsLoading || settingsLoading;
   const safeStats: DashboardStats = {
@@ -318,8 +390,8 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
   // Check authentication
   if (status === 'loading') {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-32 w-32 animate-spin rounded-full border-b-2 border-blue-600" />
       </div>
     );
   }
@@ -353,10 +425,34 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
     );
   }
 
+  const tabBadgeCount = (tabKey: AdminTab): number => {
+    if (tabKey === 'orders') return safeStats.unfulfilledOrdersCount || 0;
+    if (tabKey === 'inbox') return safeStats.unreadMessagesCount || 0;
+    return 0;
+  };
+
+  const groupHasAttention = (groupId: string): boolean => {
+    if (groupId === 'home') return (safeStats.unreadMessagesCount || 0) > 0;
+    if (groupId === 'shop') return (safeStats.unfulfilledOrdersCount || 0) > 0;
+    return false;
+  };
+
+  const handleSelectTabString = (tab: string) => {
+    if (tab === 'inventory') {
+      selectTab('products', undefined, { view: 'stock' });
+    } else if (isAdminTab(tab)) {
+      selectTab(tab);
+    }
+  };
+
   const renderOverview = () => (
     <div className="space-y-6">
       {celebration && (
-        <OrderCelebrationCard celebration={celebration} onDismiss={dismissCelebration} />
+        <OrderCelebrationCard
+          celebration={celebration}
+          onDismiss={dismissCelebration}
+          onSelectTab={handleSelectTabString}
+        />
       )}
 
       {databaseBlocked && (
@@ -428,14 +524,14 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
       )}
 
       {/* Stats Grid — clickable jump cards into each studio area */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:gap-4 lg:grid-cols-6">
         <button
           type="button"
           onClick={() => selectTab('orders')}
-          className="bg-white rounded-lg shadow-sm border p-4 text-left hover:border-gray-300 hover:shadow transition-all"
+          className="rounded-lg border bg-white p-4 text-left shadow-sm transition-all hover:border-gray-300 hover:shadow"
         >
           <div className="flex items-start gap-3">
-            <ClipboardList className="h-6 w-6 shrink-0 text-indigo-600 mt-0.5" aria-hidden="true" />
+            <ClipboardList className="mt-0.5 h-6 w-6 shrink-0 text-indigo-600" aria-hidden="true" />
             <div className="min-w-0">
               <p className="text-xs font-medium text-gray-500">Orders</p>
               <p className="text-xl font-semibold text-gray-900">
@@ -453,10 +549,10 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
         <button
           type="button"
           onClick={() => selectTab('inbox')}
-          className="bg-white rounded-lg shadow-sm border p-4 text-left hover:border-gray-300 hover:shadow transition-all"
+          className="rounded-lg border bg-white p-4 text-left shadow-sm transition-all hover:border-gray-300 hover:shadow"
         >
           <div className="flex items-start gap-3">
-            <Mail className="h-6 w-6 shrink-0 text-rose-600 mt-0.5" aria-hidden="true" />
+            <Mail className="mt-0.5 h-6 w-6 shrink-0 text-rose-600" aria-hidden="true" />
             <div className="min-w-0">
               <p className="text-xs font-medium text-gray-500">Inbox</p>
               <p className="text-xl font-semibold text-gray-900">
@@ -473,11 +569,11 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
 
         <button
           type="button"
-          onClick={() => selectTab('products')}
-          className="bg-white rounded-lg shadow-sm border p-4 text-left hover:border-gray-300 hover:shadow transition-all"
+          onClick={() => selectTab('products', undefined, (safeStats.lowStockCount || 0) > 0 ? { view: 'stock' } : undefined)}
+          className="rounded-lg border bg-white p-4 text-left shadow-sm transition-all hover:border-gray-300 hover:shadow"
         >
           <div className="flex items-start gap-3">
-            <ShoppingBag className="h-6 w-6 shrink-0 text-green-600 mt-0.5" aria-hidden="true" />
+            <ShoppingBag className="mt-0.5 h-6 w-6 shrink-0 text-green-600" aria-hidden="true" />
             <div className="min-w-0">
               <p className="text-xs font-medium text-gray-500">Products</p>
               <p className="text-xl font-semibold text-gray-900">
@@ -495,10 +591,10 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
         <button
           type="button"
           onClick={() => selectTab('portfolio')}
-          className="bg-white rounded-lg shadow-sm border p-4 text-left hover:border-gray-300 hover:shadow transition-all"
+          className="rounded-lg border bg-white p-4 text-left shadow-sm transition-all hover:border-gray-300 hover:shadow"
         >
           <div className="flex items-start gap-3">
-            <ImageIcon className="h-6 w-6 shrink-0 text-violet-600 mt-0.5" aria-hidden="true" />
+            <ImageIcon className="mt-0.5 h-6 w-6 shrink-0 text-violet-600" aria-hidden="true" />
             <div className="min-w-0">
               <p className="text-xs font-medium text-gray-500">Portfolio</p>
               <p className="text-xl font-semibold text-gray-900">
@@ -511,10 +607,10 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
         <button
           type="button"
           onClick={() => selectTab('posts')}
-          className="bg-white rounded-lg shadow-sm border p-4 text-left hover:border-gray-300 hover:shadow transition-all"
+          className="rounded-lg border bg-white p-4 text-left shadow-sm transition-all hover:border-gray-300 hover:shadow"
         >
           <div className="flex items-start gap-3">
-            <FileText className="h-6 w-6 shrink-0 text-blue-600 mt-0.5" aria-hidden="true" />
+            <FileText className="mt-0.5 h-6 w-6 shrink-0 text-blue-600" aria-hidden="true" />
             <div className="min-w-0">
               <p className="text-xs font-medium text-gray-500">Updates</p>
               <p className="text-xl font-semibold text-gray-900">
@@ -527,10 +623,10 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
         <button
           type="button"
           onClick={() => selectTab('analytics')}
-          className="bg-white rounded-lg shadow-sm border p-4 text-left hover:border-gray-300 hover:shadow transition-all"
+          className="rounded-lg border bg-white p-4 text-left shadow-sm transition-all hover:border-gray-300 hover:shadow"
         >
           <div className="flex items-start gap-3">
-            <TrendingUp className="h-6 w-6 shrink-0 text-orange-600 mt-0.5" aria-hidden="true" />
+            <TrendingUp className="mt-0.5 h-6 w-6 shrink-0 text-orange-600" aria-hidden="true" />
             <div className="min-w-0">
               <p className="text-xs font-medium text-gray-500">Monthly Views</p>
               <p className="text-xl font-semibold text-gray-900">
@@ -544,44 +640,62 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
         </button>
       </div>
 
-      {/* Quick Actions — first-week studio work, not ops detours */}
-      <div className="bg-white rounded-lg shadow-sm border p-4 md:p-5">
-        <h3 className="text-base font-medium text-gray-900 mb-3">Quick Actions</h3>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      {/* Quick Actions — high-frequency studio tasks */}
+      <div className="rounded-lg border bg-white p-4 shadow-sm md:p-5">
+        <h3 className="mb-3 text-base font-medium text-gray-900">Quick Actions</h3>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <button
             type="button"
             onClick={() => selectTab('pages')}
-            className="flex items-center justify-center p-3 border border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors"
+            className="flex items-center justify-center rounded-lg border border-gray-200 p-3 transition-colors hover:border-gray-400 hover:bg-gray-50"
           >
-            <LayoutTemplate className="h-5 w-5 text-gray-400 mr-2" aria-hidden="true" />
-            <span className="text-gray-700 text-sm">Customize site pages</span>
+            <LayoutTemplate className="mr-2 h-5 w-5 text-gray-400" aria-hidden="true" />
+            <span className="text-sm text-gray-700">Customize site pages</span>
           </button>
 
           <button
             type="button"
             onClick={() => selectTab('products', undefined, { create: true })}
-            className="flex items-center justify-center p-3 border border-gray-200 rounded-lg hover:border-green-500 hover:bg-green-50 transition-colors"
+            className="flex items-center justify-center rounded-lg border border-gray-200 p-3 transition-colors hover:border-gray-400 hover:bg-gray-50"
           >
-            <Plus className="h-5 w-5 text-gray-400 mr-2" aria-hidden="true" />
-            <span className="text-gray-700 text-sm">Add product</span>
+            <Plus className="mr-2 h-5 w-5 text-gray-400" aria-hidden="true" />
+            <span className="text-sm text-gray-700">Add product</span>
           </button>
 
           <button
             type="button"
             onClick={() => selectTab('portfolio', undefined, { create: true })}
-            className="flex items-center justify-center p-3 border border-gray-200 rounded-lg hover:border-violet-500 hover:bg-violet-50 transition-colors"
+            className="flex items-center justify-center rounded-lg border border-gray-200 p-3 transition-colors hover:border-gray-400 hover:bg-gray-50"
           >
-            <ImageIcon className="h-5 w-5 text-gray-400 mr-2" aria-hidden="true" />
-            <span className="text-gray-700 text-sm">Add portfolio piece</span>
+            <ImageIcon className="mr-2 h-5 w-5 text-gray-400" aria-hidden="true" />
+            <span className="text-sm text-gray-700">Add portfolio piece</span>
           </button>
 
           <button
             type="button"
             onClick={() => selectTab('posts', undefined, { create: true })}
-            className="flex items-center justify-center p-3 border border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors"
+            className="flex items-center justify-center rounded-lg border border-gray-200 p-3 transition-colors hover:border-gray-400 hover:bg-gray-50"
           >
-            <FileText className="h-5 w-5 text-gray-400 mr-2" aria-hidden="true" />
-            <span className="text-gray-700 text-sm">New update</span>
+            <FileText className="mr-2 h-5 w-5 text-gray-400" aria-hidden="true" />
+            <span className="text-sm text-gray-700">New update</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => selectTab('markets')}
+            className="flex items-center justify-center rounded-lg border border-gray-200 p-3 transition-colors hover:border-gray-400 hover:bg-gray-50"
+          >
+            <Store className="mr-2 h-5 w-5 text-gray-400" aria-hidden="true" />
+            <span className="text-sm text-gray-700">Open Market POS</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => selectTab('newsletter')}
+            className="flex items-center justify-center rounded-lg border border-gray-200 p-3 transition-colors hover:border-gray-400 hover:bg-gray-50"
+          >
+            <Newspaper className="mr-2 h-5 w-5 text-gray-400" aria-hidden="true" />
+            <span className="text-sm text-gray-700">Write newsletter</span>
           </button>
         </div>
       </div>
@@ -589,15 +703,22 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
   );
 
   const activeTabLabel = ADMIN_TABS.find((tab) => tab.key === activeTab)?.label ?? 'Studio';
+  const stockBadgeCount = Math.max(safeStats.activeAlertsCount || 0, safeStats.lowStockCount || 0);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 md:pb-8">
-      {/* Sticky studio chrome: public header is hidden on /admin, so exit + session live here */}
+    <div className="mx-auto max-w-7xl px-4 py-6 pb-24 sm:px-6 md:pb-8 lg:px-8">
+      {/* Sticky studio chrome: public header is hidden on /admin, so exit + settings + session live here */}
       <div className="sticky top-0 z-30 -mx-4 mb-6 border-b border-gray-200 bg-gray-50/95 px-4 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
         <div className="flex items-center justify-between gap-3 py-2.5">
           <div className="flex min-w-0 items-center gap-3">
             <div className="min-w-0">
-              <h1 className="truncate text-base font-semibold text-gray-900 sm:text-lg">Studio</h1>
+              <button
+                type="button"
+                onClick={() => selectTab('overview')}
+                className="text-left hover:opacity-80"
+              >
+                <h1 className="truncate text-base font-semibold text-gray-900 sm:text-lg">Studio</h1>
+              </button>
               <p className="truncate text-xs text-gray-500 md:hidden">{activeTabLabel}</p>
             </div>
             <div
@@ -606,7 +727,8 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
               aria-label="Studio areas"
             >
               {ADMIN_TAB_GROUPS.map((group, groupIndex) => {
-                const isActive = group.id === activeGroup.id;
+                const isActive = activeGroup?.id === group.id;
+                const hasAttention = !isActive && groupHasAttention(group.id);
                 return (
                   <React.Fragment key={group.id}>
                     {groupIndex > 0 && (
@@ -618,13 +740,16 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
                       aria-expanded={isActive}
                       aria-controls={isActive ? 'admin-group-tabs' : undefined}
                       onClick={() => selectGroup(group.id)}
-                      className={`inline-flex min-h-9 shrink-0 items-center rounded-md px-2.5 text-xs font-semibold uppercase tracking-wide transition-colors ${
+                      className={`inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold uppercase tracking-wide transition-colors ${
                         isActive
                           ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-200'
                           : 'text-gray-500 hover:bg-white/70 hover:text-gray-800'
                       }`}
                     >
-                      {group.label}
+                      <span>{group.label}</span>
+                      {hasAttention && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-rose-500" aria-hidden="true" />
+                      )}
                     </button>
                   </React.Fragment>
                 );
@@ -632,6 +757,20 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+            <button
+              type="button"
+              id="admin-tab-settings"
+              aria-current={activeTab === 'settings' ? 'page' : undefined}
+              onClick={() => selectTab('settings')}
+              className={`hidden items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors md:inline-flex ${
+                activeTab === 'settings'
+                  ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-200'
+                  : 'text-gray-600 hover:bg-white hover:text-gray-900'
+              }`}
+            >
+              <Settings size={15} aria-hidden="true" />
+              Settings
+            </button>
             <Link
               href="/"
               onClick={(event) => {
@@ -655,37 +794,51 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
           </div>
         </div>
 
-        <nav
-          id="admin-group-tabs"
-          className="-mb-px hidden min-w-0 gap-4 overflow-x-auto md:flex"
-          role="tablist"
-          aria-label={`${activeGroup.label} sections`}
-        >
-          {activeGroup.tabs.map((tabKey) => {
-            const tab = ADMIN_TABS.find((entry) => entry.key === tabKey);
-            if (!tab) return null;
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                role="tab"
-                id={`admin-tab-${tab.key}`}
-                aria-selected={activeTab === tab.key}
-                aria-controls={`admin-panel-${tab.key}`}
-                onClick={() => selectTab(tab.key)}
-                className={`inline-flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 py-2 text-sm font-medium ${
-                  activeTab === tab.key
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                }`}
-              >
-                <Icon size={16} aria-hidden="true" />
-                {tab.label}
-              </button>
-            );
-          })}
-        </nav>
+        {activeGroup && (
+          <nav
+            id="admin-group-tabs"
+            className="-mb-px hidden min-w-0 gap-4 overflow-x-auto md:flex"
+            role="tablist"
+            aria-label={`${activeGroup.label} sections`}
+          >
+            {activeGroup.tabs.map((tabKey) => {
+              const tab = ADMIN_TABS.find((entry) => entry.key === tabKey);
+              if (!tab) return null;
+              const Icon = tab.icon;
+              const badgeCount = tabBadgeCount(tab.key);
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  role="tab"
+                  id={`admin-tab-${tab.key}`}
+                  aria-selected={activeTab === tab.key}
+                  aria-controls={`admin-panel-${tab.key}`}
+                  onClick={() => selectTab(tab.key)}
+                  className={`inline-flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 py-2 text-sm font-medium ${
+                    activeTab === tab.key
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                  }`}
+                >
+                  <Icon size={16} aria-hidden="true" />
+                  <span>{tab.label}</span>
+                  {badgeCount > 0 && (
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold leading-none ${
+                        activeTab === tab.key
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'bg-gray-200 text-gray-700'
+                      }`}
+                    >
+                      {badgeCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+        )}
       </div>
 
       {/* Tab Content */}
@@ -694,64 +847,196 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
         {activeTab === 'pages' && <AdminSiteContent />}
         {activeTab === 'posts' && <AdminContentManager section="posts" />}
         {activeTab === 'inbox' && (
-          <StudioInboxPanel mode="admin" apiBase="/api/admin/messages" />
+          <StudioInboxPanel
+            mode="admin"
+            apiBase="/api/admin/messages"
+            onOpenJob={(jobId) => selectTab('orders', undefined, { view: 'jobs', job: jobId })}
+          />
         )}
         {activeTab === 'products' && (
-          <AdminContentManager section="products" />
+          <div className="space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">Shop products</h2>
+                <p className="mt-0.5 text-sm text-gray-600">
+                  {productsView === 'stock'
+                    ? 'Update stock quantities inline, review low-stock alerts, and configure category thresholds.'
+                    : 'Listings collectors can buy online or at markets. Stock, price, and shipping live here.'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 self-start sm:self-auto" role="tablist" aria-label="Products views">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={productsView === 'catalog'}
+                  onClick={() => selectTab('products', undefined, { view: 'catalog' })}
+                  className={`shrink-0 whitespace-nowrap rounded-md px-3.5 py-2 text-sm font-medium transition-colors ${
+                    productsView === 'catalog'
+                      ? 'bg-gray-900 text-white'
+                      : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  Catalog
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={productsView === 'stock'}
+                  onClick={() => selectTab('products', undefined, { view: 'stock' })}
+                  className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3.5 py-2 text-sm font-medium transition-colors ${
+                    productsView === 'stock'
+                      ? 'bg-gray-900 text-white'
+                      : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <span>Stock &amp; alerts</span>
+                  {stockBadgeCount > 0 && (
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold leading-none ${
+                        productsView === 'stock'
+                          ? 'bg-amber-400/25 text-amber-100'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}
+                    >
+                      {stockBadgeCount}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={productsView === 'consignment'}
+                  onClick={() => selectTab('products', undefined, { view: 'consignment' })}
+                  className={`shrink-0 whitespace-nowrap rounded-md px-3.5 py-2 text-sm font-medium transition-colors ${
+                    productsView === 'consignment'
+                      ? 'bg-gray-900 text-white'
+                      : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  Consignments
+                </button>
+              </div>
+            </div>
+
+            {productsView === 'stock' ? (
+              <InventoryDashboard
+                embedded
+                onOpenProduct={(productId) =>
+                  selectTab(
+                    'products',
+                    undefined,
+                    productId ? { product: productId, view: 'catalog' } : { create: true, view: 'catalog' },
+                  )
+                }
+              />
+            ) : productsView === 'consignment' ? (
+              <AdminConsignment />
+            ) : (
+              <AdminContentManager section="products" hideIntro />
+            )}
+          </div>
         )}
         {activeTab === 'portfolio' && (
           <AdminContentManager section="artworks" />
         )}
         {activeTab === 'orders' && (
-          <AdminOrders />
+          <div className="space-y-6">
+            <div className="flex flex-col gap-3 border-b border-gray-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">Orders &amp; Jobs</h2>
+                <p className="text-sm text-gray-600">
+                  Fulfill shop and market orders, or manage custom commission proposals and payment plans.
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-wrap gap-2" role="tablist" aria-label="Orders workspace">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={ordersView === 'orders'}
+                  onClick={() => selectTab('orders', undefined, { view: 'orders' })}
+                  className={`shrink-0 whitespace-nowrap rounded-md px-3.5 py-2 text-sm font-medium transition-colors ${
+                    ordersView === 'orders'
+                      ? 'bg-gray-900 text-white'
+                      : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  Orders
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={ordersView === 'jobs'}
+                  onClick={() => selectTab('orders', undefined, { view: 'jobs' })}
+                  className={`shrink-0 whitespace-nowrap rounded-md px-3.5 py-2 text-sm font-medium transition-colors ${
+                    ordersView === 'jobs'
+                      ? 'bg-gray-900 text-white'
+                      : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  Jobs
+                </button>
+              </div>
+            </div>
+
+            {ordersView === 'jobs' ? (
+              <AdminJobs initialJobId={activeJobIdParam} />
+            ) : (
+              <AdminOrders hideIntro />
+            )}
+          </div>
         )}
-        {activeTab === 'inventory' && (
-          <InventoryDashboard
-            onOpenProduct={(productId) =>
-              selectTab('products', undefined, productId ? { product: productId } : { create: true })
-            }
-          />
+        {activeTab === 'markets' && (
+          <AdminMarkets onSelectTab={handleSelectTabString} />
         )}
         {activeTab === 'marketing' && (
-          <UnifiedMarketingDashboard
-            onSelectTab={(tab) => {
-              if (isAdminTab(tab)) selectTab(tab);
-            }}
-          />
+          <UnifiedMarketingDashboard onSelectTab={handleSelectTabString} />
         )}
         {activeTab === 'newsletter' && (
-          <AdminNewsletter />
+          <AdminNewsletter mode="newsletters" onSelectTab={handleSelectTabString} />
+        )}
+        {activeTab === 'automations' && (
+          <AdminNewsletter mode="automations" onSelectTab={handleSelectTabString} />
         )}
         {activeTab === 'analytics' && (
-          <AnalyticsDashboard />
+          <AnalyticsDashboard onSelectTab={handleSelectTabString} />
         )}
         {activeTab === 'settings' && (
-          <AdminSettings />
+          <AdminSettings onSelectTab={handleSelectTabString} />
         )}
       </div>
 
       <nav
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-white/95 backdrop-blur md:hidden safe-area-bottom"
+        className="safe-area-bottom fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-white/95 backdrop-blur md:hidden"
         aria-label="Admin quick navigation"
       >
         <div className="grid grid-cols-5">
-          {ADMIN_BOTTOM_NAV.map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => {
-                setMobileMoreOpen(false);
-                selectTab(key);
-              }}
-              aria-current={activeTab === key ? 'page' : undefined}
-              className={`flex min-h-14 flex-col items-center justify-center gap-1 px-1 text-xs font-medium ${
-                activeTab === key ? 'text-blue-600' : 'text-gray-600'
-              }`}
-            >
-              <Icon size={18} aria-hidden="true" />
-              <span>{label}</span>
-            </button>
-          ))}
+          {ADMIN_BOTTOM_NAV.map(({ key, label, icon: Icon }) => {
+            const badgeCount = tabBadgeCount(key);
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => {
+                  setMobileMoreOpen(false);
+                  selectTab(key);
+                }}
+                aria-current={activeTab === key ? 'page' : undefined}
+                className={`relative flex min-h-14 flex-col items-center justify-center gap-1 px-1 text-xs font-medium ${
+                  activeTab === key ? 'text-blue-600' : 'text-gray-600'
+                }`}
+              >
+                <span className="relative">
+                  <Icon size={18} aria-hidden="true" />
+                  {badgeCount > 0 && (
+                    <span className="absolute -right-2.5 -top-1.5 rounded-full bg-rose-600 px-1 text-[10px] font-semibold leading-tight text-white">
+                      {badgeCount > 9 ? '9+' : badgeCount}
+                    </span>
+                  )}
+                </span>
+                <span>{label}</span>
+              </button>
+            );
+          })}
           <button
             type="button"
             onClick={() => setMobileMoreOpen((open) => !open)}
@@ -778,7 +1063,7 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
           />
           <div
             id="admin-more-sheet"
-            className="absolute inset-x-0 bottom-0 max-h-[70vh] overflow-y-auto rounded-t-2xl border border-gray-200 bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-lg"
+            className="absolute inset-x-0 bottom-0 max-h-[75vh] overflow-y-auto rounded-t-2xl border border-gray-200 bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-lg"
           >
             <div className="mb-3 flex items-center justify-between">
               <p className="text-sm font-semibold text-gray-900">Studio tools</p>
@@ -792,7 +1077,7 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
             </div>
             <Link
               href="/"
-              className="mb-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-800"
+              className="mb-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-800"
               onClick={(event) => {
                 setMobileMoreOpen(false);
                 if (!confirmLeaveWithUnsavedChanges()) event.preventDefault();
@@ -801,30 +1086,66 @@ export default function AdminDashboard({ initialTab = null }: AdminDashboardProp
               <ExternalLink size={16} aria-hidden="true" />
               View site
             </Link>
-            <ul className="grid grid-cols-2 gap-2">
-              {moreTabs.map((tab) => {
-                const Icon = tab.icon;
+            <div className="space-y-4">
+              {ADMIN_TAB_GROUPS.map((group) => {
+                const groupTabs = group.tabs
+                  .filter((tabKey) => !ADMIN_BOTTOM_PRIMARY.has(tabKey))
+                  .map((tabKey) => ADMIN_TABS.find((entry) => entry.key === tabKey))
+                  .filter((entry): entry is typeof ADMIN_TABS[number] => Boolean(entry));
+                if (groupTabs.length === 0) return null;
                 return (
-                  <li key={tab.key}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMobileMoreOpen(false);
-                        selectTab(tab.key);
-                      }}
-                      className={`flex min-h-14 w-full items-center gap-2 rounded-lg border px-3 text-left text-sm font-medium ${
-                        activeTab === tab.key
-                          ? 'border-blue-500 bg-blue-50 text-blue-700'
-                          : 'border-gray-200 text-gray-800'
-                      }`}
-                    >
-                      <Icon size={18} aria-hidden="true" />
-                      {tab.label}
-                    </button>
-                  </li>
+                  <div key={group.id}>
+                    <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                      {group.label}
+                    </p>
+                    <ul className="grid grid-cols-2 gap-2">
+                      {groupTabs.map((tab) => {
+                        const Icon = tab.icon;
+                        return (
+                          <li key={tab.key}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMobileMoreOpen(false);
+                                selectTab(tab.key);
+                              }}
+                              className={`flex min-h-12 w-full items-center gap-2 rounded-lg border px-3 text-left text-sm font-medium ${
+                                activeTab === tab.key
+                                  ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                  : 'border-gray-200 text-gray-800'
+                              }`}
+                            >
+                              <Icon size={17} aria-hidden="true" />
+                              {tab.label}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
                 );
               })}
-            </ul>
+              <div>
+                <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  Configuration
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMoreOpen(false);
+                    selectTab('settings');
+                  }}
+                  className={`flex min-h-12 w-full items-center gap-2 rounded-lg border px-3 text-left text-sm font-medium ${
+                    activeTab === 'settings'
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-gray-200 text-gray-800'
+                  }`}
+                >
+                  <Settings size={17} aria-hidden="true" />
+                  Settings
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

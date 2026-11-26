@@ -41,6 +41,8 @@ type AdminOrderItem = {
 type AdminOrder = {
   id: string;
   orderNumber: string;
+  type?: 'standard' | 'commission' | 'in_person';
+  marketEventId?: string | null;
   status: OrderStatus;
   paymentStatus: string;
   paymentIntentId?: string;
@@ -61,6 +63,13 @@ type AdminOrder = {
   giftMessage?: string;
   createdAt: string;
   items: AdminOrderItem[];
+  certificates?: Array<{
+    id: string;
+    code: string;
+    artworkTitle: string;
+    licenseType: string;
+    issuedAt: string;
+  }>;
   timeline: Array<{ id: string; status: OrderStatus; message: string; details?: string; trackingNumber?: string; timestamp: string }>;
 };
 
@@ -112,11 +121,25 @@ const ORDER_STATUSES: OrderStatus[] = ['pending', 'confirmed', 'processing', 'sh
 const QUEUE_FILTERS: Array<{ value: string; label: string }> = [
   { value: '', label: 'All orders' },
   { value: 'needs_shipping', label: 'Needs shipping' },
+  { value: 'in_person', label: 'In-person' },
   { value: 'shipped', label: 'Shipped' },
   { value: 'delivered', label: 'Delivered' },
   { value: 'cancelled', label: 'Cancelled' },
   { value: 'refunded', label: 'Refunded' },
 ];
+
+function paymentStatusDisplay(paymentStatus: string): { label: string; tone: string } {
+  switch (paymentStatus) {
+    case 'paid':
+      return { label: 'Paid', tone: 'bg-green-100 text-green-800' };
+    case 'refunded':
+      return { label: 'Refunded', tone: 'bg-gray-100 text-gray-700' };
+    case 'failed':
+      return { label: 'Payment failed', tone: 'bg-red-100 text-red-800' };
+    default:
+      return { label: 'Unpaid', tone: 'bg-gray-100 text-gray-700' };
+  }
+}
 
 function escapeHtml(value: string): string {
   return value
@@ -295,7 +318,7 @@ function buildPackingSlipHtml(order: AdminOrder, context: ShippingFulfillmentCon
 </html>`;
 }
 
-export default function AdminOrders() {
+export default function AdminOrders({ hideIntro = false }: { hideIntro?: boolean } = {}) {
   const { data: session } = useSession();
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [shippingContext, setShippingContext] = useState<ShippingFulfillmentContext | null>(null);
@@ -564,6 +587,26 @@ export default function AdminOrders() {
     printWindow.focus();
   }
 
+  async function issueCertificate(order: AdminOrder) {
+    setSavingOrderId(order.id);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/orders/${order.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'issue_coa' }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to issue Certificate of Authenticity');
+      setMessage(`Issued Certificate of Authenticity for ${order.orderNumber}.`);
+      await loadOrders(search, statusFilter);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Failed to issue Certificate of Authenticity');
+    } finally {
+      setSavingOrderId(null);
+    }
+  }
+
   async function markOrderAsPaid(order: AdminOrder) {
     const confirmed = window.confirm(
       `Mark ${order.orderNumber} (${formatPrice(order.total, order.currency)}) as paid? This confirms the order, updates inventory, and sends a confirmation email if SMTP is enabled.`
@@ -633,7 +676,7 @@ export default function AdminOrders() {
       setMessageStatus(
         emailed
           ? `Message saved to Inbox and emailed to ${order.customerEmail}.`
-          : `Message saved to Studio Inbox for ${order.customerEmail} (email delivery is off — open Inbox or copy an update note to email directly).`,
+          : `Message saved to Studio Inbox for ${order.customerEmail} (email delivery is off; open Inbox or copy an update note to email directly).`,
       );
     } catch (error) {
       setMessageStatus(error instanceof Error ? error.message : 'Failed to send message');
@@ -642,6 +685,15 @@ export default function AdminOrders() {
 
   return (
     <div className="space-y-6">
+      {!hideIntro && (
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">Orders</h2>
+          <p className="mt-0.5 text-sm text-gray-600">
+            Track online shipments, in-person market pickups, refunds, and collector updates.
+          </p>
+        </div>
+      )}
+
       <div className="space-y-3 rounded-lg bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Order queue filters">
           {QUEUE_FILTERS.map((filter) => {
@@ -704,8 +756,10 @@ export default function AdminOrders() {
       ) : orders.length === 0 ? (
         <div className="rounded-lg bg-white p-10 text-center text-sm text-gray-500 shadow-sm">
           {statusFilter === 'needs_shipping'
-            ? 'All paid orders are shipped — nothing waiting to pack right now.'
-            : 'No orders match this filter yet.'}
+            ? 'All paid shipping orders are shipped. Nothing waiting to pack right now.'
+            : statusFilter === 'in_person'
+              ? 'No in-person market orders yet.'
+              : 'No orders match this filter yet.'}
         </div>
       ) : (
         <div className="space-y-4">
@@ -725,6 +779,8 @@ export default function AdminOrders() {
               shippingContext?.provider === 'easypost' &&
               !order.shippingLabelUrl &&
               !['cancelled', 'refunded'].includes(order.status);
+            const isInPerson = order.type === 'in_person';
+            const paymentBadge = paymentStatusDisplay(order.paymentStatus);
             const isExpanded = Boolean(expandedOrders[order.id]);
             const addressLines = formatShippingAddressLines(order.shippingAddress);
             const addressBlock = formatShippingAddressBlock(order.shippingAddress);
@@ -740,10 +796,13 @@ export default function AdminOrders() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-base font-semibold text-gray-900">{order.orderNumber}</h3>
-                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                        order.paymentStatus === 'paid' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'
-                      }`}>
-                        {order.paymentStatus}
+                      {isInPerson && (
+                        <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-800">
+                          In-person
+                        </span>
+                      )}
+                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${paymentBadge.tone}`}>
+                        {paymentBadge.label}
                       </span>
                       <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
                         order.status === 'shipped' || order.status === 'delivered'
@@ -772,7 +831,11 @@ export default function AdminOrders() {
                     <div className="text-right">
                       <p className="text-base font-semibold text-gray-900">{formatPrice(order.total, order.currency)}</p>
                       <p className="text-xs text-gray-500">
-                        {order.shipping > 0 ? `incl. ${formatPrice(order.shipping, order.currency)} shipping` : 'Free shipping'}
+                        {isInPerson
+                          ? 'In-person pickup'
+                          : order.shipping > 0
+                            ? `incl. ${formatPrice(order.shipping, order.currency)} shipping`
+                            : 'Free shipping'}
                       </p>
                     </div>
                     {order.shippingLabelUrl && (
@@ -807,7 +870,9 @@ export default function AdminOrders() {
                       <section className="space-y-4 rounded-lg border border-gray-200 bg-gray-50/70 p-4 lg:col-span-5">
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Ship to</h4>
+                            <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              {isInPerson ? 'Pickup details' : 'Ship to'}
+                            </h4>
                             {addressLines.length > 0 ? (
                               <address className="mt-1.5 not-italic text-sm leading-relaxed text-gray-800">
                                 {addressLines.map((line, index) => (
@@ -912,6 +977,46 @@ export default function AdminOrders() {
                             <dd>{formatPrice(order.total, order.currency)}</dd>
                           </div>
                         </dl>
+
+                        {order.paymentStatus === 'paid' && (
+                          <div className="rounded-md border border-gray-200 bg-gray-50/70 p-3 space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                Certificates of Authenticity
+                              </span>
+                              {(!order.certificates || order.certificates.length === 0) && (
+                                <button
+                                  type="button"
+                                  disabled={savingOrderId === order.id}
+                                  onClick={() => void issueCertificate(order)}
+                                  className="text-xs font-medium text-primary underline underline-offset-2 hover:opacity-80 disabled:opacity-50"
+                                >
+                                  Issue COA
+                                </button>
+                              )}
+                            </div>
+                            {order.certificates && order.certificates.length > 0 ? (
+                              <div className="flex flex-wrap gap-1.5">
+                                {order.certificates.map((cert) => (
+                                  <Link
+                                    key={cert.id}
+                                    href={`/verify/${encodeURIComponent(cert.code)}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1.5 rounded border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-900 hover:bg-emerald-100"
+                                  >
+                                    <span>{cert.artworkTitle}</span>
+                                    <span className="font-mono text-[11px] text-emerald-700">{cert.code}</span>
+                                  </Link>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-gray-500">
+                                Auto-issued for products with Certificate enabled, or click Issue COA above.
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </section>
 
                       {/* Right column: Fulfillment & EasyPost labels */}
@@ -1112,7 +1217,7 @@ export default function AdminOrders() {
 
                           {shippingContext && shippingContext.emailDeliveryMode !== 'smtp' && (
                             <p className="text-xs text-gray-500">
-                              Email delivery is in log mode — automatic shipped emails are paused. Use <strong>Copy update note</strong> after adding tracking to message the collector, or{' '}
+                              Email delivery is in log mode, so automatic shipped emails are paused. Use <strong>Copy update note</strong> after adding tracking to message the collector, or{' '}
                               <Link
                                 href={adminSettingFieldHref('EMAIL_DELIVERY_MODE')}
                                 className="whitespace-nowrap font-medium text-gray-700 underline hover:text-gray-900"
@@ -1351,7 +1456,7 @@ export default function AdminOrders() {
                           {order.timeline.map((entry) => (
                             <li key={entry.id} className="text-xs text-gray-700">
                               <span className="font-medium text-gray-900">{entry.message}</span>
-                              {entry.details && <span className="text-gray-600"> — {entry.details}</span>}
+                              {entry.details && <span className="text-gray-600"> · {entry.details}</span>}
                               <span className="ml-2 text-gray-400">{new Date(entry.timestamp).toLocaleString()}</span>
                             </li>
                           ))}

@@ -139,15 +139,19 @@ model Order {
   // Special instructions
   specialInstructions String?
   giftMessage        String?
+  marketEventId      String?
   
   // Relations
-  user      User?       @relation(fields: [userId], references: [id])
-  items     OrderItem[]
-  timeline  OrderTimelineEntry[]
+  user        User?        @relation(fields: [userId], references: [id])
+  marketEvent MarketEvent? @relation(fields: [marketEventId], references: [id], onDelete: SetNull)
+  items       OrderItem[]
+  timeline    OrderTimelineEntry[]
   
   // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([marketEventId])
 }
 
 model OrderItem {
@@ -801,4 +805,123 @@ model MarketingBudget {
   
   @@index([channel, periodStart])
   @@map("marketing_budgets")
+}
+
+// In-Person Markets & Pop-Ups
+model MarketEvent {
+  id                String    @id @default(cuid())
+  slug              String    @unique
+  name              String
+  location          String?
+  startDate         DateTime  @map("start_date")
+  endDate           DateTime? @map("end_date")
+  boothFee          Float     @default(0) @map("booth_fee")
+  otherExpenses     Float     @default(0) @map("other_expenses")
+  salesTaxRate      Float     @default(0) @map("sales_tax_rate")
+  promoCode         String?   @map("promo_code")
+  followUpEnabled   Boolean   @default(false) @map("follow_up_enabled")
+  followUpDelayDays Int       @default(1) @map("follow_up_delay_days")
+  followUpSubject   String?   @map("follow_up_subject")
+  followUpBody      String?   @map("follow_up_body")
+  followUpSentAt    DateTime? @map("follow_up_sent_at")
+  priceSheetConfig  Json?     @map("price_sheet_config")
+  notes             String?
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  orders            Order[]
+
+  @@index([startDate])
+  @@map("market_events")
+}
+
+// Studio Jobs Spine (Proposals, Milestones, Deposit/Balance Payments, Proofs)
+model StudioJob {
+  id             String    @id @default(cuid())
+  jobNumber      String    @unique @map("job_number")
+  shareToken     String    @unique @map("share_token")
+  title          String
+  category       String    @default("custom")
+  status         String    @default("inquiry")
+  clientName     String    @map("client_name")
+  clientEmail    String    @map("client_email")
+  threadId       String?   @map("thread_id")
+  scope          String    @default("")
+  medium         String?
+  dimensions     String?
+  totalCents     Int       @default(0) @map("total_cents")
+  depositPercent Int       @default(50) @map("deposit_percent")
+  depositCents   Int       @default(0) @map("deposit_cents")
+  balanceCents   Int       @default(0) @map("balance_cents")
+  currency       String    @default("USD")
+  turnaroundDays Int       @default(21) @map("turnaround_days")
+  dueDate        DateTime? @map("due_date")
+  licenseType    String    @default("personal") @map("license_type")
+  revisionCap    Int       @default(2) @map("revision_cap")
+  killFeePercent Int       @default(25) @map("kill_fee_percent")
+  termsSnapshot  Json?     @map("terms_snapshot")
+  acceptedAt     DateTime? @map("accepted_at")
+  depositOrderId String?   @unique @map("deposit_order_id")
+  balanceOrderId String?   @unique @map("balance_order_id")
+  depositPaidAt  DateTime? @map("deposit_paid_at")
+  balancePaidAt  DateTime? @map("balance_paid_at")
+  notes          String?
+  timeline       Json      @default("[]")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([clientEmail])
+  @@index([threadId])
+  @@map("studio_jobs")
+}
+
+// Certificates of Authenticity (Auto-issued on certified paid orders & jobs; public /verify/[code])
+model CertificateOfAuthenticity {
+  id             String    @id @default(cuid())
+  code           String    @unique
+  orderId        String?   @map("order_id")
+  jobId          String?   @map("job_id")
+  productId      String?   @map("product_id")
+  artworkTitle   String    @map("artwork_title")
+  artistName     String    @map("artist_name")
+  medium         String?
+  dimensions     String?
+  year           Int?
+  editionInfo    String?   @map("edition_info")
+  licenseType    String    @default("personal") @map("license_type")
+  collectorName  String?   @map("collector_name")
+  collectorEmail String?   @map("collector_email")
+  artworkImage   String?   @map("artwork_image")
+  issuedAt       DateTime  @default(now()) @map("issued_at")
+  revokedAt      DateTime? @map("revoked_at")
+
+  @@unique([orderId, productId])
+  @@index([orderId])
+  @@index([jobId])
+  @@map("certificates_of_authenticity")
+}
+
+// Gallery & Venue Consignment Log
+model ConsignmentPlacement {
+  id                 String    @id @default(cuid())
+  productId          String    @map("product_id")
+  venueName          String    @map("venue_name")
+  contactName        String?   @map("contact_name")
+  contactEmail       String?   @map("contact_email")
+  quantity           Int       @default(1)
+  askingPrice        Float     @map("asking_price")
+  artistSplitPercent Int       @default(60) @map("artist_split_percent")
+  status             String    @default("out")
+  placedAt           DateTime  @default(now()) @map("placed_at")
+  returnDueAt        DateTime? @map("return_due_at")
+  closedAt           DateTime? @map("closed_at")
+  reminderSentAt     DateTime? @map("reminder_sent_at")
+  notes              String?
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@index([productId])
+  @@index([status, returnDueAt])
+  @@map("consignment_placements")
 }

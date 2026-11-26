@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import { getSiteContent } from '@/lib/site-content';
+import { getCommissionSettings } from '@/lib/jobs';
 import { SearchService } from '@/lib/search-recommendations';
 import { parseProductSearchParams, stableSearchParamsKey } from '@/lib/search-params';
 import ShopPageClient from './ShopPageClient';
@@ -46,9 +47,10 @@ export default async function ShopPage({
   const { query, page, limit, sortBy, filters } = parseProductSearchParams(urlParams);
   const initialSearchParamsKey = stableSearchParamsKey(urlParams);
 
-  const [pageContent, initialResults] = await Promise.all([
+  const [pageContent, initialResults, commissionSettings] = await Promise.all([
     getSiteContent('shop'),
     SearchService.searchProducts(query, filters, sortBy, page, limit),
+    getCommissionSettings(),
   ]);
 
   return (
@@ -63,6 +65,8 @@ export default async function ShopPage({
         initialPageContent={pageContent}
         initialResults={initialResults}
         initialSearchParamsKey={initialSearchParamsKey}
+        commissionStatus={commissionSettings.status}
+        commissionNote={commissionSettings.note}
       />
     </Suspense>
   );

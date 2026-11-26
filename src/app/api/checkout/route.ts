@@ -30,6 +30,8 @@ import { sendManualOrderRequestEmails } from '@/lib/email';
 import { resolvePromoDiscount, roundPromoMoney } from '@/lib/promo-codes';
 import { getCheckoutRuntimeConfig, getStripe, upsertStripeCheckoutCustomer } from '@/lib/stripe';
 import { createOrderInquiryThread } from '@/lib/studio-inbox';
+import { findMarketEventBySlug } from '@/lib/markets';
+import { tagProfileWithMarketEvent } from '@/lib/newsletter-subscribers';
 
 // Stripe requires sessions to live at least 30 minutes from its own creation time. Holds
 // outlive the session so stock stays reserved for as long as the session can be paid.
@@ -38,7 +40,7 @@ const CHECKOUT_HOLD_MINUTES = CHECKOUT_SESSION_MINUTES + 5;
 
 export async function POST(req: NextRequest) {
   try {
-    const { items, customerInfo, promoCode, giftMessage } = await req.json();
+    const { items, customerInfo, promoCode, giftMessage, fulfillmentMode, marketEventSlug } = await req.json();
 
     if (!customerInfo?.email || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json(
@@ -47,42 +49,60 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const shippingAddress: ShippingAddress = {
-      firstName: customerInfo.firstName,
-      lastName: customerInfo.lastName,
-      address1: customerInfo.address,
-      city: customerInfo.city,
-      state: customerInfo.state,
-      postalCode: customerInfo.postalCode,
-      country: customerInfo.country || 'US',
-      phone: customerInfo.phone,
-    };
+    const isMarketPickup = fulfillmentMode === 'pickup';
+    const marketEvent = marketEventSlug ? await findMarketEventBySlug(String(marketEventSlug)) : null;
 
-    const addressErrors = OrderManager.validateShippingAddress(shippingAddress);
-    if (addressErrors.length > 0) {
-      return NextResponse.json(
-        { error: 'Invalid shipping address', details: addressErrors },
-        { status: 400 }
-      );
+    const shippingAddress: ShippingAddress = isMarketPickup
+      ? {
+          firstName: (customerInfo.firstName || '').trim(),
+          lastName: (customerInfo.lastName || '').trim(),
+          address1: '',
+          city: '',
+          state: '',
+          postalCode: '',
+          country: 'US',
+          phone: (customerInfo.phone || '').trim() || undefined,
+        }
+      : {
+          firstName: customerInfo.firstName,
+          lastName: customerInfo.lastName,
+          address1: customerInfo.address,
+          city: customerInfo.city,
+          state: customerInfo.state,
+          postalCode: customerInfo.postalCode,
+          country: customerInfo.country || 'US',
+          phone: customerInfo.phone,
+        };
+
+    if (!isMarketPickup) {
+      const addressErrors = OrderManager.validateShippingAddress(shippingAddress);
+      if (addressErrors.length > 0) {
+        return NextResponse.json(
+          { error: 'Invalid shipping address', details: addressErrors },
+          { status: 400 }
+        );
+      }
     }
 
     const orderItems = await resolveOrderItems(items);
     const shippingPolicy = allowedCheckoutCountriesForItems(orderItems);
-    if (shippingPolicy.hasConflict) {
-      return NextResponse.json(
-        { error: 'The items in your cart do not share an available shipping region. Please check out separately.' },
-        { status: 400 },
-      );
-    }
-    const disallowedItem = orderItems.find((item) => !productAllowsCountry(item.product, shippingAddress.country));
-    if (disallowedItem) {
-      const regionNote = shippingAddress.country === 'US'
-        ? 'does not ship to the United States'
-        : 'is available for US shipping only';
-      return NextResponse.json(
-        { error: `"${disallowedItem.product.title}" ${regionNote}.` },
-        { status: 400 },
-      );
+    if (!isMarketPickup) {
+      if (shippingPolicy.hasConflict) {
+        return NextResponse.json(
+          { error: 'The items in your cart do not share an available shipping region. Please check out separately.' },
+          { status: 400 },
+        );
+      }
+      const disallowedItem = orderItems.find((item) => !productAllowsCountry(item.product, shippingAddress.country));
+      if (disallowedItem) {
+        const regionNote = shippingAddress.country === 'US'
+          ? 'does not ship to the United States'
+          : 'is available for US shipping only';
+        return NextResponse.json(
+          { error: `"${disallowedItem.product.title}" ${regionNote}.` },
+          { status: 400 },
+        );
+      }
     }
     const rawSubtotal = roundMoney(orderItems.reduce((sum, item) => sum + item.totalPrice, 0));
     const promoDiscount = await resolvePromoDiscount(promoCode, rawSubtotal);
@@ -94,8 +114,12 @@ export async function POST(req: NextRequest) {
       );
     }
     const subtotal = roundMoney(Math.max(0, rawSubtotal - promoDiscount.amount));
-    const shipping = roundMoney(calculateProductShipping(orderItems, shippingAddress.country));
-    const tax = 0;
+    const shipping = isMarketPickup ? 0 : roundMoney(calculateProductShipping(orderItems, shippingAddress.country));
+    const automaticTaxEnabledEarly = await getConfigBool('STRIPE_AUTOMATIC_TAX_ENABLED');
+    const marketTaxRate = isMarketPickup && !automaticTaxEnabledEarly && marketEvent && marketEvent.salesTaxRate > 0
+      ? marketEvent.salesTaxRate
+      : 0;
+    const tax = marketTaxRate > 0 ? roundMoney(subtotal * (marketTaxRate / 100)) : 0;
     const total = roundMoney(subtotal + shipping + tax);
 
     const isE2e = process.env.PLAYWRIGHT_E2E === 'true';
@@ -105,7 +129,7 @@ export async function POST(req: NextRequest) {
     const order: Order = {
       id: crypto.randomUUID(),
       orderNumber: OrderManager.generateOrderNumber(),
-      type: 'standard',
+      type: isMarketPickup ? 'in_person' : 'standard',
       status: 'pending',
       customerEmail: customerInfo.email,
       items: orderItems,
@@ -117,8 +141,12 @@ export async function POST(req: NextRequest) {
       shippingAddress,
       billingAddress: shippingAddress,
       paymentStatus: 'pending',
-      paymentMethod: isManualCheckout ? 'manual' : undefined,
-      shippingMethod: 'standard',
+      paymentMethod: isManualCheckout ? 'manual' : isMarketPickup ? 'stripe_market' : undefined,
+      shippingMethod: isMarketPickup ? 'local_pickup' : 'standard',
+      marketEventId: marketEvent?.id ?? null,
+      specialInstructions: isMarketPickup
+        ? (marketEvent ? `In-person pickup at ${marketEvent.name}` : 'In-person market pickup')
+        : undefined,
       giftMessage: typeof giftMessage === 'string' && giftMessage.trim()
         ? giftMessage.trim().slice(0, 500)
         : undefined,
@@ -132,12 +160,22 @@ export async function POST(req: NextRequest) {
             ? 'E2E checkout session created'
             : isManualCheckout
               ? 'Manual purchase request submitted. Awaiting studio confirmation and payment'
-              : 'Stripe checkout session created and awaiting payment confirmation'
+              : isMarketPickup
+                ? 'Market pickup checkout session created and awaiting payment confirmation'
+                : 'Stripe checkout session created and awaiting payment confirmation'
         ),
       ],
       createdAt: new Date(),
       updatedAt: new Date(),
     };
+
+    if (isMarketPickup && (marketEvent?.slug || marketEventSlug)) {
+      await tagProfileWithMarketEvent(
+        customerInfo.email,
+        marketEvent?.slug || String(marketEventSlug),
+        { firstName: shippingAddress.firstName || undefined },
+      ).catch(() => undefined);
+    }
 
     if (isManualCheckout) {
       for (const item of orderItems) {
@@ -253,25 +291,41 @@ export async function POST(req: NextRequest) {
         wallet_options: {
           link: { display: 'never' },
         },
-        line_items: orderItems.map((item) => {
-          const itemDescription = [item.product.medium, item.product.dimensions].filter(Boolean).join(' • ');
-          return {
-            price_data: {
-              currency: 'usd',
-              product_data: {
-                name: item.product.title,
-                ...(itemDescription ? { description: itemDescription } : {}),
-                images: absoluteStripeImageUrls(checkoutOrigin, productImageSrc(item.product)),
-                metadata: {
-                  productId: item.product.id,
-                  category: item.product.category,
+        line_items: [
+          ...orderItems.map((item) => {
+            const itemDescription = [item.product.medium, item.product.dimensions].filter(Boolean).join(' • ');
+            return {
+              price_data: {
+                currency: 'usd',
+                product_data: {
+                  name: item.product.title,
+                  ...(itemDescription ? { description: itemDescription } : {}),
+                  images: absoluteStripeImageUrls(checkoutOrigin, productImageSrc(item.product)),
+                  metadata: {
+                    productId: item.product.id,
+                    category: item.product.category,
+                  },
                 },
+                unit_amount: toCents(item.unitPrice),
               },
-              unit_amount: toCents(item.unitPrice),
-            },
-            quantity: item.quantity,
-          };
-        }),
+              quantity: item.quantity,
+            };
+          }),
+          ...(tax > 0
+            ? [
+                {
+                  price_data: {
+                    currency: 'usd',
+                    product_data: {
+                      name: `Sales Tax (${marketTaxRate}%)`,
+                    },
+                    unit_amount: toCents(tax),
+                  },
+                  quantity: 1,
+                },
+              ]
+            : []),
+        ],
         ...(shipping > 0 && {
           shipping_options: [
             {
@@ -312,7 +366,7 @@ export async function POST(req: NextRequest) {
         billing_address_collection: 'auto',
         payment_intent_data: {
           receipt_email: customerParams.email,
-          ...(!shippingPolicy.isPickupOnly ? { shipping: customerParams.shipping } : {}),
+          ...(!isMarketPickup && !shippingPolicy.isPickupOnly ? { shipping: customerParams.shipping } : {}),
         },
         metadata: {
           orderId: persistedOrder.id,

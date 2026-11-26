@@ -35,6 +35,14 @@ type OrderItem = {
   quantity: number;
 };
 
+type OrderCertificate = {
+  id: string;
+  code: string;
+  artworkTitle: string;
+  licenseType: string;
+  issuedAt: string;
+};
+
 type Order = {
   id: string;
   orderNumber?: string;
@@ -42,6 +50,7 @@ type Order = {
   status: string;
   createdAt: string;
   items: OrderItem[];
+  certificates?: OrderCertificate[];
 };
 
 type WishlistItem = {
@@ -580,6 +589,25 @@ export default function AccountDashboard() {
                           <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">Fulfillment progress</p>
                           <OrderStatusStepper status={order.status as 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded'} />
                         </div>
+                        {order.certificates && order.certificates.length > 0 && (
+                          <div className="border-t border-gray-200 pt-3 mt-3">
+                            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+                              Certificates of Authenticity
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {order.certificates.map((cert) => (
+                                <Link
+                                  key={cert.id}
+                                  href={`/verify/${encodeURIComponent(cert.code)}`}
+                                  className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-900 hover:bg-emerald-100 transition-colors"
+                                >
+                                  <span>{cert.artworkTitle}</span>
+                                  <span className="font-mono text-[11px] text-emerald-700">{cert.code}</span>
+                                </Link>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         <OrderMessageComposer
                           orderId={order.id}
                           orderNumber={order.orderNumber || order.id}

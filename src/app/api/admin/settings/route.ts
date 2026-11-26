@@ -76,6 +76,11 @@ const SETTING_KEYS = [
   'SHIPPING_DEFAULT_PACKAGE_HEIGHT_IN',
   'LEGAL_PRIVACY_HTML',
   'LEGAL_TERMS_HTML',
+  'COMMISSION_STATUS',
+  'COMMISSION_WAITLIST_NOTE',
+  'DEFAULT_LICENSE_TYPE',
+  'STUDIO_BLACKOUT_START',
+  'STUDIO_BLACKOUT_END',
   'CRON_SECRET',
   'CRON_LAST_RUN_AT',
   ...Object.values(SITE_CONTENT_KEYS),
@@ -159,6 +164,14 @@ export async function PUT(request: NextRequest) {
       || updatedKeys.has('NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY')
     ) {
       revalidatePath('/checkout');
+    }
+    if (
+      updatedKeys.has('COMMISSION_STATUS')
+      || updatedKeys.has('COMMISSION_WAITLIST_NOTE')
+      || updatedKeys.has('DEFAULT_LICENSE_TYPE')
+    ) {
+      revalidatePath('/contact');
+      revalidatePath('/shop');
     }
     if (
       updatedKeys.has('CONTACT_EMAIL')

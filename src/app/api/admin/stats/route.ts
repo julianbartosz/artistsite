@@ -34,7 +34,13 @@ export async function GET(request: NextRequest) {
       db.analyticsEvent.count({ where: { eventName: 'page_view' } }),
       db.analyticsEvent.count({ where: { eventName: 'page_view', timestamp: { gte: monthStart } } }),
       db.order.count(),
-      db.order.count({ where: { status: { notIn: ['shipped', 'delivered', 'cancelled', 'refunded'] } } }),
+      db.order.count({
+        where: {
+          paymentStatus: 'paid',
+          status: { in: ['confirmed', 'processing'] },
+          type: { not: 'in_person' },
+        },
+      }),
       db.studioMessageThread.count(),
       countUnreadThreadsForAdmin(),
       db.productInventory.count({ where: { stockStatus: { in: ['low_stock', 'out_of_stock'] } } }),

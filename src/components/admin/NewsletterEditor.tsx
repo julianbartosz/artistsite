@@ -1036,7 +1036,21 @@ export function AutomationEmailEditor({ automation, context, onSaved, onStale, o
 
   const isWinback = automation.id === AUTOMATION_EMAIL_IDS.collectorWinback;
   const isCartRecovery = automation.id === AUTOMATION_EMAIL_IDS.cartRecovery;
+  const [availablePromos, setAvailablePromos] = useState<Array<{ id: string; code: string; discountType: string; discountValue: number }>>([]);
   const documentChangedFromDefault = JSON.stringify(draft) !== JSON.stringify(automation.defaultDocument);
+
+  useEffect(() => {
+    if (!isCartRecovery) return;
+    let cancelled = false;
+    newsletterRequest<{ promoCodes?: Array<{ id: string; code: string; discountType: string; discountValue: number }> }>('/api/admin/promo-codes')
+      .then((data) => {
+        if (!cancelled && Array.isArray(data.promoCodes)) setAvailablePromos(data.promoCodes);
+      })
+      .catch(() => {
+        // Optional quick-pick helper; manual entry still works.
+      });
+    return () => { cancelled = true; };
+  }, [isCartRecovery]);
 
   function syncSavedState(saved: AutomationEmailSummary) {
     const nextWinback = String(saved.winbackDays ?? 45);
@@ -1195,14 +1209,38 @@ export function AutomationEmailEditor({ automation, context, onSaved, onStale, o
             )}
 
             {isCartRecovery && (
-              <TextField
-                label="Promo code (optional)"
-                value={promoCode}
-                onChange={setPromoCode}
-                maxLength={64}
-                placeholder="e.g. WELCOME10"
-                help="Optional active promo code from Marketing → Campaigns. Use {{promo_code}} anywhere in this email to insert it."
-              />
+              <div className="space-y-2">
+                <TextField
+                  label="Promo code (optional)"
+                  value={promoCode}
+                  onChange={setPromoCode}
+                  maxLength={64}
+                  placeholder="e.g. WELCOME10"
+                  help="Optional active promo code from Grow → Marketing → Promo codes. Use {{promo_code}} anywhere in this email to insert it."
+                />
+                {availablePromos.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs text-gray-500">Quick pick:</span>
+                    {availablePromos.map((promo) => {
+                      const active = promoCode.trim().toUpperCase() === promo.code.toUpperCase();
+                      return (
+                        <button
+                          key={promo.id}
+                          type="button"
+                          onClick={() => setPromoCode(active ? '' : promo.code)}
+                          className={`rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors ${
+                            active
+                              ? 'border-gray-900 bg-gray-900 text-white'
+                              : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          {promo.code} ({promo.discountType === 'percentage' ? `${promo.discountValue}%` : `$${promo.discountValue}`})
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             )}
 
             <IssueList issues={readinessIssues} readyText={readyText} />

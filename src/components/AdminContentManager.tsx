@@ -38,6 +38,7 @@ type Section = 'products' | 'posts' | 'artworks';
 
 interface AdminContentManagerProps {
   section: Section;
+  hideIntro?: boolean;
 }
 
 const SECTION_INTRO: Record<Section, { title: string; body: string }> = {
@@ -47,7 +48,7 @@ const SECTION_INTRO: Record<Section, { title: string; body: string }> = {
   },
   artworks: {
     title: 'Portfolio pieces',
-    body: 'Gallery works for browsing and inquiry. Mark Available when collectors can inquire — selling online still needs a product under Products.',
+    body: 'Gallery works for browsing and inquiry. Mark Available when collectors can inquire; selling online still needs a product under Products.',
   },
   posts: {
     title: 'Updates',
@@ -172,7 +173,7 @@ const contentFetcher = async (url: string) => {
 
 const contentSwrOptions = { revalidateOnFocus: false, dedupingInterval: 10_000 } as const;
 
-export function AdminContentManager({ section }: AdminContentManagerProps) {
+export function AdminContentManager({ section, hideIntro = false }: AdminContentManagerProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { mutate: globalMutate } = useSWRConfig();
@@ -763,7 +764,7 @@ export function AdminContentManager({ section }: AdminContentManagerProps) {
     const showEditor = Boolean(selectedProduct) || isCreating;
     return (
       <div className="space-y-4">
-        <SectionIntro title={intro.title} body={intro.body} collapsedOnSmall={showEditor} />
+        {!hideIntro && <SectionIntro title={intro.title} body={intro.body} collapsedOnSmall={showEditor} />}
         {!showEditor && <FormMessage message={message} />}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <ContentList
@@ -1806,7 +1807,7 @@ function EditorPlaceholder({ title, body, buttonLabel = 'New', onNew }: { title:
     <div className="hidden flex-col items-start justify-center rounded-lg border border-dashed border-gray-300 bg-white p-8 lg:col-span-2 lg:flex">
       <h3 className="text-base font-semibold text-gray-900">{title}</h3>
       <p className="mt-1 max-w-md text-sm text-gray-600">{body}</p>
-      <button type="button" onClick={onNew} className="mt-4 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+      <button type="button" onClick={onNew} className="mt-4 rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800">
         {buttonLabel}
       </button>
     </div>
@@ -1959,7 +1960,7 @@ function ContentList({ title, items, loadState, onRetry, hiddenOnSmall, labelKey
           All {title.toLowerCase()}
           {loadState === 'ready' && <span className="ml-1.5 font-normal text-gray-500">({items.length})</span>}
         </h3>
-        <button type="button" onClick={onNew} className="inline-flex min-h-9 items-center rounded bg-blue-600 px-3.5 text-sm font-medium text-white hover:bg-blue-700">New</button>
+        <button type="button" onClick={onNew} className="inline-flex min-h-9 items-center rounded-md bg-gray-900 px-3.5 text-sm font-medium text-white hover:bg-gray-800">New</button>
       </div>
       {searchable && items.length > 0 && (
         <input

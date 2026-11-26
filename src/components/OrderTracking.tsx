@@ -355,6 +355,27 @@ export default function OrderTracking({
         </dl>
       </section>
 
+      {order.certificates && order.certificates.length > 0 && (
+        <section className={CARD_CLASS} aria-label="Certificates of Authenticity">
+          <h2 className="text-base font-semibold text-gray-900 mb-2">Certificates of Authenticity</h2>
+          <p className="text-sm text-gray-600 mb-3">
+            Verified provenance records for your artwork. Open any certificate to view or print a copy.
+          </p>
+          <div className="flex flex-wrap gap-2.5">
+            {order.certificates.map((cert) => (
+              <Link
+                key={cert.id}
+                href={`/verify/${encodeURIComponent(cert.code)}`}
+                className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-sm font-medium text-emerald-900 hover:bg-emerald-100 transition-colors"
+              >
+                <span>{cert.artworkTitle}</span>
+                <span className="font-mono text-xs text-emerald-700">{cert.code}</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Shipping Address + Studio Support side-by-side */}
       <div className={hasShippingAddress ? 'grid gap-6 md:grid-cols-2' : ''}>
         {hasShippingAddress && (

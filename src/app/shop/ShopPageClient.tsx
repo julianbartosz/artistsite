@@ -27,12 +27,16 @@ type ShopPageClientProps = {
   initialPageContent: ShopPageContent;
   initialResults: SearchResults;
   initialSearchParamsKey: string;
+  commissionStatus?: 'open' | 'waitlist' | 'closed';
+  commissionNote?: string;
 };
 
 export default function ShopPageClient({
   initialPageContent,
   initialResults,
   initialSearchParamsKey,
+  commissionStatus = 'open',
+  commissionNote = '',
 }: ShopPageClientProps) {
   const router = useRouter();
   const { data: session } = useSession();
@@ -422,10 +426,38 @@ export default function ShopPageClient({
                   <p className="text-gray-600">{purchaseInfo.shippingText}</p>
                 </div>
               )}
-              {(purchaseInfo.commissionsTitle.trim() || purchaseInfo.commissionsText.trim()) && (
+              {(purchaseInfo.commissionsTitle.trim() || purchaseInfo.commissionsText.trim() || commissionStatus !== 'open') && (
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">{purchaseInfo.commissionsTitle}</h3>
-                  <p className="text-gray-600">{purchaseInfo.commissionsText}</p>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2 flex items-center justify-center gap-2">
+                    <span>{purchaseInfo.commissionsTitle || 'Commissions'}</span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        commissionStatus === 'open'
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : commissionStatus === 'waitlist'
+                            ? 'bg-amber-50 text-amber-800'
+                            : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {commissionStatus === 'open'
+                        ? 'Open'
+                        : commissionStatus === 'waitlist'
+                          ? 'Waitlist'
+                          : 'Closed'}
+                    </span>
+                  </h3>
+                  <p className="text-gray-600">
+                    {commissionStatus === 'closed'
+                      ? (commissionNote || 'Custom commissions are currently closed.')
+                      : commissionStatus === 'waitlist'
+                        ? (commissionNote || 'Commissions are booked right now. Join the waitlist to hear first when spots open.')
+                        : (commissionNote || purchaseInfo.commissionsText)}
+                  </p>
+                  {commissionStatus === 'waitlist' && (
+                    <Link href="/contact?inquiryType=commission" className="mt-2 inline-block text-sm font-medium text-primary underline underline-offset-2">
+                      Join commission waitlist →
+                    </Link>
+                  )}
                 </div>
               )}
             </div>
@@ -447,12 +479,18 @@ export default function ShopPageClient({
                   <p className="mt-2 text-sm text-gray-600">{purchaseInfo.shippingText}</p>
                 </details>
               )}
-              {(purchaseInfo.commissionsTitle.trim() || purchaseInfo.commissionsText.trim()) && (
+              {(purchaseInfo.commissionsTitle.trim() || purchaseInfo.commissionsText.trim() || commissionStatus !== 'open') && (
                 <details className="rounded-lg border border-gray-200 bg-surface-muted px-4 py-3">
                   <summary className="tap-target-inline cursor-pointer list-none font-semibold text-gray-900 [&::-webkit-details-marker]:hidden">
-                    {purchaseInfo.commissionsTitle || 'Commissions'}
+                    {purchaseInfo.commissionsTitle || 'Commissions'} ({commissionStatus === 'open' ? 'Open' : commissionStatus === 'waitlist' ? 'Waitlist' : 'Closed'})
                   </summary>
-                  <p className="mt-2 text-sm text-gray-600">{purchaseInfo.commissionsText}</p>
+                  <p className="mt-2 text-sm text-gray-600">
+                    {commissionStatus === 'closed'
+                      ? (commissionNote || 'Custom commissions are currently closed.')
+                      : commissionStatus === 'waitlist'
+                        ? (commissionNote || 'Commissions are booked right now. Join the waitlist to hear first when spots open.')
+                        : (commissionNote || purchaseInfo.commissionsText)}
+                  </p>
                 </details>
               )}
             </div>

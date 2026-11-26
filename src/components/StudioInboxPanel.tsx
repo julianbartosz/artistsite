@@ -19,6 +19,7 @@ const inboxSwrOptions = { revalidateOnFocus: false, dedupingInterval: 10_000 } a
 type StudioInboxPanelProps = {
   mode: 'account' | 'admin';
   apiBase: '/api/account/messages' | '/api/admin/messages';
+  onOpenJob?: (jobId: string) => void;
 };
 
 type ThreadDetail = {
@@ -34,7 +35,7 @@ type ThreadDetail = {
   messages: StudioMessageRecord[];
 };
 
-export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProps) {
+export default function StudioInboxPanel({ mode, apiBase, onOpenJob }: StudioInboxPanelProps) {
   const {
     data: threadsData,
     error: threadsError,
@@ -53,6 +54,31 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
   const [tagsInput, setTagsInput] = useState('');
   const [saving, setSaving] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState(false);
+  const [creatingJob, setCreatingJob] = useState(false);
+
+  async function convertThreadToJob() {
+    if (!thread || mode !== 'admin') return;
+    setCreatingJob(true);
+    setActionError(null);
+    try {
+      const response = await fetch('/api/admin/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'from_thread', threadId: thread.id }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to create commission job');
+      const jobId = data.job?.id as string | undefined;
+      setStatusMessage(data.existed ? 'Opened existing commission job.' : 'Commission job created from inquiry.');
+      if (jobId && onOpenJob) {
+        onOpenJob(jobId);
+      }
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to create commission job');
+    } finally {
+      setCreatingJob(false);
+    }
+  }
   const [actionError, setActionError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [listQuery, setListQuery] = useState('');
@@ -111,7 +137,7 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
         if (data.emailDelivery?.delivered) {
           setStatusMessage(`Reply saved and emailed to ${data.thread.userEmail}.`);
         } else {
-          setStatusMessage(`Reply saved to conversation. Email delivery is off — use Email directly above to notify ${data.thread.userEmail}.`);
+          setStatusMessage(`Reply saved to conversation. Email delivery is off, so use Email directly above to notify ${data.thread.userEmail}.`);
         }
       }
       await loadThreads();
@@ -239,7 +265,14 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start">
       <div className="flex flex-col space-y-2 lg:col-span-1 lg:h-[calc(100vh-14rem)] lg:min-h-[32rem] lg:max-h-[46rem]">
         <div className="shrink-0 space-y-2">
-          <h2 className="text-xl font-semibold text-gray-900">{mode === 'admin' ? 'Inbox' : 'Messages'}</h2>
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">{mode === 'admin' ? 'Inbox' : 'Messages'}</h2>
+            {mode === 'admin' && (
+              <p className="mt-0.5 text-xs text-gray-600">
+                Contact inquiries, commissions, and order messages.
+              </p>
+            )}
+          </div>
           {mode === 'admin' && threads.length > 0 && (
             <div className="space-y-2 rounded-lg border border-gray-200 bg-white p-2">
               <input
@@ -371,6 +404,14 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
                     <button type="button" onClick={() => void saveCrm()} className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
                       Save CRM details
                     </button>
+                    <button
+                      type="button"
+                      disabled={creatingJob}
+                      onClick={() => void convertThreadToJob()}
+                      className="rounded-md border border-gray-900 bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                    >
+                      {creatingJob ? 'Opening job...' : 'Create Job'}
+                    </button>
                     {thread.status === 'open' ? (
                       <button type="button" onClick={() => void updateThreadStatus('closed')} className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
                         Mark closed
@@ -438,7 +479,7 @@ export default function StudioInboxPanel({ mode, apiBase }: StudioInboxPanelProp
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                   {mode === 'admin' && emailDeliveryMode && emailDeliveryMode !== 'smtp' ? (
                     <p className="text-xs text-gray-500">
-                      Email delivery is off — replies save to the collector’s account only. Use <strong>Email directly</strong> above for guest inquiries, or{' '}
+                      Email delivery is off, so replies save to the collector&apos;s account only. Use <strong>Email directly</strong> above for guest inquiries, or{' '}
                       <Link href={adminSettingFieldHref('EMAIL_DELIVERY_MODE')} className="font-medium text-gray-700 underline hover:text-gray-900">
                         enable SMTP →
                       </Link>
@@ -503,14 +544,33 @@ function HiddenCommentsPanel() {
   const displayMessage = message || (commentsError instanceof Error ? commentsError.message : null);
 
   return (
-    <section className="mt-6 rounded-lg border bg-white p-5">
-      <h3 className="text-lg font-semibold text-gray-900">Hidden comments</h3>
-      <p className="mt-1 text-sm text-gray-600">Comments you hid from public updates appear here. Comments their authors deleted are not restorable.</p>
+    <details
+      open={comments.length > 0}
+      className="mt-4 rounded-lg border border-gray-200 bg-white p-4 sm:p-5"
+    >
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+        <div>
+          <h3 className="text-base font-semibold text-gray-900">
+            Hidden comments
+            {!loading && (
+              <span className="ml-2 text-xs font-normal text-gray-500">
+                ({comments.length})
+              </span>
+            )}
+          </h3>
+          <p className="mt-0.5 text-xs text-gray-600">
+            Comments you hid from public updates appear here. Comments their authors deleted are not restorable.
+          </p>
+        </div>
+        <span className="shrink-0 text-xs font-medium text-gray-500">
+          {comments.length > 0 ? 'Manage' : 'None'}
+        </span>
+      </summary>
       {displayMessage && <p className="mt-3 text-sm text-blue-800">{displayMessage}</p>}
       {loading ? (
         <p className="mt-4 text-sm text-gray-500">Loading...</p>
       ) : comments.length === 0 ? (
-        <p className="mt-4 text-sm text-gray-500">No hidden comments.</p>
+        <p className="mt-3 text-sm text-gray-500">No hidden comments.</p>
       ) : (
         <ul className="mt-4 divide-y">
           {comments.map((comment) => (
@@ -527,6 +587,6 @@ function HiddenCommentsPanel() {
           ))}
         </ul>
       )}
-    </section>
+    </details>
   );
 }

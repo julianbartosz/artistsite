@@ -150,41 +150,44 @@ test.describe('Critical User Journeys', () => {
     await page.getByLabel('Password').fill('AdminPass123!');
     await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     await expect(page).toHaveURL(/\/admin\?tab=orders/, { timeout: 15000 });
-    await expect(page.getByRole('tab', { name: 'Orders', selected: true })).toBeVisible();
+    const areas = page.getByRole('navigation', { name: 'Studio areas' });
+    const shopTabs = page.getByRole('tablist', { name: 'Shop sections' });
+    await expect(shopTabs.getByRole('tab', { name: 'Orders', selected: true })).toBeVisible();
     await expect(page.locator('#admin-panel-orders')).toBeVisible();
-    await expect(page.getByPlaceholder('Order number or customer email')).toBeVisible();
+    await expect(page.getByPlaceholder('Search order number, collector email, or tracking number')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Studio' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'View site' }).first()).toHaveAttribute('href', '/');
 
-    const areas = page.getByRole('navigation', { name: 'Studio areas' });
-    const shopTabs = page.getByRole('tablist', { name: 'Shop sections' });
     await expect(areas).toBeVisible();
     await expect(areas.getByRole('button', { name: 'Shop' })).toHaveAttribute('aria-current', 'true');
     await expect(areas.getByRole('button', { name: 'Shop' })).toHaveAttribute('aria-expanded', 'true');
-    await expect(shopTabs.getByRole('tab', { name: 'Products' })).toBeVisible();
     await expect(shopTabs.getByRole('tab', { name: 'Orders' })).toBeVisible();
-    await expect(shopTabs.getByRole('tab', { name: 'Inventory' })).toBeVisible();
+    await expect(shopTabs.getByRole('tab', { name: 'Products' })).toBeVisible();
+    await expect(shopTabs.getByRole('tab', { name: 'Markets' })).toBeVisible();
     await expect(shopTabs.getByRole('tab', { name: 'Settings' })).toHaveCount(0);
 
     await areas.getByRole('button', { name: 'Grow' }).click();
-    await expect(page).toHaveURL(/tab=marketing/);
-    await page.getByRole('tab', { name: 'Newsletter' }).click();
+    await expect(page).toHaveURL(/tab=newsletter/);
+    const growTabs = page.getByRole('tablist', { name: 'Grow sections' });
+    await growTabs.getByRole('tab', { name: 'Automations' }).click();
+    await expect(page).toHaveURL(/tab=automations/);
+    await expect(page.getByRole('button', { name: 'Run automations now' })).toBeVisible();
+    await growTabs.getByRole('tab', { name: 'Newsletter' }).click();
     await page.getByRole('button', { name: 'New newsletter' }).click();
     await expect(page).toHaveURL(/tab=newsletter&newsletter=new/);
     await expect(page.getByRole('textbox', { name: 'Subject', exact: true })).toBeVisible();
-    await areas.getByRole('button', { name: 'Site' }).click();
-    await page.getByRole('tab', { name: 'Settings' }).click();
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await expect(page).toHaveURL(/tab=settings/);
     await expect(page).not.toHaveURL(/newsletter=/);
-    await expect(page.getByRole('tab', { name: 'Settings', selected: true })).toBeVisible();
-    await expect(areas.getByRole('button', { name: 'Site' })).toHaveAttribute('aria-current', 'true');
+    await expect(page.getByRole('button', { name: 'Settings', exact: true })).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('tab', { name: 'General', selected: true })).toBeVisible();
 
     await page.getByRole('link', { name: 'View site' }).first().click();
     await expect(page).toHaveURL('/', { timeout: 15000 });
     await expect(page.getByRole('link', { name: 'Studio' })).toBeVisible();
 
     await page.goto('/admin?tab=inbox');
-    await expect(page.getByRole('navigation', { name: 'Studio areas' }).getByRole('button', { name: 'Content' })).toHaveAttribute('aria-current', 'true');
+    await expect(page.getByRole('navigation', { name: 'Studio areas' }).getByRole('button', { name: 'Home' })).toHaveAttribute('aria-current', 'true');
     await expect(page.getByRole('tab', { name: 'Inbox', selected: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Hidden comments' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();

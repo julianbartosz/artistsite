@@ -59,13 +59,24 @@ export async function runScheduledAutomations() {
   if (!lease) return null;
 
   try {
-    const [email, social, cartRecovery, subscriberAutomations, expiredReservationsReleased, updatesDigest] = await Promise.all([
+    const [
+      email,
+      social,
+      cartRecovery,
+      subscriberAutomations,
+      expiredReservationsReleased,
+      updatesDigest,
+      marketFollowups,
+      consignmentReminders,
+    ] = await Promise.all([
       processDueEmailCampaigns(),
       processDueSocialPosts(),
       processDueCartRecovery(),
       processDueSubscriberAutomations(),
       InventoryService.releaseExpiredReservations(),
       import('@/lib/updates-digest').then((mod) => mod.processUpdatesDigests()),
+      import('@/lib/markets').then((mod) => mod.processDueMarketFollowups()),
+      import('@/lib/consignment').then((mod) => mod.processDueConsignmentReminders()),
     ]);
 
     const lastRunAt = new Date().toISOString();
@@ -77,7 +88,9 @@ export async function runScheduledAutomations() {
         + social.attempted
         + cartRecovery.attempted
         + subscriberAutomations.welcomeFollowup.attempted
-        + subscriberAutomations.winback.attempted,
+        + subscriberAutomations.winback.attempted
+        + marketFollowups.attempted
+        + consignmentReminders.attempted,
       lastRunAt,
       results: {
         email,
@@ -86,6 +99,8 @@ export async function runScheduledAutomations() {
         subscriberAutomations,
         inventory: { expiredReservationsReleased },
         updatesDigest,
+        marketFollowups,
+        consignmentReminders,
       },
     };
   } finally {

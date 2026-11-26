@@ -48,7 +48,18 @@ function isSubscribedProfile(profile: { segments: unknown; preferences: unknown 
     && parseObject(profile.preferences).newsletter !== false;
 }
 
-export async function recordNewsletterSubscriber(email: string, digest = true): Promise<string | null> {
+export const COMMISSION_WAITLIST_SEGMENT = 'commission_waitlist';
+
+export function marketEventSegment(eventSlug: string): string {
+  const clean = eventSlug.trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+  return clean ? `market:${clean}` : '';
+}
+
+export async function recordNewsletterSubscriber(
+  email: string,
+  digest = true,
+  options?: { eventSlug?: string | null; firstName?: string | null; extraSegments?: string[] },
+): Promise<string | null> {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail) return null;
 
@@ -56,22 +67,37 @@ export async function recordNewsletterSubscriber(email: string, digest = true): 
   const existingSegments = parseSegments(existing?.segments);
   const existingPreferences = parseObject(existing?.preferences);
   const alreadySubscribed = existing ? isSubscribedProfile(existing) : false;
-  const segments = Array.from(new Set([...existingSegments, NEWSLETTER_SEGMENT]));
+  const eventSeg = options?.eventSlug ? marketEventSegment(options.eventSlug) : '';
+  const extraSegs = (options?.extraSegments ?? [])
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => /^[a-z0-9:_-]{2,64}$/.test(s));
+  const segments = Array.from(
+    new Set([...existingSegments, NEWSLETTER_SEGMENT, ...(eventSeg ? [eventSeg] : []), ...extraSegs]),
+  );
   const subscribedAt = alreadySubscribed && typeof existingPreferences.subscribedAt === 'string'
     ? existingPreferences.subscribedAt
     : new Date().toISOString();
+  const cleanFirstName = options?.firstName?.trim().slice(0, 60) || undefined;
+  const nextPreferences = {
+    ...existingPreferences,
+    newsletter: true,
+    digest,
+    subscribedAt,
+    ...(cleanFirstName ? { firstName: cleanFirstName } : {}),
+    ...(eventSeg ? { lastMarketEvent: eventSeg.slice('market:'.length) } : {}),
+  };
 
   const saved = await db.customerProfile.upsert({
     where: { email: normalizedEmail },
     create: {
       email: normalizedEmail,
       segments: JSON.stringify(segments),
-      preferences: JSON.stringify({ newsletter: true, digest, subscribedAt }),
+      preferences: JSON.stringify(nextPreferences),
       lastActivity: new Date(),
     },
     update: {
       segments: JSON.stringify(segments),
-      preferences: JSON.stringify({ ...existingPreferences, newsletter: true, digest, subscribedAt }),
+      preferences: JSON.stringify(nextPreferences),
       lastActivity: new Date(),
     },
     select: { id: true },
@@ -80,6 +106,92 @@ export async function recordNewsletterSubscriber(email: string, digest = true): 
     return null;
   });
   return saved?.id ?? existing?.id ?? null;
+}
+
+/** Tag a collector/visitor profile with a market event without altering newsletter opt-out state. */
+export async function tagProfileWithMarketEvent(
+  email: string,
+  eventSlug: string,
+  options?: { subscribeNewsletter?: boolean; firstName?: string | null },
+): Promise<string | null> {
+  const normalizedEmail = normalizeSubscriberEmail(email);
+  const seg = marketEventSegment(eventSlug);
+  if (!normalizedEmail || !seg) return null;
+
+  if (options?.subscribeNewsletter) {
+    return recordNewsletterSubscriber(normalizedEmail, true, { eventSlug, firstName: options.firstName });
+  }
+
+  const existing = await db.customerProfile.findUnique({ where: { email: normalizedEmail } }).catch(() => null);
+  const existingSegments = parseSegments(existing?.segments);
+  const existingPreferences = parseObject(existing?.preferences);
+  const segments = Array.from(new Set([...existingSegments, seg]));
+  const cleanFirstName = options?.firstName?.trim().slice(0, 60) || undefined;
+  const preferences = {
+    ...existingPreferences,
+    ...(cleanFirstName && !existingPreferences.firstName ? { firstName: cleanFirstName } : {}),
+    lastMarketEvent: seg.slice('market:'.length),
+  };
+
+  const saved = await db.customerProfile.upsert({
+    where: { email: normalizedEmail },
+    create: {
+      email: normalizedEmail,
+      segments: JSON.stringify(segments),
+      preferences: JSON.stringify(preferences),
+      lastActivity: new Date(),
+    },
+    update: {
+      segments: JSON.stringify(segments),
+      preferences: JSON.stringify(preferences),
+      lastActivity: new Date(),
+    },
+    select: { id: true },
+  }).catch(() => null);
+  return saved?.id ?? existing?.id ?? null;
+}
+
+/** List contacts tagged with a market event who have not explicitly unsubscribed. */
+export async function listMarketEventContacts(eventSlug: string): Promise<Array<{
+  profileId: string;
+  email: string;
+  firstName: string | null;
+}>> {
+  const seg = marketEventSegment(eventSlug);
+  if (!seg) return [];
+
+  const profiles = await db.customerProfile.findMany({
+    where: { email: { not: null } },
+    orderBy: { lastActivity: 'desc' },
+  });
+
+  const matched = profiles.filter((profile) => {
+    if (!profile.email) return false;
+    const segments = parseSegments(profile.segments);
+    const prefs = parseObject(profile.preferences);
+    if (prefs.newsletter === false) return false;
+    return segments.includes(seg);
+  });
+
+  if (matched.length === 0) return [];
+  const emails = matched.map((p) => p.email!.toLowerCase());
+  const users = await db.user.findMany({
+    where: { email: { in: emails } },
+    select: { email: true, firstName: true, name: true },
+  }).catch(() => []);
+  const userByEmail = new Map(users.map((u) => [u.email.toLowerCase(), u]));
+
+  return matched.map((profile) => {
+    const email = profile.email!.toLowerCase();
+    const prefs = parseObject(profile.preferences);
+    const user = userByEmail.get(email);
+    const firstName =
+      (typeof prefs.firstName === 'string' && prefs.firstName.trim()) ||
+      user?.firstName?.trim() ||
+      user?.name?.trim().split(/\s+/)[0] ||
+      null;
+    return { profileId: profile.id, email, firstName };
+  });
 }
 
 /** Returns true when the address was subscribed before this call. */

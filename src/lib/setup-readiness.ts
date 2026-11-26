@@ -9,6 +9,7 @@ export type LaunchReadinessTab =
   | 'portfolio'
   | 'posts'
   | 'settings'
+  | 'automations'
   | 'marketing';
 
 export type LaunchReadinessItem = {
@@ -158,7 +159,7 @@ export function buildLaunchReadinessItems(input: LaunchReadinessInput): LaunchRe
       complete: isPaymentsReady(settings, values),
       tab: 'settings',
       action: 'Open payment settings',
-      helpText: 'Choose Manual purchase requests (no Stripe needed) or connect Stripe card checkout under Settings → Payments.',
+      helpText: 'Choose Manual purchase requests (no Stripe needed) or connect Stripe card checkout under Settings → Payments & Shipping.',
       settingKey: 'CHECKOUT_MODE',
     },
     {
@@ -171,7 +172,7 @@ export function buildLaunchReadinessItems(input: LaunchReadinessInput): LaunchRe
       action: 'Open email settings',
       helpText: isUsingResendSandbox(values)
         ? 'From email is still using onboarding@resend.dev, which only delivers to your own Resend account email. Verify your domain at resend.com/domains and update From email so collectors receive emails.'
-        : 'Add your studio contact email and delivery settings under Settings → Email so inquiries and order confirmations reach you.',
+        : 'Add your studio contact email (Settings → General) and delivery settings (Settings → Email & Newsletter) so inquiries and order confirmations reach you.',
       settingKey: isUsingResendSandbox(values) ? 'SMTP_FROM' : 'CONTACT_EMAIL',
     },
     {
@@ -196,9 +197,9 @@ export function buildLaunchReadinessItems(input: LaunchReadinessInput): LaunchRe
       key: 'automations',
       label: 'Turn on studio automations (optional)',
       complete: !cronStale,
-      tab: 'settings',
-      action: 'Open automation settings',
-      helpText: 'Scheduled newsletters and follow-ups run automatically while your site is online, or click Run automations now in Settings anytime.',
+      tab: 'automations',
+      action: 'Open automations',
+      helpText: 'Scheduled newsletters and follow-ups run automatically while your site is online, or click Run automations now under Grow → Automations anytime.',
       optional: true,
     },
     {

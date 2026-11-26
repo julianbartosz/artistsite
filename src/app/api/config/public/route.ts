@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getConfig } from '@/lib/config';
 import { getCheckoutRuntimeConfig } from '@/lib/stripe';
+import { normalizeCommissionStatus, normalizeLicenseType } from '@/lib/jobs-shared';
 
 const PUBLIC_CONFIG_KEYS = [
   'NEXT_PUBLIC_BASE_URL',
@@ -17,10 +18,13 @@ const PUBLIC_CONFIG_KEYS = [
 ] as const;
 
 export async function GET() {
-  const [entries, checkoutConfig, facebookPixelId] = await Promise.all([
+  const [entries, checkoutConfig, facebookPixelId, commissionStatusRaw, commissionNoteRaw, defaultLicenseRaw] = await Promise.all([
     Promise.all(PUBLIC_CONFIG_KEYS.map(async (key) => [key, await getConfig(key)] as const)),
     getCheckoutRuntimeConfig(),
     getConfig('FACEBOOK_PIXEL_ID'),
+    getConfig('COMMISSION_STATUS'),
+    getConfig('COMMISSION_WAITLIST_NOTE'),
+    getConfig('DEFAULT_LICENSE_TYPE'),
   ]);
 
   return NextResponse.json({
@@ -29,5 +33,8 @@ export async function GET() {
     MANUAL_PAYMENT_INSTRUCTIONS: checkoutConfig.manualPaymentInstructions,
     STRIPE_AUTOMATIC_TAX_ENABLED: checkoutConfig.automaticTaxEnabled,
     FACEBOOK_PIXEL_ID: facebookPixelId || '',
+    COMMISSION_STATUS: normalizeCommissionStatus(commissionStatusRaw),
+    COMMISSION_WAITLIST_NOTE: (commissionNoteRaw || '').trim(),
+    DEFAULT_LICENSE_TYPE: normalizeLicenseType(defaultLicenseRaw, 'personal'),
   });
 }

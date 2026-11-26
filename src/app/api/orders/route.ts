@@ -216,9 +216,14 @@ export async function GET(request: NextRequest) {
         getAllOrders({ status, search }),
         getShippingFulfillmentContext(),
       ]);
+      const { listCertificatesByOrderIds } = await import('@/lib/certificates');
+      const certificatesByOrder = await listCertificatesByOrderIds(orders.map((o) => o.id));
       return NextResponse.json({
         success: true,
-        orders,
+        orders: orders.map((order) => ({
+          ...order,
+          certificates: certificatesByOrder[order.id] ?? [],
+        })),
         shippingContext,
       });
     }
@@ -228,10 +233,15 @@ export async function GET(request: NextRequest) {
       customerId: session.user.id,
       status
     });
+    const { listCertificatesByOrderIds } = await import('@/lib/certificates');
+    const certificatesByOrder = await listCertificatesByOrderIds(customerOrders.map((o) => o.id));
 
     return NextResponse.json({
       success: true,
-      orders: customerOrders
+      orders: customerOrders.map((order) => ({
+        ...order,
+        certificates: certificatesByOrder[order.id] ?? [],
+      }))
     });
 
   } catch (error) {

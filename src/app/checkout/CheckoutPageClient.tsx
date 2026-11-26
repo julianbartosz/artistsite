@@ -4,8 +4,9 @@ import { Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'rea
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { useCart } from '@/components/CartContext';
+import { useCart, type CartItem } from '@/components/CartContext';
 import { useAnalytics } from '@/components/AnalyticsProvider';
+import type { MarketCheckoutBootstrap } from './page';
 import {
   allowedCheckoutCountriesForItems,
   calculateItemShipping,
@@ -21,7 +22,6 @@ import CmsEditAnchor from '@/components/admin/CmsEditAnchor';
 import {
   loadStripe,
   type StripeCheckout,
-  type StripeCheckoutContact,
   type StripePaymentElement,
 } from '@stripe/stripe-js';
 
@@ -66,6 +66,7 @@ type CheckoutPageClientProps = {
   automaticTaxEnabled?: boolean;
   stripePublishableKey?: string;
   isE2e?: boolean;
+  marketBootstrap?: MarketCheckoutBootstrap | null;
 };
 
 export default function CheckoutPageClient({
@@ -75,6 +76,7 @@ export default function CheckoutPageClient({
   automaticTaxEnabled = false,
   stripePublishableKey = '',
   isE2e = false,
+  marketBootstrap = null,
 }: CheckoutPageClientProps) {
   return (
     <Suspense fallback={
@@ -89,6 +91,7 @@ export default function CheckoutPageClient({
         automaticTaxEnabled={automaticTaxEnabled}
         stripePublishableKey={stripePublishableKey}
         isE2e={isE2e}
+        marketBootstrap={marketBootstrap}
       />
     </Suspense>
   );
@@ -101,12 +104,24 @@ function CheckoutPageContent({
   automaticTaxEnabled = false,
   stripePublishableKey = '',
   isE2e = false,
+  marketBootstrap = null,
 }: CheckoutPageClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { data: session, status: sessionStatus } = useSession();
   const analytics = useAnalytics();
   const { state, getItemKey, closeCart, restoreCart } = useCart();
+  const isMarketPickup = Boolean(marketBootstrap);
+  const [marketItems, setMarketItems] = useState<CartItem[]>(() =>
+    marketBootstrap
+      ? marketBootstrap.items.map(({ product, quantity }) => ({
+          product,
+          quantity,
+          totalPrice: product.price,
+          addedAt: Date.now(),
+        }))
+      : [],
+  );
   const [formData, setFormData] = useState<CheckoutFormData>({
     email: '',
     firstName: '',
@@ -117,7 +132,7 @@ function CheckoutPageContent({
     postalCode: '',
     country: 'US',
     phone: '',
-    promoCode: '',
+    promoCode: marketBootstrap?.promoCode || '',
     isGift: false,
     giftMessage: '',
   });
@@ -129,11 +144,18 @@ function CheckoutPageContent({
     ...(initialShopCopy || {}),
   }));
   const isManualCheckout = checkoutMode === 'manual';
-  const checkoutSteps = useMemo<Array<{ id: CheckoutStep; label: string }>>(() => ([
-    { id: 'contact', label: shopCopy.checkoutStepContact },
-    { id: 'shipping', label: shopCopy.checkoutStepShipping },
-    { id: 'review', label: isManualCheckout ? 'Review & request' : shopCopy.checkoutStepReview },
-  ]), [isManualCheckout, shopCopy.checkoutStepContact, shopCopy.checkoutStepReview, shopCopy.checkoutStepShipping]);
+  const checkoutSteps = useMemo<Array<{ id: CheckoutStep; label: string }>>(() => (
+    isMarketPickup
+      ? [
+          { id: 'contact', label: 'Receipt' },
+          { id: 'review', label: isManualCheckout ? 'Review & request' : 'Pay at booth' },
+        ]
+      : [
+          { id: 'contact', label: shopCopy.checkoutStepContact },
+          { id: 'shipping', label: shopCopy.checkoutStepShipping },
+          { id: 'review', label: isManualCheckout ? 'Review & request' : shopCopy.checkoutStepReview },
+        ]
+  ), [isManualCheckout, isMarketPickup, shopCopy.checkoutStepContact, shopCopy.checkoutStepReview, shopCopy.checkoutStepShipping]);
   const [step, setStep] = useState<CheckoutStep>('contact');
   const recoveryHandled = useRef(false);
   const checkoutTracked = useRef(false);
@@ -261,22 +283,54 @@ function CheckoutPageContent({
     return () => window.clearTimeout(timer);
   }, [step]);
 
+  const activeItems = useMemo(
+    () => (isMarketPickup && marketItems.length > 0 ? marketItems : state.items),
+    [isMarketPickup, marketItems, state.items],
+  );
+
   // Calculate totals & allowed shipping countries
-  const shippingPolicy = useMemo(() => allowedCheckoutCountriesForItems(state.items), [state.items]);
+  const shippingPolicy = useMemo(() => allowedCheckoutCountriesForItems(activeItems), [activeItems]);
   useEffect(() => {
+    if (isMarketPickup) return;
     if (shippingPolicy.countries.length > 0 && !shippingPolicy.countries.includes(formData.country as (typeof shippingPolicy.countries)[number])) {
       setFormData((prev) => ({ ...prev, country: shippingPolicy.countries[0] }));
     }
-  }, [shippingPolicy.countries, formData.country]);
+  }, [isMarketPickup, shippingPolicy.countries, formData.country]);
 
-  const subtotal = state.total;
+  const subtotal = useMemo(
+    () => activeItems.reduce((sum, item) => sum + cartItemLineTotal(item), 0),
+    [activeItems],
+  );
   const discountAmount = promoDiscount?.amount ?? 0;
-  const shipping = state.items.reduce((total, item) => {
-    return total + (calculateItemShipping(item.product, formData.country) * item.quantity);
-  }, 0);
-  const total = Math.max(0, subtotal - discountAmount) + shipping;
+  const shipping = isMarketPickup
+    ? 0
+    : activeItems.reduce((sum, item) => {
+        return sum + (calculateItemShipping(item.product, formData.country) * item.quantity);
+      }, 0);
+  const marketTaxRate = isMarketPickup && !automaticTaxEnabled ? (marketBootstrap?.salesTaxRate ?? 0) : 0;
+  const discountedSubtotal = Math.max(0, subtotal - discountAmount);
+  const marketTax = marketTaxRate > 0 ? Math.round(discountedSubtotal * (marketTaxRate / 100) * 100) / 100 : 0;
+  const total = discountedSubtotal + shipping + marketTax;
 
-  const validatePromoCode = useCallback(async (code: string, currentSubtotal: number) => {
+  const updateMarketItemQuantity = (productId: string, delta: number) => {
+    setMarketItems((current) =>
+      current.map((item) => {
+        if (item.product.id !== productId) return item;
+        const nextQty = Math.max(1, Math.min(20, item.quantity + delta));
+        return { ...item, quantity: nextQty, totalPrice: item.product.price };
+      }),
+    );
+    if (step === 'review') {
+      releaseActiveStripeCheckout(true);
+      setStep('contact');
+    }
+  };
+
+  const validatePromoCode = useCallback(async (
+    code: string,
+    currentSubtotal: number,
+    options?: { silentOnInvalid?: boolean },
+  ) => {
     const trimmed = code.trim();
     if (!trimmed) {
       setPromoDiscount(null);
@@ -295,8 +349,14 @@ function CheckoutPageContent({
       const data = await response.json();
       if (!response.ok || !data.valid) {
         setPromoDiscount(null);
-        setPromoStatus('invalid');
-        setPromoError(data.error || 'Invalid promo code');
+        if (options?.silentOnInvalid) {
+          setPromoStatus('idle');
+          setPromoError('');
+          setFormData((prev) => ({ ...prev, promoCode: '' }));
+        } else {
+          setPromoStatus('invalid');
+          setPromoError(data.error || 'Invalid promo code');
+        }
         return;
       }
       setPromoDiscount({ code: data.code, amount: Number(data.amount) || 0 });
@@ -304,10 +364,26 @@ function CheckoutPageContent({
       setPromoError('');
     } catch {
       setPromoDiscount(null);
-      setPromoStatus('invalid');
-      setPromoError('Could not validate promo code');
+      if (options?.silentOnInvalid) {
+        setPromoStatus('idle');
+        setPromoError('');
+        setFormData((prev) => ({ ...prev, promoCode: '' }));
+      } else {
+        setPromoStatus('invalid');
+        setPromoError('Could not validate promo code');
+      }
     }
   }, []);
+
+  const autoAppliedMarketPromoRef = useRef(false);
+  useEffect(() => {
+    if (autoAppliedMarketPromoRef.current) return;
+    const code = marketBootstrap?.promoCode?.trim();
+    if (isMarketPickup && code && subtotal > 0) {
+      autoAppliedMarketPromoRef.current = true;
+      void validatePromoCode(code, subtotal, { silentOnInvalid: true });
+    }
+  }, [isMarketPickup, marketBootstrap?.promoCode, subtotal, validatePromoCode]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -328,14 +404,16 @@ function CheckoutPageContent({
 
     if (!formData.email) newErrors.email = 'Email is required';
     else if (!/\S+@\S+\.\S+/.test(formData.email)) newErrors.email = 'Email is invalid';
-    
-    if (!formData.firstName) newErrors.firstName = 'First name is required';
-    if (!formData.lastName) newErrors.lastName = 'Last name is required';
-    if (!formData.address) newErrors.address = 'Address is required';
-    if (!formData.city) newErrors.city = 'City is required';
-    if (!formData.state) newErrors.state = 'State is required';
-    if (!formData.postalCode) newErrors.postalCode = 'Postal code is required';
-    if (!formData.phone) newErrors.phone = 'Phone number is required';
+
+    if (!isMarketPickup) {
+      if (!formData.firstName) newErrors.firstName = 'First name is required';
+      if (!formData.lastName) newErrors.lastName = 'Last name is required';
+      if (!formData.address) newErrors.address = 'Address is required';
+      if (!formData.city) newErrors.city = 'City is required';
+      if (!formData.state) newErrors.state = 'State is required';
+      if (!formData.postalCode) newErrors.postalCode = 'Postal code is required';
+      if (!formData.phone) newErrors.phone = 'Phone number is required';
+    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -413,7 +491,12 @@ function CheckoutPageContent({
     setSubmitError('');
     if (step === 'contact' && validateContactStep()) {
       void trackCheckoutRecovery(formData.email);
-      setStep('shipping');
+      if (isMarketPickup) {
+        setReviewSubmitReady(false);
+        setStep('review');
+      } else {
+        setStep('shipping');
+      }
       scrollStepIntoView();
       return;
     }
@@ -428,7 +511,7 @@ function CheckoutPageContent({
     setSubmitError('');
     if (step === 'review') {
       releaseActiveStripeCheckout(true);
-      setStep('shipping');
+      setStep(isMarketPickup ? 'contact' : 'shipping');
       scrollStepIntoView();
     } else if (step === 'shipping') {
       setStep('contact');
@@ -494,10 +577,12 @@ function CheckoutPageContent({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            items: state.items,
+            items: activeItems,
             customerInfo: formData,
             promoCode: formData.promoCode,
             giftMessage: formData.isGift ? formData.giftMessage.trim() || undefined : undefined,
+            fulfillmentMode: isMarketPickup ? 'pickup' : 'shipping',
+            marketEventSlug: marketBootstrap?.eventSlug || undefined,
           }),
         });
 
@@ -577,7 +662,9 @@ function CheckoutPageContent({
         const paymentElement = checkout.createPaymentElement({
           layout: 'tabs',
           fields: {
-            billingDetails: 'never',
+            billingDetails: isMarketPickup
+              ? { email: 'never', phone: 'never' }
+              : 'never',
           },
         });
 
@@ -643,7 +730,7 @@ function CheckoutPageContent({
     }
 
     if (useInlineStripePayment) {
-      if (!validateBillingAddress()) return;
+      if (!isMarketPickup && !validateBillingAddress()) return;
       const active = activeStripeRef.current;
       if (!active || paymentStatus !== 'ready') {
         setSubmitError('Payment form is still loading. Please wait a moment and try again.');
@@ -652,32 +739,32 @@ function CheckoutPageContent({
 
       setIsProcessing(true);
       try {
-        const confirmBillingAddress: StripeCheckoutContact = billingSameAsShipping
-          ? {
-              name: `${formData.firstName} ${formData.lastName}`.trim(),
-              address: {
-                line1: formData.address.trim(),
-                city: formData.city.trim(),
-                state: formData.state.trim(),
-                postal_code: formData.postalCode.trim(),
-                country: formData.country.trim().toUpperCase(),
-              },
-            }
-          : {
-              name: billingAddress.name.trim(),
-              address: {
-                line1: billingAddress.address.trim(),
-                city: billingAddress.city.trim(),
-                state: billingAddress.state.trim(),
-                postal_code: billingAddress.postalCode.trim(),
-                country: billingAddress.country.trim().toUpperCase(),
-              },
-            };
-
-        const result = await active.checkout.confirm({
-          billingAddress: confirmBillingAddress,
-          redirect: 'if_required',
-        });
+        const result = isMarketPickup
+          ? await active.checkout.confirm({ redirect: 'if_required' })
+          : await active.checkout.confirm({
+              billingAddress: billingSameAsShipping
+                ? {
+                    name: `${formData.firstName} ${formData.lastName}`.trim(),
+                    address: {
+                      line1: formData.address.trim(),
+                      city: formData.city.trim(),
+                      state: formData.state.trim(),
+                      postal_code: formData.postalCode.trim(),
+                      country: formData.country.trim().toUpperCase(),
+                    },
+                  }
+                : {
+                    name: billingAddress.name.trim(),
+                    address: {
+                      line1: billingAddress.address.trim(),
+                      city: billingAddress.city.trim(),
+                      state: billingAddress.state.trim(),
+                      postal_code: billingAddress.postalCode.trim(),
+                      country: billingAddress.country.trim().toUpperCase(),
+                    },
+                  },
+              redirect: 'if_required',
+            });
 
         if (result.type === 'error') {
           setSubmitError(result.error.message || 'Payment could not be completed. Please check your card details and try again.');
@@ -705,10 +792,12 @@ function CheckoutPageContent({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          items: state.items,
+          items: activeItems,
           customerInfo: formData,
           promoCode: formData.promoCode,
           giftMessage: formData.isGift ? formData.giftMessage.trim() || undefined : undefined,
+          fulfillmentMode: isMarketPickup ? 'pickup' : 'shipping',
+          marketEventSlug: marketBootstrap?.eventSlug || undefined,
         }),
       });
 
@@ -749,7 +838,7 @@ function CheckoutPageContent({
     );
   }
 
-  if (state.items.length === 0) {
+  if (activeItems.length === 0) {
     return (
       <div className="min-h-screen bg-neutral-50 py-12">
         <div className="mx-auto max-w-lg px-4 text-center">
@@ -774,8 +863,13 @@ function CheckoutPageContent({
 
   const orderSummary = (
     <div className="bg-surface rounded-lg shadow-sm border border-gray-200 p-6">
+      {isMarketPickup && (
+        <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+          In-person market pickup{marketBootstrap?.eventName ? ` at ${marketBootstrap.eventName}` : ''}. No shipping address required.
+        </div>
+      )}
       <div className="space-y-4 mb-6">
-        {state.items.map((item) => {
+        {activeItems.map((item) => {
           const itemKey = getItemKey(item.product.id, item.variant);
           const variantLabel = formatCartItemVariant(item.variant);
           return (
@@ -792,7 +886,30 @@ function CheckoutPageContent({
                 <h3 className="font-medium text-gray-900 truncate">{item.product.title}</h3>
                 <p className="text-sm text-gray-500">{item.product.medium}</p>
                 {variantLabel && <p className="text-sm text-gray-500">{variantLabel}</p>}
-                <p className="text-sm text-gray-500">Qty: {item.quantity}</p>
+                {isMarketPickup && marketItems.length > 0 ? (
+                  <div className="mt-1 inline-flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateMarketItemQuantity(item.product.id, -1)}
+                      disabled={item.quantity <= 1}
+                      aria-label={`Decrease quantity for ${item.product.title}`}
+                      className="flex h-6 w-6 items-center justify-center rounded border border-gray-300 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                    >
+                      -
+                    </button>
+                    <span className="text-sm font-medium text-gray-900">{item.quantity}</span>
+                    <button
+                      type="button"
+                      onClick={() => updateMarketItemQuantity(item.product.id, 1)}
+                      aria-label={`Increase quantity for ${item.product.title}`}
+                      className="flex h-6 w-6 items-center justify-center rounded border border-gray-300 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      +
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">Qty: {item.quantity}</p>
+                )}
               </div>
               <div className="text-right">
                 <p className="font-medium text-gray-900">{formatPrice(cartItemLineTotal(item))}</p>
@@ -810,13 +927,19 @@ function CheckoutPageContent({
         <div className="flex justify-between text-sm">
           <span className="text-gray-600">Shipping</span>
           <span className="text-gray-900">
-            {shippingPolicy.isPickupOnly ? 'Local pickup' : shipping <= 0 ? 'Free' : formatPrice(shipping)}
+            {isMarketPickup ? 'In-person pickup ($0.00)' : shippingPolicy.isPickupOnly ? 'Local pickup' : shipping <= 0 ? 'Free' : formatPrice(shipping)}
           </span>
         </div>
         {promoDiscount && (
           <div className="flex justify-between text-sm">
             <span className="text-gray-600">Promo ({promoDiscount.code})</span>
             <span className="text-gray-900">−{formatPrice(promoDiscount.amount)}</span>
+          </div>
+        )}
+        {marketTax > 0 && (
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-600">Sales tax ({marketTaxRate}%)</span>
+            <span className="text-gray-900">{formatPrice(marketTax)}</span>
           </div>
         )}
         {!isManualCheckout && automaticTaxEnabled && (
@@ -843,16 +966,22 @@ function CheckoutPageContent({
       <CmsEditAnchor targetKey="shop:checkout" />
       <div className="max-w-7xl mx-auto page-x">
         <div className="text-center mb-6 md:mb-10">
-          <h1 className="text-3xl font-bold text-gray-900 mb-3">{shopCopy.checkoutPageTitle}</h1>
-          <p className="text-gray-600">{shopCopy.checkoutPageSubtitle}</p>
+          <h1 className="text-3xl font-bold text-gray-900 mb-3">
+            {isMarketPickup ? 'Pay at the Booth' : shopCopy.checkoutPageTitle}
+          </h1>
+          <p className="text-gray-600">
+            {isMarketPickup
+              ? `In-person pickup${marketBootstrap?.eventName ? ` at ${marketBootstrap.eventName}` : ''}. No shipping address required.`
+              : shopCopy.checkoutPageSubtitle}
+          </p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16">
           <div className="order-1 lg:order-none">
-            <details className="lg:hidden mb-6 rounded-lg border border-gray-200 bg-surface">
+            <details className="lg:hidden mb-6 rounded-lg border border-gray-200 bg-surface" open={isMarketPickup}>
               <summary className="cursor-pointer list-none px-4 py-3 font-medium text-gray-900 flex items-center justify-between">
                 <span>Order summary</span>
-                <span>{formatPrice(total)}</span>
+                <span>{formatPrice(displayedTotal)}</span>
               </summary>
               <div className="px-4 pb-4">{orderSummary}</div>
             </details>
@@ -901,7 +1030,15 @@ function CheckoutPageContent({
             </div>
 
             <h2 className="text-xl font-semibold text-gray-900 mb-6">
-              {step === 'contact' ? 'Contact Information' : step === 'shipping' ? 'Shipping Information' : isManualCheckout ? 'Review & Request' : 'Review & Pay'}
+              {step === 'contact'
+                ? (isMarketPickup ? 'Receipt Email' : 'Contact Information')
+                : step === 'shipping'
+                  ? 'Shipping Information'
+                  : isManualCheckout
+                    ? 'Review & Request'
+                    : isMarketPickup
+                      ? 'Pay at Booth'
+                      : 'Review & Pay'}
             </h2>
             
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -916,7 +1053,7 @@ function CheckoutPageContent({
                 <>
                 <div className="mb-6">
                   <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-                    Email Address
+                    {isMarketPickup ? 'Email Address (for your receipt)' : 'Email Address'}
                   </label>
                   <input
                     type="email"
@@ -928,10 +1065,27 @@ function CheckoutPageContent({
                     className={`w-full px-3 py-2 border rounded-input focus:ring-2 focus:ring-primary focus:border-primary ${
                       errors.email ? 'border-red-500' : 'border-gray-300'
                     }`}
-                    placeholder="john@example.com"
+                    placeholder="you@example.com"
                   />
                   {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
                 </div>
+
+                {isMarketPickup && (
+                  <div className="mb-6">
+                    <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-1">
+                      Your Name (optional)
+                    </label>
+                    <input
+                      type="text"
+                      id="firstName"
+                      name="firstName"
+                      value={formData.firstName}
+                      onChange={handleInputChange}
+                      placeholder="Optional"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-input focus:ring-2 focus:ring-primary focus:border-primary"
+                    />
+                  </div>
+                )}
 
                 <div>
                   <label htmlFor="promoCode" className="block text-sm font-medium text-gray-700 mb-1">
@@ -1184,23 +1338,33 @@ function CheckoutPageContent({
                     </div>
                     <div>
                       <div className="flex items-center justify-between gap-2">
-                        <p className="font-medium text-gray-900">Ship to</p>
-                        <button
-                          type="button"
-                          onClick={() => editStepFromReview('shipping')}
-                          className="text-xs font-medium text-gray-600 underline underline-offset-2 hover:text-gray-900"
-                        >
-                          Edit
-                        </button>
+                        <p className="font-medium text-gray-900">{isMarketPickup ? 'Pickup' : 'Ship to'}</p>
+                        {!isMarketPickup && (
+                          <button
+                            type="button"
+                            onClick={() => editStepFromReview('shipping')}
+                            className="text-xs font-medium text-gray-600 underline underline-offset-2 hover:text-gray-900"
+                          >
+                            Edit
+                          </button>
+                        )}
                       </div>
-                      <p className="mt-1">{formData.firstName} {formData.lastName}</p>
-                      <p>{formData.address}</p>
-                      <p>{formData.city}, {formData.state} {formData.postalCode}</p>
-                      <p>{formData.country} · {formData.phone}</p>
-                      {formData.isGift && (
-                        <p className="mt-1 text-xs text-gray-500">
-                          Gift order{formData.giftMessage.trim() ? `: “${formData.giftMessage.trim()}”` : ''}
+                      {isMarketPickup ? (
+                        <p className="mt-1">
+                          In-person pickup{marketBootstrap?.eventName ? ` at ${marketBootstrap.eventName}` : ' at the booth'}
                         </p>
+                      ) : (
+                        <>
+                          <p className="mt-1">{formData.firstName} {formData.lastName}</p>
+                          <p>{formData.address}</p>
+                          <p>{formData.city}, {formData.state} {formData.postalCode}</p>
+                          <p>{formData.country} · {formData.phone}</p>
+                          {formData.isGift && (
+                            <p className="mt-1 text-xs text-gray-500">
+                              Gift order{formData.giftMessage.trim() ? `: “${formData.giftMessage.trim()}”` : ''}
+                            </p>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
@@ -1213,9 +1377,11 @@ function CheckoutPageContent({
                   ) : useInlineStripePayment ? (
                     <div className="space-y-4">
                       <div>
-                        <p className="font-medium text-gray-900">Card details</p>
+                        <p className="font-medium text-gray-900">{isMarketPickup ? 'Payment' : 'Card details'}</p>
                         <p className="mt-0.5 text-xs text-gray-600">
-                          Your contact, shipping, and billing details carry over automatically. Just enter your card to pay.
+                          {isMarketPickup
+                            ? 'Pay with Apple Pay, Google Pay, or card. No shipping address needed.'
+                            : 'Your contact, shipping, and billing details carry over automatically. Just enter your card to pay.'}
                         </p>
                       </div>
 
@@ -1246,6 +1412,7 @@ function CheckoutPageContent({
                         </div>
                       )}
 
+                      {!isMarketPickup && (
                       <div className="pt-2 border-t border-gray-100 space-y-3">
                         <label className="flex items-center gap-2.5 cursor-pointer text-sm text-gray-700">
                           <input
@@ -1376,6 +1543,7 @@ function CheckoutPageContent({
                           </div>
                         )}
                       </div>
+                      )}
                     </div>
                   ) : (
                     <p className="text-gray-600">
@@ -1402,7 +1570,7 @@ function CheckoutPageContent({
                     onClick={goToNextStep}
                     className="w-full sm:flex-1 btn-primary py-3 px-6"
                   >
-                    Continue
+                    {isMarketPickup ? 'Continue to payment' : 'Continue'}
                   </button>
                 ) : (
               <button

@@ -5,6 +5,7 @@ import { linkSessionEventsToProfile } from '@/lib/analytics/customer-insights';
 import { sendNewsletterWelcomeEmail } from '@/lib/marketing/campaign-execution';
 import {
   COLLECTOR_PROFILE_COOKIE,
+  COMMISSION_WAITLIST_SEGMENT,
   createCollectorProfileToken,
   isNewsletterSubscriber,
   normalizeSubscriberEmail,
@@ -19,8 +20,9 @@ async function finalizeSubscription(
   sessionId: string | undefined,
   mode: 'site' | 'development' | 'production',
   mailchimpSynced?: boolean,
+  meta?: { eventSlug?: string; firstName?: string; extraSegments?: string[] },
 ): Promise<NextResponse> {
-  const profileId = await recordNewsletterSubscriber(email, digest);
+  const profileId = await recordNewsletterSubscriber(email, digest, meta);
 
   if (profileId && sessionId) {
     await linkSessionEventsToProfile(sessionId, profileId).catch(() => undefined);
@@ -56,11 +58,27 @@ async function finalizeSubscription(
 }
 
 export const POST = withApiErrorHandler(async (request: NextRequest) => {
-  const payload = await request.json() as { email?: string; digest?: boolean; sessionId?: string };
+  const payload = await request.json() as {
+    email?: string;
+    digest?: boolean;
+    sessionId?: string;
+    eventSlug?: string;
+    firstName?: string;
+    segment?: string;
+  };
   const email = normalizeSubscriberEmail(payload.email);
   const sessionId = typeof payload.sessionId === 'string' && payload.sessionId.trim()
     ? payload.sessionId.trim().slice(0, 128)
     : undefined;
+  const eventSlug = typeof payload.eventSlug === 'string'
+    ? payload.eventSlug.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || undefined
+    : undefined;
+  const firstName = typeof payload.firstName === 'string' && payload.firstName.trim()
+    ? payload.firstName.trim().slice(0, 80)
+    : undefined;
+  const extraSegments = payload.segment === COMMISSION_WAITLIST_SEGMENT
+    ? [COMMISSION_WAITLIST_SEGMENT]
+    : [];
   const digest = payload.digest !== false;
 
   if (!email) {
@@ -68,6 +86,17 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
   }
 
   if (await isNewsletterSubscriber(email)) {
+    if (eventSlug || extraSegments.length > 0) {
+      await recordNewsletterSubscriber(email, digest, { eventSlug, firstName, extraSegments });
+      return NextResponse.json({
+        message: extraSegments.includes(COMMISSION_WAITLIST_SEGMENT)
+          ? "You're on the commission waitlist! We'll email you as soon as spots open."
+          : "You're already on the list! We noted your visit today.",
+        email,
+        alreadySubscribed: true,
+        emailSent: false,
+      });
+    }
     throw new ApiError(409, 'This email is already subscribed to our newsletter', 'ALREADY_SUBSCRIBED');
   }
 
@@ -85,6 +114,8 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
       digest,
       sessionId,
       process.env.NODE_ENV === 'production' ? 'site' : 'development',
+      undefined,
+      { eventSlug, firstName, extraSegments },
     );
   }
 
@@ -96,6 +127,7 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
       sessionId,
       process.env.NODE_ENV === 'production' ? 'site' : 'development',
       false,
+      { eventSlug, firstName, extraSegments },
     );
   }
 
@@ -112,7 +144,11 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
       body: JSON.stringify({
         email_address: email,
         status: 'subscribed',
-        tags: ['website-signup'],
+        tags: [
+          'website-signup',
+          ...(eventSlug ? [`market:${eventSlug}`] : []),
+          ...extraSegments,
+        ],
       }),
     });
 
@@ -132,5 +168,6 @@ export const POST = withApiErrorHandler(async (request: NextRequest) => {
     sessionId,
     mailchimpSynced ? 'production' : (process.env.NODE_ENV === 'production' ? 'site' : 'development'),
     mailchimpSynced,
+    { eventSlug, firstName, extraSegments },
   );
 });

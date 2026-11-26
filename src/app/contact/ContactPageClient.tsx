@@ -33,6 +33,8 @@ interface ContactPageClientProps {
   contactEmail: string;
   initialSubject?: string;
   initialInquiryType?: string;
+  commissionStatus?: 'open' | 'waitlist' | 'closed';
+  commissionNote?: string;
 }
 
 export default function ContactPageClient({
@@ -40,9 +42,15 @@ export default function ContactPageClient({
   contactEmail: initialContactEmail,
   initialSubject = '',
   initialInquiryType,
+  commissionStatus = 'open',
+  commissionNote = '',
 }: ContactPageClientProps) {
-  const inquiryOptions = visibleInquiryTypes(pageContent);
-  const fallbackInquiryType = defaultInquiryType(pageContent);
+  const rawInquiryOptions = visibleInquiryTypes(pageContent);
+  const inquiryOptions =
+    commissionStatus === 'closed'
+      ? rawInquiryOptions.filter((option) => option.key !== 'commission')
+      : rawInquiryOptions;
+  const fallbackInquiryType = inquiryOptions[0]?.key ?? defaultInquiryType(pageContent);
   const resolvedInquiryType = inquiryOptions.some((option) => option.key === initialInquiryType)
     ? (initialInquiryType as string)
     : fallbackInquiryType;
@@ -57,7 +65,12 @@ export default function ContactPageClient({
   const [responseMessage, setResponseMessage] = useState('');
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
-  const showCommissionFields = isCommissionInquiry(formData.inquiryType);
+  const [waitlistEmail, setWaitlistEmail] = useState('');
+  const [waitlistName, setWaitlistName] = useState('');
+  const [waitlistState, setWaitlistState] = useState<'idle' | 'submitting' | 'done' | 'error'>('idle');
+  const [waitlistMessage, setWaitlistMessage] = useState('');
+  const isWaitlistCommission = commissionStatus === 'waitlist' && isCommissionInquiry(formData.inquiryType);
+  const showCommissionFields = commissionStatus === 'open' && isCommissionInquiry(formData.inquiryType);
 
   useEffect(() => {
     setContactEmail(initialContactEmail);
@@ -72,7 +85,40 @@ export default function ContactPageClient({
       name: current.name || userName,
       email: current.email || userEmail,
     }));
+    setWaitlistName((current) => current || userName);
+    setWaitlistEmail((current) => current || userEmail);
   }, [session?.user?.email, session?.user?.name]);
+
+  const handleJoinWaitlist = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!waitlistEmail.trim()) {
+      setWaitlistState('error');
+      setWaitlistMessage('Please enter your email address.');
+      return;
+    }
+    setWaitlistState('submitting');
+    setWaitlistMessage('');
+    try {
+      const res = await fetch('/api/newsletter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: waitlistEmail.trim(),
+          firstName: waitlistName.trim() || undefined,
+          segment: 'commission_waitlist',
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || 'Could not join the waitlist.');
+      setWaitlistState('done');
+      setWaitlistMessage(
+        json?.message || "You're on the commission waitlist! We'll email you as soon as spots open.",
+      );
+    } catch (err) {
+      setWaitlistState('error');
+      setWaitlistMessage(err instanceof Error ? err.message : 'Could not join the waitlist.');
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -245,16 +291,46 @@ export default function ContactPageClient({
             </details>
             )}
 
-            {htmlHasVisibleText(pageContent.sidebar.commissionHtml) && (
-            <details className="group/disclosure overflow-hidden rounded-lg border border-gray-200 bg-white">
+            {(htmlHasVisibleText(pageContent.sidebar.commissionHtml) || commissionStatus !== 'open' || commissionNote) && (
+            <details className="group/disclosure overflow-hidden rounded-lg border border-gray-200 bg-white" open={commissionStatus !== 'open'}>
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-lg font-semibold text-gray-900 select-none transition-colors hover:bg-surface-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
-                <span>{pageContent.sidebar.commissionTitle}</span>
+                <span className="flex items-center gap-2">
+                  <span>{pageContent.sidebar.commissionTitle || 'Commissions'}</span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                      commissionStatus === 'open'
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : commissionStatus === 'waitlist'
+                          ? 'bg-amber-50 text-amber-800'
+                          : 'bg-gray-100 text-gray-600'
+                    }`}
+                  >
+                    {commissionStatus === 'open'
+                      ? 'Open'
+                      : commissionStatus === 'waitlist'
+                        ? 'Waitlist'
+                        : 'Closed'}
+                  </span>
+                </span>
                 <ChevronDown
                   className="h-4 w-4 shrink-0 text-gray-500 transition-transform duration-200 group-open/disclosure:rotate-180"
                   aria-hidden="true"
                 />
               </summary>
-              <div className="prose prose-sm max-w-none border-t border-gray-100 px-4 pb-4 pt-3 text-gray-700" dangerouslySetInnerHTML={{ __html: pageContent.sidebar.commissionHtml }} />
+              <div className="border-t border-gray-100 px-4 pb-4 pt-3 space-y-2 text-sm text-gray-700">
+                {commissionNote && (
+                  <p className="font-medium text-gray-900">{commissionNote}</p>
+                )}
+                {commissionStatus === 'closed' ? (
+                  <p className="text-gray-600">
+                    Custom commissions are currently closed. Check back soon or reach out for general inquiries.
+                  </p>
+                ) : (
+                  htmlHasVisibleText(pageContent.sidebar.commissionHtml) && (
+                    <div className="prose prose-sm max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: pageContent.sidebar.commissionHtml }} />
+                  )
+                )}
+              </div>
             </details>
             )}
           </aside>
@@ -262,6 +338,88 @@ export default function ContactPageClient({
           <div className="order-1 lg:order-none lg:col-start-1 lg:row-start-1">
             <h2 className="text-2xl font-bold text-gray-900 mb-6">{pageContent.form.title}</h2>
 
+            {isWaitlistCommission ? (
+              <div className="space-y-6">
+                {inquiryOptions.length > 0 && (
+                  <div>
+                    <label htmlFor="inquiryType" className="block text-sm font-medium text-gray-700 mb-2">
+                      {form.inquiryLabel}
+                    </label>
+                    <select
+                      id="inquiryType"
+                      name="inquiryType"
+                      value={formData.inquiryType}
+                      onChange={handleChange}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-input focus:ring-2 focus:ring-primary focus:border-gray-900 transition-colors"
+                    >
+                      {inquiryOptions.map((option) => (
+                        <option key={option.key} value={option.key}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-6 space-y-4">
+                  <div>
+                    <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900">
+                      Commission Waitlist
+                    </span>
+                    <h3 className="mt-2 text-lg font-semibold text-gray-900">
+                      Commissions are booked right now
+                    </h3>
+                    <p className="mt-1 text-sm text-gray-700">
+                      {commissionNote || 'Join the commission waitlist and you will be first to hear when new studio spots open.'}
+                    </p>
+                  </div>
+
+                  {waitlistState === 'done' ? (
+                    <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-900">
+                      {waitlistMessage}
+                    </div>
+                  ) : (
+                    <form onSubmit={handleJoinWaitlist} className="space-y-3">
+                      <div>
+                        <label htmlFor="waitlistName" className="block text-sm font-medium text-gray-700 mb-1">
+                          Name (optional)
+                        </label>
+                        <input
+                          id="waitlistName"
+                          type="text"
+                          value={waitlistName}
+                          onChange={(e) => setWaitlistName(e.target.value)}
+                          placeholder="Your first name"
+                          className="w-full rounded-input border border-gray-300 bg-white px-4 py-2.5 text-sm focus:border-gray-900 focus:ring-2 focus:ring-primary"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="waitlistEmail" className="block text-sm font-medium text-gray-700 mb-1">
+                          Email *
+                        </label>
+                        <input
+                          id="waitlistEmail"
+                          type="email"
+                          required
+                          value={waitlistEmail}
+                          onChange={(e) => setWaitlistEmail(e.target.value)}
+                          placeholder="you@example.com"
+                          className="w-full rounded-input border border-gray-300 bg-white px-4 py-2.5 text-sm focus:border-gray-900 focus:ring-2 focus:ring-primary"
+                        />
+                      </div>
+                      {waitlistState === 'error' && waitlistMessage && (
+                        <p className="text-sm text-red-600">{waitlistMessage}</p>
+                      )}
+                      <button
+                        type="submit"
+                        disabled={waitlistState === 'submitting'}
+                        className="btn-primary w-full py-3 px-6 text-sm font-medium disabled:opacity-50"
+                      >
+                        {waitlistState === 'submitting' ? 'Joining waitlist...' : 'Join commission waitlist'}
+                      </button>
+                    </form>
+                  )}
+                </div>
+              </div>
+            ) : (
             <form onSubmit={handleSubmit} className="space-y-6" noValidate>
               {Object.keys(errors).length > 0 && (
                 <div data-testid="form-errors" role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
@@ -492,6 +650,7 @@ export default function ContactPageClient({
                 </div>
               )}
             </form>
+            )}
           </div>
         </div>
       </div>

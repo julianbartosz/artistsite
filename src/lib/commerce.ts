@@ -395,7 +395,7 @@ export function productHasPurchaseOptions(product: Product): boolean {
 }
 
 export function productRawImageSrc(
-  product: Product,
+  product: Pick<Product, 'images'>,
   preferred?: string,
 ): string {
   const explicit = preferred?.trim();
@@ -471,7 +471,7 @@ export function artworkGalleryImages(images: {
 }
 
 export function productImageSrc(
-  product: Product,
+  product: Pick<Product, 'images'>,
   preferred?: string,
   size: ImageVariantSize = 'thumb',
 ): string {

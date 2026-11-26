@@ -26,9 +26,11 @@ function writeDismissedIds(ids: string[]) {
 type OrderCelebrationCardProps = {
   celebration: OrderCelebration;
   onDismiss: () => void;
+  /** When provided, CTAs switch Studio tabs in place instead of full navigation. */
+  onSelectTab?: (tab: string) => void;
 };
 
-export default function OrderCelebrationCard({ celebration, onDismiss }: OrderCelebrationCardProps) {
+export default function OrderCelebrationCard({ celebration, onDismiss, onSelectTab }: OrderCelebrationCardProps) {
   const primaryItem = celebration.items[0];
 
   return (
@@ -69,15 +71,25 @@ export default function OrderCelebrationCard({ celebration, onDismiss }: OrderCe
           <div className="flex flex-wrap gap-3">
             <Link
               href="/admin?tab=orders"
+              onClick={(event) => {
+                if (!onSelectTab) return;
+                event.preventDefault();
+                onSelectTab('orders');
+              }}
               className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
             >
               View order
             </Link>
             <Link
-              href="/admin?tab=marketing"
+              href="/admin?tab=analytics"
+              onClick={(event) => {
+                if (!onSelectTab) return;
+                event.preventDefault();
+                onSelectTab('analytics');
+              }}
               className="rounded-md border border-emerald-300 bg-white px-4 py-2 text-sm font-medium text-emerald-900 hover:bg-emerald-100"
             >
-              Open marketing
+              View analytics
             </Link>
           </div>
         </div>
@@ -86,51 +98,60 @@ export default function OrderCelebrationCard({ celebration, onDismiss }: OrderCe
   );
 }
 
-export function useOrderCelebration(): {
+export function useOrderCelebration(initialCelebration?: OrderCelebration | null): {
   celebration: OrderCelebration | null;
   dismissCelebration: () => void;
   loading: boolean;
 } {
-  const [celebration, setCelebration] = useState<OrderCelebration | null>(null);
-  const [loading, setLoading] = useState(true);
+  const managedExternally = initialCelebration !== undefined;
+  const [fetchedCelebration, setFetchedCelebration] = useState<OrderCelebration | null>(null);
+  const [dismissedIds, setDismissedIds] = useState<string[]>(() => readDismissedIds());
+  const [loading, setLoading] = useState(!managedExternally);
 
   const loadCelebration = useCallback(async () => {
     try {
       const response = await fetch('/api/admin/stats', { cache: 'no-store' });
       const data = await response.json();
       if (!response.ok || !data.latestCelebration) {
-        setCelebration(null);
+        setFetchedCelebration(null);
         return;
       }
 
       const payload = data.latestCelebration as OrderCelebration;
-      const dismissed = readDismissedIds();
-      if (dismissed.includes(payload.orderId)) {
-        setCelebration(null);
+      if (readDismissedIds().includes(payload.orderId)) {
+        setFetchedCelebration(null);
         return;
       }
 
-      setCelebration(payload);
+      setFetchedCelebration(payload);
     } catch {
-      setCelebration(null);
+      setFetchedCelebration(null);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    if (managedExternally) {
+      setLoading(false);
+      return;
+    }
     void loadCelebration();
     const interval = window.setInterval(() => void loadCelebration(), 60_000);
     return () => window.clearInterval(interval);
-  }, [loadCelebration]);
+  }, [managedExternally, loadCelebration]);
+
+  const rawCelebration = managedExternally ? initialCelebration : fetchedCelebration;
+  const celebration = rawCelebration && !dismissedIds.includes(rawCelebration.orderId)
+    ? rawCelebration
+    : null;
 
   const dismissCelebration = useCallback(() => {
     if (!celebration) return;
-    const dismissed = readDismissedIds();
-    if (!dismissed.includes(celebration.orderId)) {
-      writeDismissedIds([...dismissed, celebration.orderId]);
-    }
-    setCelebration(null);
+    const next = Array.from(new Set([...readDismissedIds(), celebration.orderId]));
+    writeDismissedIds(next);
+    setDismissedIds(next);
+    setFetchedCelebration(null);
   }, [celebration]);
 
   return { celebration, dismissCelebration, loading };

@@ -1,8 +1,30 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import useSWR from 'swr'
+import { Mail, Smartphone, Target } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+
+type ChannelRange = '7d' | '30d' | '90d' | '1y'
+
+interface ChannelPerformanceData {
+  totalRevenue: number
+  totalCost: number
+  roi: number
+  campaignPerformance?: {
+    email?: { sent: number; opened: number; clicked: number; converted: number }
+    social?: { posts: number; engagement: number; reach: number; clicks: number }
+    ads?: { impressions: number; clicks: number; conversions: number; roas: number }
+  }
+  topPerformingChannels?: Array<{
+    channel: string
+    revenue: number
+    cost: number
+    roi: number
+    conversions: number
+  }>
+}
 
 interface DashboardData {
   overview: {
@@ -68,11 +90,20 @@ const EVENT_LABELS: Record<string, string> = {
   newsletter_signup: 'Newsletter signup',
   contact_form_view: 'Contact form view',
   commission_inquiry: 'Commission inquiry',
+  commission_waitlist: 'Commission waitlist',
   shop_page_view: 'Shop view',
 }
 
 function formatEventLabel(eventName: string): string {
   if (EVENT_LABELS[eventName]) return EVENT_LABELS[eventName]
+  if (eventName.startsWith('market:')) {
+    const slug = eventName.slice('market:'.length).trim()
+    if (!slug) return 'Market visitor'
+    const readable = slug
+      .replace(/[-_]+/g, ' ')
+      .replace(/\b\w/g, (ch) => ch.toUpperCase())
+    return `Market: ${readable}`
+  }
   const spaced = eventName.replace(/_/g, ' ').trim()
   if (!spaced) return 'Event'
   return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase()
@@ -91,10 +122,31 @@ const analyticsFetcher = async (url: string): Promise<DashboardData> => {
   return response.json()
 }
 
-export default function AnalyticsDashboard() {
+const channelFetcher = async ([, dateRange]: [string, ChannelRange]): Promise<ChannelPerformanceData> => {
+  const response = await fetch('/api/marketing/dashboard', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      dateRange,
+      channels: ['email', 'social', 'ads'],
+      campaigns: [],
+    }),
+  })
+  if (!response.ok) {
+    throw new Error('Failed to fetch channel performance')
+  }
+  return response.json()
+}
+
+export default function AnalyticsDashboard({
+  onSelectTab,
+}: {
+  onSelectTab?: (tab: string) => void
+} = {}) {
   const [clearing, setClearing] = useState(false)
   const [confirmClear, setConfirmClear] = useState(false)
   const [clearError, setClearError] = useState<string | null>(null)
+  const [channelRange, setChannelRange] = useState<ChannelRange>('30d')
   const {
     data,
     error: swrError,
@@ -106,6 +158,17 @@ export default function AnalyticsDashboard() {
     dedupingInterval: 15_000,
     refreshInterval: 5 * 60 * 1000,
   })
+  const {
+    data: channelData,
+    mutate: mutateChannelData,
+  } = useSWR<ChannelPerformanceData>(
+    ['analytics-channels', channelRange],
+    channelFetcher,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 15_000,
+    },
+  )
 
   const loading = isLoading || isValidating
   const error = clearError || (swrError instanceof Error ? swrError.message : null)
@@ -113,7 +176,7 @@ export default function AnalyticsDashboard() {
 
   const fetchDashboardData = async () => {
     setClearError(null)
-    await mutate()
+    await Promise.all([mutate(), mutateChannelData()])
   }
 
   const handleClearData = async () => {
@@ -386,6 +449,155 @@ export default function AnalyticsDashboard() {
         </Card>
       </div>
 
+      {/* Channel & Campaign Performance */}
+      {channelData && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <CardTitle>Channel Performance</CardTitle>
+                  <CardDescription className="mt-1">
+                    Attributed revenue and recorded spend ({channelData.totalCost > 0 ? `${formatCurrency(channelData.totalCost)} spend` : 'organic'})
+                  </CardDescription>
+                </div>
+                <select
+                  aria-label="Channel performance timeframe"
+                  value={channelRange}
+                  onChange={(event) => setChannelRange(event.target.value as ChannelRange)}
+                  className="shrink-0 rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700"
+                >
+                  <option value="7d">Last 7 days</option>
+                  <option value="30d">Last 30 days</option>
+                  <option value="90d">Last 90 days</option>
+                  <option value="1y">Last year</option>
+                </select>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {(channelData.topPerformingChannels ?? [])
+                  .filter((channel) => channel && channel.channel)
+                  .map((channel, index) => {
+                    const hasRevenue = safeFinite(channel.revenue) > 0
+                    const hasCost = safeFinite(channel.cost) > 0
+                    const roiLabel = !hasRevenue && !hasCost
+                      ? 'No activity'
+                      : !hasCost && hasRevenue
+                        ? 'Organic'
+                        : Number.isFinite(channel.roi)
+                          ? `${channel.roi.toFixed(1)}x ROI`
+                          : 'No activity'
+                    return (
+                      <div key={channel.channel} className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2.5">
+                          <span
+                            className={`h-2.5 w-2.5 rounded-full ${
+                              !hasRevenue
+                                ? 'bg-gray-300'
+                                : index === 0
+                                  ? 'bg-emerald-500'
+                                  : index === 1
+                                    ? 'bg-blue-500'
+                                    : index === 2
+                                      ? 'bg-amber-500'
+                                      : 'bg-gray-400'
+                            }`}
+                            aria-hidden="true"
+                          />
+                          <span className="font-medium capitalize text-gray-900">{channel.channel}</span>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-semibold text-gray-900">{formatCurrency(channel.revenue)}</div>
+                          <div className="text-xs text-gray-500">{roiLabel}</div>
+                        </div>
+                      </div>
+                    )
+                  })}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Campaign Activity</CardTitle>
+              <CardDescription>Recent newsletters, social posts, and ad spend logs</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="inline-flex items-center gap-2 font-medium text-gray-900">
+                    <Mail className="h-4 w-4 text-gray-500" aria-hidden="true" />
+                    Email newsletters
+                  </span>
+                  <div className="text-right">
+                    <div className="font-semibold text-gray-900">
+                      {formatNumber(channelData.campaignPerformance?.email?.sent)} sent
+                    </div>
+                    {onSelectTab ? (
+                      <button
+                        type="button"
+                        onClick={() => onSelectTab('newsletter')}
+                        className="text-xs text-gray-500 underline hover:text-gray-900"
+                      >
+                        Open Newsletter
+                      </button>
+                    ) : (
+                      <Link href="/admin?tab=newsletter" className="text-xs text-gray-500 underline hover:text-gray-900">
+                        Open Newsletter
+                      </Link>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <span className="inline-flex items-center gap-2 font-medium text-gray-900">
+                    <Smartphone className="h-4 w-4 text-gray-500" aria-hidden="true" />
+                    Social posts
+                  </span>
+                  <div className="text-right">
+                    <div className="font-semibold text-gray-900">
+                      {formatNumber(channelData.campaignPerformance?.social?.posts)} posts
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {formatNumber(channelData.campaignPerformance?.social?.reach)} reach
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <span className="inline-flex items-center gap-2 font-medium text-gray-900">
+                    <Target className="h-4 w-4 text-gray-500" aria-hidden="true" />
+                    Ad spend log
+                  </span>
+                  <div className="text-right">
+                    <div className="font-semibold text-gray-900">
+                      {formatNumber(channelData.campaignPerformance?.ads?.conversions)} conversions
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {safeFinite(channelData.campaignPerformance?.ads?.roas).toFixed(1)}x recorded ROAS ·{' '}
+                      {onSelectTab ? (
+                        <button
+                          type="button"
+                          onClick={() => onSelectTab('marketing')}
+                          className="underline hover:text-gray-900"
+                        >
+                          Manage
+                        </button>
+                      ) : (
+                        <Link href="/admin?tab=marketing" className="underline hover:text-gray-900">
+                          Manage
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Customer Segments */}
       <Card>
         <CardHeader>
@@ -426,7 +638,7 @@ export default function AnalyticsDashboard() {
       {totalEvents > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm">
           <span className="text-gray-600">
-            Need a fresh baseline after testing? Resetting clears visitor events only — orders and customers stay intact.
+            Need a fresh baseline after testing? Resetting clears visitor events only. Orders and customers stay intact.
           </span>
           {!confirmClear ? (
             <button

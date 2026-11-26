@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
 
 export default function AdminInventoryRedirectPage() {
-  redirect('/admin?tab=inventory');
+  redirect('/admin?tab=products&view=stock');
 }

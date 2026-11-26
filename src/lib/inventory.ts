@@ -744,7 +744,7 @@ export class InventoryService {
         ? `"${title}" is out of stock.`
         : `"${title}" is low (${availableStock} remaining).`;
       const brand = await getEmailBrand();
-      const inventoryUrl = absoluteUrl('/admin?tab=inventory', brand.siteUrl);
+      const inventoryUrl = absoluteUrl('/admin?tab=products&view=stock', brand.siteUrl);
       await sendTemplateEmail(recipient, {
         subject,
         html: brandedEmailHtml(brand, {

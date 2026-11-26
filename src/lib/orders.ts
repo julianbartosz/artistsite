@@ -24,7 +24,7 @@ export {
   orderStatusDescription,
 } from '@/lib/order-status-shared';
 
-export type OrderType = 'standard' | 'commission' | 'consultation';
+export type OrderType = 'standard' | 'commission' | 'consultation' | 'in_person';
 
 // Order Item with full variant and customization details
 export interface OrderItem {
@@ -102,6 +102,14 @@ export interface Order {
   // Special Instructions
   specialInstructions?: string;
   giftMessage?: string;
+  marketEventId?: string | null;
+  certificates?: Array<{
+    id: string;
+    code: string;
+    artworkTitle: string;
+    licenseType: string;
+    issuedAt: string;
+  }>;
   
   // Metadata
   createdAt: Date;
@@ -238,6 +246,7 @@ async function toDomainOrder(order: any): Promise<Order> {
       })),
     specialInstructions: order.specialInstructions || undefined,
     giftMessage: order.giftMessage || undefined,
+    marketEventId: order.marketEventId || undefined,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
   };
@@ -308,9 +317,15 @@ export interface OrderStats {
 
 export async function createOrder(order: Order): Promise<Order> {
   const persisted = await db.$transaction(async (tx) => {
-    const userId = await ensureCustomerUser(order.customerEmail, order.customerId, order.shippingAddress, tx);
-    const shippingAddress = await createAddress(userId, 'shipping', order.shippingAddress, tx);
-    const billingAddress = order.billingAddress
+    const hasEmail = Boolean(order.customerEmail && order.customerEmail.includes('@') && !order.customerEmail.endsWith('.local'));
+    const hasShippingAddress = shippingAddressIsPopulated(order.shippingAddress);
+    const userId = hasEmail
+      ? await ensureCustomerUser(order.customerEmail, order.customerId, hasShippingAddress ? order.shippingAddress : undefined, tx)
+      : order.customerId || null;
+    const shippingAddress = userId && hasShippingAddress
+      ? await createAddress(userId, 'shipping', order.shippingAddress, tx)
+      : null;
+    const billingAddress = userId && order.billingAddress && shippingAddressIsPopulated(order.billingAddress)
       ? await createAddress(userId, 'billing', order.billingAddress, tx)
       : shippingAddress;
 
@@ -330,8 +345,8 @@ export async function createOrder(order: Order): Promise<Order> {
         paymentIntentId: order.paymentIntentId,
         paymentStatus: order.paymentStatus,
         paymentMethod: order.paymentMethod,
-        shippingAddressId: shippingAddress.id,
-        billingAddressId: billingAddress.id,
+        shippingAddressId: shippingAddress?.id ?? null,
+        billingAddressId: billingAddress?.id ?? null,
         shippingCarrier: order.shippingCarrier,
         trackingNumber: order.trackingNumber,
         shipmentId: order.shipmentId,
@@ -339,6 +354,7 @@ export async function createOrder(order: Order): Promise<Order> {
         estimatedDelivery: order.estimatedDelivery,
         specialInstructions: order.specialInstructions,
         giftMessage: order.giftMessage,
+        marketEventId: order.marketEventId ?? null,
         items: {
           create: order.items.map((item) => ({
             id: item.id,
@@ -408,13 +424,16 @@ export async function getAllOrders(filters: {
 } = {}): Promise<Order[]> {
   const search = filters.search?.trim();
   const needsShipping = filters.status === 'needs_shipping';
+  const inPersonOnly = filters.status === 'in_person';
   const orders = await db.order.findMany({
     where: {
       ...(needsShipping
-        ? { paymentStatus: 'paid', status: { in: ['confirmed', 'processing'] } }
-        : filters.status
-          ? { status: filters.status }
-          : {}),
+        ? { paymentStatus: 'paid', status: { in: ['confirmed', 'processing'] }, type: { not: 'in_person' } }
+        : inPersonOnly
+          ? { type: 'in_person' }
+          : filters.status
+            ? { status: filters.status }
+            : {}),
       ...(search ? {
         OR: [
           { orderNumber: { contains: search, mode: 'insensitive' } },
@@ -491,6 +510,8 @@ export async function markOrderPaid(
 
   const promoCode = options?.promoCode?.trim().toUpperCase() || null;
 
+  const paidStatus: OrderStatus = existing.type === 'in_person' ? 'delivered' : 'confirmed';
+
   const claimed = await db.$transaction(async (tx) => {
     const result = await tx.order.updateMany({
       where: {
@@ -498,7 +519,7 @@ export async function markOrderPaid(
         paymentStatus: { not: 'paid' },
       },
       data: {
-        status: 'confirmed',
+        status: paidStatus,
         paymentStatus: 'paid',
         paymentIntentId: paymentIntentId || existing.paymentIntentId,
         paymentMethod: paymentMethod || existing.paymentMethod,
@@ -511,11 +532,13 @@ export async function markOrderPaid(
     if (result.count === 0) return false;
 
     const timeline = OrderManager.createTimelineEntry(
-      'confirmed',
-      OrderManager.getStatusMessage('confirmed'),
-      paymentMethod === 'manual' && !paymentIntentId
-        ? 'Manual payment confirmed by studio'
-        : 'Payment confirmed by Stripe',
+      paidStatus,
+      existing.type === 'in_person' ? 'Paid and picked up at market' : OrderManager.getStatusMessage('confirmed'),
+      existing.type === 'in_person'
+        ? 'In-person market pickup payment confirmed by Stripe'
+        : paymentMethod === 'manual' && !paymentIntentId
+          ? 'Manual payment confirmed by studio'
+          : 'Payment confirmed by Stripe',
       undefined
     );
     await tx.orderTimelineEntry.create({
@@ -664,8 +687,23 @@ export async function finalizePaidOrder(
     })),
   );
 
+  // Sync linked studio commission job & auto-issue COAs for certified artworks.
+  const [issuedCertificates] = await Promise.all([
+    import('@/lib/certificates')
+      .then((mod) => mod.issueCertificatesForOrder(orderId))
+      .catch(() => []),
+    import('@/lib/jobs')
+      .then((mod) => mod.finalizeJobPaymentForOrder(orderId))
+      .catch(() => null),
+  ]);
+
+  const enrichedOrder: Order =
+    issuedCertificates.length > 0
+      ? { ...result.order, certificates: issuedCertificates }
+      : result.order;
+
   if (result.claimed) {
-    await OrderEmailService.sendStatusUpdate(result.order, 'confirmed');
+    await OrderEmailService.sendStatusUpdate(enrichedOrder, 'confirmed');
     await db.analyticsEvent.create({
       data: {
         eventName: 'post_purchase_sequence_triggered',
@@ -680,7 +718,7 @@ export async function finalizePaidOrder(
     }).catch(() => undefined);
   }
 
-  return result.order;
+  return enrichedOrder;
 }
 
 /** Stripe PaymentIntent ids are `pi_…`; synthetic checkout uses `e2e_payment_…`. */

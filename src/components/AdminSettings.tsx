@@ -1,6 +1,6 @@
 'use client';
 
-import React, { FormEvent, useEffect, useMemo, useState } from 'react';
+import React, { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { useUnsavedChangesGuard } from '@/components/admin/useUnsavedChangesGuard';
@@ -25,12 +25,22 @@ type SettingField = {
   visibleWhen?: (draft: Record<string, string>) => boolean;
 };
 
+type SettingsTabId = 'general' | 'commerce' | 'email' | 'integrations';
+
 type SettingsGroup = {
   id: string;
+  tab: SettingsTabId;
   title: string;
   description: string;
   keys: SettingField[];
 };
+
+const SETTINGS_TABS: Array<{ id: SettingsTabId; label: string }> = [
+  { id: 'general', label: 'General' },
+  { id: 'commerce', label: 'Payments & Shipping' },
+  { id: 'email', label: 'Email & Newsletter' },
+  { id: 'integrations', label: 'Integrations' },
+];
 
 const BOOL_OPTIONS: SettingFieldOption[] = [
   { value: 'false', label: 'No' },
@@ -41,8 +51,6 @@ const isStripeCheckout = (draft: Record<string, string>) => (draft.CHECKOUT_MODE
 const isManualCheckout = (draft: Record<string, string>) => (draft.CHECKOUT_MODE || 'manual') === 'manual';
 const isSmtpMode = (draft: Record<string, string>) => (draft.EMAIL_DELIVERY_MODE || 'log') === 'smtp';
 const isMailchimpMode = (draft: Record<string, string>) => (draft.NEWSLETTER_DELIVERY_MODE || 'log') === 'mailchimp';
-const isWinbackEnabled = (draft: Record<string, string>) => (draft.WINBACK_EMAIL_ENABLED || 'false') === 'true';
-const isCartAbandonmentEnabled = (draft: Record<string, string>) => (draft.CART_ABANDONMENT_ENABLED || 'false') === 'true';
 const isEasyPostMode = (draft: Record<string, string>) => (draft.SHIPPING_PROVIDER || 'manual') === 'easypost';
 const hasGa4MeasurementId = (draft: Record<string, string>) => Boolean(draft.NEXT_PUBLIC_GA4_MEASUREMENT_ID?.trim());
 const hasFacebookPixelId = (draft: Record<string, string>) => Boolean(draft.FACEBOOK_PIXEL_ID?.trim());
@@ -53,6 +61,7 @@ const isAutoSocialCapable = (draft: Record<string, string>) => (draft.SOCIAL_PRO
 const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     id: 'access',
+    tab: 'general',
     title: 'Access',
     description: 'Control who can manage the site. Keep at least one working admin email here or in ADMIN_EMAILS.',
     keys: [
@@ -61,6 +70,7 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
   },
   {
     id: 'site-identity',
+    tab: 'general',
     title: 'Site Identity',
     description: 'Public URL, studio contact routing, and footer social profiles.',
     keys: [
@@ -68,14 +78,62 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
       { key: 'CONTACT_EMAIL', label: 'Contact recipient email', help: 'Receives contact form submissions and studio inquiries.' },
       { key: 'ARTIST_EMAIL', label: 'Artist email', help: 'Receives internal studio notifications and new order alerts.' },
       { key: 'SUPPORT_EMAIL', label: 'Support email', help: 'Shown to collectors on receipts and shipping updates for help.' },
-      { key: 'SOCIAL_INSTAGRAM_URL', label: 'Instagram profile URL', help: 'Shown in the site footer next to email. Leave blank to use the handle from Pages → Contact.' },
+      { key: 'SOCIAL_INSTAGRAM_URL', label: 'Instagram profile URL', help: 'Shown in the site footer next to email. Leave blank to use the handle from Site → Pages → Contact.' },
       { key: 'SOCIAL_FACEBOOK_URL', label: 'Facebook page URL' },
       { key: 'SOCIAL_X_URL', label: 'X profile URL' },
       { key: 'SOCIAL_PINTEREST_URL', label: 'Pinterest profile URL' },
     ],
   },
   {
+    id: 'commissions-licensing',
+    tab: 'general',
+    title: 'Commissions & Licensing',
+    description: 'Control whether custom commissions are open on Contact and Shop, set your default artwork license, and schedule studio turnaround blackout dates.',
+    keys: [
+      {
+        key: 'COMMISSION_STATUS',
+        label: 'Commission availability',
+        defaultValue: 'open',
+        options: [
+          { value: 'open', label: 'Open (accepting commission inquiries)' },
+          { value: 'waitlist', label: 'Waitlist (collect waitlist signups instead)' },
+          { value: 'closed', label: 'Closed (hide commission requests)' },
+        ],
+        help: 'Updates Contact and Shop automatically. Waitlist signups save to Grow → Newsletter under the commission_waitlist segment.',
+      },
+      {
+        key: 'COMMISSION_WAITLIST_NOTE',
+        label: 'Availability note (optional)',
+        help: 'Shown on Contact and Shop (for example, "Booking Q2 2027" or "2 spots left for spring").',
+      },
+      {
+        key: 'DEFAULT_LICENSE_TYPE',
+        label: 'Default artwork license',
+        defaultValue: 'personal',
+        options: [
+          { value: 'personal', label: 'Personal Display (default for collectors)' },
+          { value: 'commercial', label: 'Commercial License' },
+          { value: 'exclusive', label: 'Exclusive Buyout' },
+        ],
+        help: 'Applied by default to new commission proposals and Certificates of Authenticity.',
+      },
+      {
+        key: 'STUDIO_BLACKOUT_START',
+        label: 'Turnaround blackout start (optional)',
+        type: 'date',
+        help: 'Vacation, show week, or studio break start date. Quoted job due dates automatically shift past blackout windows.',
+      },
+      {
+        key: 'STUDIO_BLACKOUT_END',
+        label: 'Turnaround blackout end (optional)',
+        type: 'date',
+        help: 'Last day of studio blackout window.',
+      },
+    ],
+  },
+  {
     id: 'payments',
+    tab: 'commerce',
     title: 'Payments',
     description: 'Accept manual purchase requests with zero setup, or connect Stripe for instant card checkout.',
     keys: [
@@ -108,7 +166,40 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
     ],
   },
   {
+    id: 'shipping',
+    tab: 'commerce',
+    title: 'Shipping',
+    description: 'Collectors pay each product’s flat shipping rate at checkout. Fulfill manually with any carrier, or switch to EasyPost to compare live rates and buy printable PDF labels in Orders.',
+    keys: [
+      {
+        key: 'SHIPPING_PROVIDER',
+        label: 'Shipping provider',
+        options: [
+          { value: 'manual', label: 'Manual tracking' },
+          { value: 'easypost', label: 'EasyPost in-site labels' },
+        ],
+        defaultValue: 'manual',
+        help: 'Manual works with Pirate Ship, USPS, UPS, or any carrier. EasyPost adds rate comparison and PDF label purchase in Shop → Orders.',
+      },
+      { key: 'EASYPOST_API_KEY', label: 'EasyPost API key', type: 'password', visibleWhen: isEasyPostMode },
+      { key: 'SHIP_FROM_NAME', label: 'Ship-from name', visibleWhen: isEasyPostMode },
+      { key: 'SHIP_FROM_COMPANY', label: 'Ship-from company', visibleWhen: isEasyPostMode },
+      { key: 'SHIP_FROM_STREET1', label: 'Ship-from street', visibleWhen: isEasyPostMode },
+      { key: 'SHIP_FROM_STREET2', label: 'Ship-from apartment/suite', visibleWhen: isEasyPostMode },
+      { key: 'SHIP_FROM_CITY', label: 'Ship-from city', visibleWhen: isEasyPostMode },
+      { key: 'SHIP_FROM_STATE', label: 'Ship-from state/region', visibleWhen: isEasyPostMode },
+      { key: 'SHIP_FROM_POSTAL_CODE', label: 'Ship-from postal code', visibleWhen: isEasyPostMode },
+      { key: 'SHIP_FROM_COUNTRY', label: 'Ship-from country', help: 'Use a two-letter country code such as US.', visibleWhen: isEasyPostMode },
+      { key: 'SHIP_FROM_PHONE', label: 'Ship-from phone', visibleWhen: isEasyPostMode },
+      { key: 'SHIPPING_DEFAULT_PACKAGE_WEIGHT_OZ', label: 'Default package weight (oz)', visibleWhen: isEasyPostMode },
+      { key: 'SHIPPING_DEFAULT_PACKAGE_LENGTH_IN', label: 'Default package length (in)', visibleWhen: isEasyPostMode },
+      { key: 'SHIPPING_DEFAULT_PACKAGE_WIDTH_IN', label: 'Default package width (in)', visibleWhen: isEasyPostMode },
+      { key: 'SHIPPING_DEFAULT_PACKAGE_HEIGHT_IN', label: 'Default package height (in)', visibleWhen: isEasyPostMode },
+    ],
+  },
+  {
     id: 'email-delivery',
+    tab: 'email',
     title: 'Email Delivery',
     description: 'Contact inquiries and order notes always save to Studio Inbox. Connect SMTP when you want automated order confirmations, replies, and newsletters sent from your site.',
     keys: [
@@ -121,13 +212,6 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
         ],
         defaultValue: 'log',
       },
-      {
-        key: 'WELCOME_EMAIL_ENABLED',
-        label: 'Send welcome email on collector account signup',
-        options: BOOL_OPTIONS,
-        defaultValue: 'false',
-        help: 'Sent when someone registers a storefront account. Newsletter signup welcomes are managed in Grow → Newsletter → Automations.',
-      },
       { key: 'SMTP_HOST', label: 'SMTP host', visibleWhen: isSmtpMode },
       { key: 'SMTP_PORT', label: 'SMTP port', visibleWhen: isSmtpMode },
       { key: 'SMTP_USER', label: 'SMTP user', visibleWhen: isSmtpMode },
@@ -137,8 +221,9 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
   },
   {
     id: 'newsletter',
+    tab: 'email',
     title: 'Newsletter',
-    description: 'Newsletters you write in the Newsletter tab send through Email Delivery above. Signups can also be copied to Mailchimp.',
+    description: 'Newsletters you write in Grow → Newsletter send through Email Delivery above. Signups can also be copied to Mailchimp.',
     keys: [
       {
         key: 'NEWSLETTER_FOOTER_ADDRESS',
@@ -160,39 +245,9 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
     ],
   },
   {
-    id: 'shipping',
-    title: 'Shipping',
-    description: 'Collectors pay each product’s flat shipping rate at checkout. Fulfill manually with any carrier, or switch to EasyPost to compare live rates and buy printable PDF labels in Orders.',
-    keys: [
-      {
-        key: 'SHIPPING_PROVIDER',
-        label: 'Shipping provider',
-        options: [
-          { value: 'manual', label: 'Manual tracking' },
-          { value: 'easypost', label: 'EasyPost in-site labels' },
-        ],
-        defaultValue: 'manual',
-        help: 'Manual works with Pirate Ship, USPS, UPS, or any carrier. EasyPost adds rate comparison and PDF label purchase in Studio → Orders.',
-      },
-      { key: 'EASYPOST_API_KEY', label: 'EasyPost API key', type: 'password', visibleWhen: isEasyPostMode },
-      { key: 'SHIP_FROM_NAME', label: 'Ship-from name', visibleWhen: isEasyPostMode },
-      { key: 'SHIP_FROM_COMPANY', label: 'Ship-from company', visibleWhen: isEasyPostMode },
-      { key: 'SHIP_FROM_STREET1', label: 'Ship-from street', visibleWhen: isEasyPostMode },
-      { key: 'SHIP_FROM_STREET2', label: 'Ship-from apartment/suite', visibleWhen: isEasyPostMode },
-      { key: 'SHIP_FROM_CITY', label: 'Ship-from city', visibleWhen: isEasyPostMode },
-      { key: 'SHIP_FROM_STATE', label: 'Ship-from state/region', visibleWhen: isEasyPostMode },
-      { key: 'SHIP_FROM_POSTAL_CODE', label: 'Ship-from postal code', visibleWhen: isEasyPostMode },
-      { key: 'SHIP_FROM_COUNTRY', label: 'Ship-from country', help: 'Use a two-letter country code such as US.', visibleWhen: isEasyPostMode },
-      { key: 'SHIP_FROM_PHONE', label: 'Ship-from phone', visibleWhen: isEasyPostMode },
-      { key: 'SHIPPING_DEFAULT_PACKAGE_WEIGHT_OZ', label: 'Default package weight (oz)', visibleWhen: isEasyPostMode },
-      { key: 'SHIPPING_DEFAULT_PACKAGE_LENGTH_IN', label: 'Default package length (in)', visibleWhen: isEasyPostMode },
-      { key: 'SHIPPING_DEFAULT_PACKAGE_WIDTH_IN', label: 'Default package width (in)', visibleWhen: isEasyPostMode },
-      { key: 'SHIPPING_DEFAULT_PACKAGE_HEIGHT_IN', label: 'Default package height (in)', visibleWhen: isEasyPostMode },
-    ],
-  },
-  {
     id: 'marketing-signals',
-    title: 'Marketing Signals',
+    tab: 'integrations',
+    title: 'Analytics & Social Publishing',
     description: 'Built-in Studio analytics already work with zero setup. Add GA4, Meta Pixel, or social auto-publishing only when you want external tracking or direct posting.',
     keys: [
       { key: 'NEXT_PUBLIC_GA4_MEASUREMENT_ID', label: 'GA4 measurement ID', help: 'Optional Google Analytics 4 ID (for example G-XXXXXXXXXX).' },
@@ -229,58 +284,26 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
     ],
   },
   {
-    id: 'automation',
-    title: 'Automation',
-    description: 'Built-in email automations (welcome series, win-back, cart recovery) and scheduled newsletters run automatically while your site is online — sent through your Email Delivery (SMTP) settings with no external cron service required.',
+    id: 'scheduler',
+    tab: 'integrations',
+    title: 'External Scheduler (Optional)',
+    description: 'Built-in automations and scheduled newsletters run automatically while your site is online. Only add a cron secret if you trigger them from an external scheduler.',
     keys: [
-      { key: 'CRON_SECRET', label: 'External cron secret (optional)', type: 'password', help: 'Optional — only needed if you wire an external cron service to /api/cron/marketing. Built-in scheduling and “Run automations now” work without it.' },
       {
-        key: 'NEWSLETTER_WELCOME_ENABLED',
-        label: 'Send welcome email on newsletter signup',
-        options: BOOL_OPTIONS,
-        defaultValue: 'true',
-        help: 'Sends a studio-branded welcome email immediately when someone subscribes via your Email Delivery (SMTP) settings.',
-      },
-      {
-        key: 'NEWSLETTER_WELCOME_SERIES_ENABLED',
-        label: 'Send Day-3 studio follow-up email',
-        options: BOOL_OPTIONS,
-        defaultValue: 'false',
-        help: 'Sends one follow-up note 3 days after newsletter signup introducing your portfolio and studio updates.',
-      },
-      {
-        key: 'WINBACK_EMAIL_ENABLED',
-        label: 'Send quiet win-back email to inactive subscribers',
-        options: BOOL_OPTIONS,
-        defaultValue: 'false',
-        help: 'Sends one gentle check-in note to opted-in subscribers who have not visited or ordered recently.',
-      },
-      {
-        key: 'WINBACK_INACTIVE_DAYS',
-        label: 'Win-back inactivity window (days)',
-        defaultValue: '45',
-        help: 'Minimum days since last visit, order, or signup before sending a win-back note (14–365).',
-        visibleWhen: isWinbackEnabled,
-      },
-      {
-        key: 'CART_ABANDONMENT_ENABLED',
-        label: 'Send cart recovery emails',
-        options: BOOL_OPTIONS,
-        defaultValue: 'false',
-      },
-      {
-        key: 'CART_RECOVERY_PROMO_CODE',
-        label: 'Cart recovery promo code',
-        help: 'Optional existing promo code to include in recovery emails.',
-        visibleWhen: isCartAbandonmentEnabled,
+        key: 'CRON_SECRET',
+        label: 'External cron secret (optional)',
+        type: 'password',
+        help: 'Optional — only needed if you wire an external cron service to /api/cron/marketing. Built-in scheduling works without it.',
       },
     ],
   },
 ];
 
-const ADVANCED_GROUP_TITLES = new Set(['Marketing Signals', 'Automation']);
 const EDITABLE_SETTING_KEYS = new Set<string>(
   SETTINGS_GROUPS.flatMap((group) => group.keys.map((field) => field.key)),
+);
+const GROUP_BY_ID = new Map<string, SettingsGroup>(
+  SETTINGS_GROUPS.map((group) => [group.id, group]),
 );
 const GROUP_ID_BY_KEY = new Map<string, string>(
   SETTINGS_GROUPS.flatMap((group) => group.keys.map((field) => [field.key, group.id])),
@@ -293,7 +316,21 @@ const settingsFetcher = async (url: string): Promise<{ settings: SettingRecord[]
   return data;
 };
 
-function scrollToSettingsElement(elementId: string): void {
+function resolveTabForTarget(elementId: string): SettingsTabId | null {
+  if (elementId.startsWith('setting-')) {
+    const key = elementId.slice('setting-'.length);
+    const groupId = GROUP_ID_BY_KEY.get(key);
+    return groupId ? (GROUP_BY_ID.get(groupId)?.tab ?? null) : null;
+  }
+  if (elementId.startsWith('settings-group-')) {
+    const groupId = elementId.slice('settings-group-'.length);
+    if (groupId === 'automation') return 'integrations';
+    return GROUP_BY_ID.get(groupId)?.tab ?? null;
+  }
+  return null;
+}
+
+function scrollAndFocusElement(elementId: string): void {
   if (typeof window === 'undefined') return;
   let el = document.getElementById(elementId);
   if (!el && elementId.startsWith('setting-')) {
@@ -303,19 +340,8 @@ function scrollToSettingsElement(elementId: string): void {
   }
   if (!el) return;
 
-  if (el instanceof HTMLDetailsElement) {
-    el.open = true;
-  }
-  let parent: HTMLElement | null = el.parentElement;
-  while (parent) {
-    if (parent.tagName === 'DETAILS') {
-      (parent as HTMLDetailsElement).open = true;
-    }
-    parent = parent.parentElement;
-  }
-
   requestAnimationFrame(() => {
-    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     const input = el?.querySelector('input, textarea, select') as HTMLElement | null;
     input?.focus({ preventScroll: true });
   });
@@ -344,13 +370,6 @@ export function adminSettingFieldId(key: string): string {
 
 export function adminSettingFieldHref(key: string): string {
   return `/admin?tab=settings#${adminSettingFieldId(key)}`;
-}
-
-function focusSettingFieldFromHash(): void {
-  if (typeof window === 'undefined') return;
-  const raw = window.location.hash.replace(/^#/, '');
-  if (!raw.startsWith('setting-') && !raw.startsWith('settings-group-')) return;
-  scrollToSettingsElement(raw);
 }
 
 function fieldDraftValue(field: SettingField, draft: Record<string, string>): string {
@@ -432,11 +451,11 @@ function integrationStatuses(settings: Record<string, SettingRecord>, draft: Rec
       ok: emailOk,
       detail: emailMode === 'smtp'
         ? emailSandboxSender
-          ? 'Sandbox sender (resend.dev) — verify your domain'
+          ? 'Sandbox sender (resend.dev): verify your domain'
           : emailOk
             ? 'SMTP ready'
             : 'Finish SMTP host, user, and password'
-        : 'Off — inquiries save to Studio Inbox',
+        : 'Off (inquiries save to Studio Inbox)',
       targetId: adminSettingFieldId(
         emailSandboxSender
           ? 'SMTP_FROM'
@@ -472,7 +491,7 @@ function integrationStatuses(settings: Record<string, SettingRecord>, draft: Rec
           ? mailchimpReady
             ? 'Signups copied to Mailchimp'
             : 'Finish Mailchimp key, list ID, and server prefix (site signups still work)'
-          : 'Ready — sends with Email delivery',
+          : 'Ready (sends with Email delivery)',
       targetId: adminSettingFieldId(
         !newsletterAddressOk
           ? 'NEWSLETTER_FOOTER_ADDRESS'
@@ -484,7 +503,11 @@ function integrationStatuses(settings: Record<string, SettingRecord>, draft: Rec
   ];
 }
 
-export default function AdminSettings() {
+export default function AdminSettings({
+  onSelectTab,
+}: {
+  onSelectTab?: (tab: string) => void;
+} = {}) {
   const {
     data: settingsResponse,
     error: swrError,
@@ -498,9 +521,11 @@ export default function AdminSettings() {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [savedDraft, setSavedDraft] = useState<Record<string, string>>({});
   const [initialized, setInitialized] = useState(false);
+  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTabId>('general');
+  const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [testingEmail, setTestingEmail] = useState(false);
-  const [runningAutomation, setRunningAutomation] = useState(false);
+  const [copiedCronUrl, setCopiedCronUrl] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
@@ -515,12 +540,37 @@ export default function AdminSettings() {
 
   const loading = isLoading && !initialized;
 
+  const clearSettingsHash = useCallback(() => {
+    if (typeof window === 'undefined' || !window.location.hash) return;
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+  }, []);
+
+  const jumpToSettingTarget = useCallback((elementId: string) => {
+    const targetTab = resolveTabForTarget(elementId);
+    if (targetTab) {
+      setActiveSettingsTab(targetTab);
+    }
+    setPendingFocusId(elementId);
+  }, []);
+
+  useEffect(() => {
+    if (loading || !pendingFocusId) return;
+    const target = pendingFocusId;
+    setPendingFocusId(null);
+    requestAnimationFrame(() => scrollAndFocusElement(target));
+  }, [loading, activeSettingsTab, pendingFocusId]);
+
   useEffect(() => {
     if (loading) return;
-    focusSettingFieldFromHash();
-    window.addEventListener('hashchange', focusSettingFieldFromHash);
-    return () => window.removeEventListener('hashchange', focusSettingFieldFromHash);
-  }, [loading]);
+    const syncFromHash = () => {
+      const raw = window.location.hash.replace(/^#/, '');
+      if (!raw.startsWith('setting-') && !raw.startsWith('settings-group-')) return;
+      jumpToSettingTarget(raw);
+    };
+    syncFromHash();
+    window.addEventListener('hashchange', syncFromHash);
+    return () => window.removeEventListener('hashchange', syncFromHash);
+  }, [loading, jumpToSettingTarget]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -553,28 +603,6 @@ export default function AdminSettings() {
     }
   }
 
-  async function runAutomationsNow() {
-    setRunningAutomation(true);
-    setMessage(null);
-    try {
-      const response = await fetch('/api/admin/automation/run', { method: 'POST' });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Automation run failed');
-      setMessage({ type: 'success', text: `Automations completed. Processed ${data.processed ?? 0} job(s).` });
-      if (typeof data.lastRunAt === 'string' && data.lastRunAt) {
-        setSettings((prev) => ({
-          ...prev,
-          CRON_LAST_RUN_AT: { key: 'CRON_LAST_RUN_AT', value: data.lastRunAt, status: 'configured', secret: false },
-        }));
-      }
-      await mutateSettings();
-    } catch (error) {
-      setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Automation run failed' });
-    } finally {
-      setRunningAutomation(false);
-    }
-  }
-
   async function sendTestEmail() {
     setTestingEmail(true);
     setMessage(null);
@@ -595,16 +623,32 @@ export default function AdminSettings() {
   }
 
   const statuses = useMemo(() => integrationStatuses(settings, draft), [settings, draft]);
-  const isDirty = useMemo(
-    () => Object.keys({ ...savedDraft, ...draft }).some((key) => (draft[key] || '') !== (savedDraft[key] || '')),
-    [draft, savedDraft],
-  );
+
+  const dirtyTabs = useMemo(() => {
+    const dirty = new Set<SettingsTabId>();
+    for (const group of SETTINGS_GROUPS) {
+      if (group.keys.some((field) => (draft[field.key] || '') !== (savedDraft[field.key] || ''))) {
+        dirty.add(group.tab);
+      }
+    }
+    return dirty;
+  }, [draft, savedDraft]);
+
+  const isDirty = dirtyTabs.size > 0;
   useUnsavedChangesGuard(isDirty);
   const displayMessage = message || (swrError instanceof Error ? { type: 'error' as const, text: swrError.message } : null);
+  const visibleGroups = useMemo(
+    () => SETTINGS_GROUPS.filter((group) => group.tab === activeSettingsTab),
+    [activeSettingsTab],
+  );
 
   if (loading) {
     return <div className="rounded-lg border bg-white p-6 text-gray-600">Loading settings...</div>;
   }
+
+  const cronEndpoint = typeof window !== 'undefined'
+    ? `${window.location.origin}/api/cron/marketing`
+    : '/api/cron/marketing';
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -617,42 +661,28 @@ export default function AdminSettings() {
         </div>
       </div>
 
-      {/* Quick section jump pills */}
-      <nav aria-label="Settings sections" className="flex flex-wrap gap-1.5">
-        {SETTINGS_GROUPS.map((group) => (
-          <button
-            key={group.id}
-            type="button"
-            onClick={() => scrollToSettingsElement(`settings-group-${group.id}`)}
-            className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-50"
-          >
-            {group.title}
-          </button>
-        ))}
-      </nav>
-
       {displayMessage && (
         <div
           role={displayMessage.type === 'error' ? 'alert' : 'status'}
-          className={`rounded border p-3 text-sm ${
+          className={`rounded-lg border p-3.5 text-sm ${
             displayMessage.type === 'error'
               ? 'border-red-200 bg-red-50 text-red-800'
-              : 'border-green-200 bg-green-50 text-green-800'
+              : 'border-emerald-200 bg-emerald-50 text-emerald-900'
           }`}
         >
           {displayMessage.text}
         </div>
       )}
 
-      <section className="rounded-lg border bg-white p-5">
+      <section className="rounded-lg border border-gray-200 bg-white p-5">
         <h3 className="text-base font-semibold text-gray-900">Integration status</h3>
         <p className="mt-0.5 text-sm text-gray-600">Quick view of what is ready for customers.</p>
-        <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {statuses.map((status) => (
-            <li key={status.label} className="flex items-start justify-between gap-3 rounded-md border border-gray-200 p-3">
-              <div className="flex items-start gap-2.5">
-                <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${status.ok ? 'bg-green-500' : 'bg-amber-400'}`} aria-hidden />
-                <div>
+            <li key={status.label} className="flex items-start justify-between gap-2 rounded-md border border-gray-200 p-3">
+              <div className="flex min-w-0 items-start gap-2.5">
+                <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${status.ok ? 'bg-green-500' : 'bg-amber-400'}`} aria-hidden="true" />
+                <div className="min-w-0">
                   <p className="text-sm font-medium text-gray-900">{status.label}</p>
                   <p className="text-xs text-gray-600">{status.detail}</p>
                 </div>
@@ -660,7 +690,7 @@ export default function AdminSettings() {
               {!status.ok && (
                 <button
                   type="button"
-                  onClick={() => scrollToSettingsElement(status.targetId)}
+                  onClick={() => jumpToSettingTarget(status.targetId)}
                   className="shrink-0 text-xs font-medium text-primary hover:underline"
                 >
                   Configure
@@ -671,122 +701,107 @@ export default function AdminSettings() {
         </ul>
       </section>
 
-      {SETTINGS_GROUPS.map((group) => {
-        const visibleFields = group.keys.filter((field) => !field.visibleWhen || field.visibleWhen(draft));
-        const body = (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {visibleFields.map((field) => {
-              const record = settings[field.key];
-              return (
-                <div key={field.key} id={adminSettingFieldId(field.key)} className="scroll-mt-28">
-                  <label className="block text-sm font-medium text-gray-700">
-                    <div className="mb-1 flex items-center justify-between gap-3">
-                      <span>{field.label}</span>
-                      {record?.secret && (
-                        <span className={record.status === 'configured' ? 'text-green-700' : 'text-gray-500'}>
-                          {record.status === 'configured' ? 'Configured' : 'Not set'}
-                        </span>
-                      )}
-                    </div>
-                    {field.options ? (
-                      <select
-                        value={fieldDraftValue(field, draft)}
-                        onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))}
-                        className="block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal text-gray-900"
-                      >
-                        {field.options.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    ) : field.type === 'multiline' ? (
-                      <textarea
-                        value={draft[field.key] || ''}
-                        onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))}
-                        rows={8}
-                        className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal text-gray-900"
-                      />
-                    ) : (
-                      <input
-                        type={field.type || 'text'}
-                        value={draft[field.key] || ''}
-                        placeholder={record?.secret && record.status === 'configured' ? 'Leave blank to keep current secret' : ''}
-                        onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))}
-                        className="block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal text-gray-900"
-                      />
-                    )}
-                    {field.help && <p className="mt-1 text-xs text-gray-500">{field.help}</p>}
-                    {field.key === 'SMTP_FROM'
-                      && draft.EMAIL_DELIVERY_MODE !== 'log'
-                      && isResendSandboxSender(draft.SMTP_FROM) && (
-                        <p className="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
-                          Resend&apos;s sandbox sender (<code>onboarding@resend.dev</code>) only delivers to your own Resend account email. Verify your domain at resend.com/domains and update this address (for example <code>hello@michalelena.art</code>) before emailing collectors.
-                        </p>
-                      )}
-                  </label>
-                </div>
-              );
-            })}
-          </div>
-        );
-
-        if (ADVANCED_GROUP_TITLES.has(group.title)) {
+      {/* Settings category tabs */}
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Settings sections">
+        {SETTINGS_TABS.map((tab) => {
+          const active = activeSettingsTab === tab.id;
+          const hasUnsaved = dirtyTabs.has(tab.id);
           return (
-            <details
-              key={group.id}
-              id={`settings-group-${group.id}`}
-              className="scroll-mt-28 rounded-lg border bg-white p-6"
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => {
+                clearSettingsHash();
+                setActiveSettingsTab(tab.id);
+              }}
+              className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+                active
+                  ? 'bg-gray-900 text-white'
+                  : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+              }`}
             >
-              <summary className="cursor-pointer text-base font-semibold text-gray-900">{group.title}</summary>
-              <p className="mt-2 text-sm text-gray-600">{group.description}</p>
-              <div className="mt-5">{body}</div>
-              {group.id === 'automation' && (
-                <div className="mt-6 border-t border-gray-100 pt-4 space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-sm text-gray-600">
-                      Last run: {settings.CRON_LAST_RUN_AT?.value ? new Date(settings.CRON_LAST_RUN_AT.value).toLocaleString() : 'Not recorded yet'}
-                    </p>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <Link
-                        href="/admin?tab=newsletter&view=automations"
-                        className="rounded border border-gray-300 bg-white px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                      >
-                        Edit automation emails →
-                      </Link>
-                      <button
-                        type="button"
-                        onClick={() => void runAutomationsNow()}
-                        disabled={runningAutomation}
-                        className="rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-50"
-                      >
-                        {runningAutomation ? 'Running...' : 'Run automations now'}
-                      </button>
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-500">
-                    External scheduler endpoint:{' '}
-                    <code className="rounded bg-gray-100 px-1.5 py-0.5">
-                      {typeof window !== 'undefined' ? `${window.location.origin}/api/cron/marketing` : '/api/cron/marketing'}
-                    </code>
-                  </p>
-                </div>
+              <span>{tab.label}</span>
+              {hasUnsaved && (
+                <span
+                  className={`h-2 w-2 rounded-full ${active ? 'bg-amber-300' : 'bg-amber-500'}`}
+                  aria-label="Unsaved changes"
+                />
               )}
-            </details>
+            </button>
           );
-        }
+        })}
+      </div>
 
+      {visibleGroups.map((group) => {
+        const visibleFields = group.keys.filter((field) => !field.visibleWhen || field.visibleWhen(draft));
         return (
           <section
             key={group.id}
             id={`settings-group-${group.id}`}
-            className="scroll-mt-28 rounded-lg border bg-white p-6"
+            className="scroll-mt-28 rounded-lg border border-gray-200 bg-white p-6"
           >
             <div className="mb-5">
               <h3 className="text-base font-semibold text-gray-900">{group.title}</h3>
               <p className="mt-1 text-sm text-gray-600">{group.description}</p>
             </div>
-            {body}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {visibleFields.map((field) => {
+                const record = settings[field.key];
+                return (
+                  <div key={field.key} id={adminSettingFieldId(field.key)} className="scroll-mt-28">
+                    <label className="block text-sm font-medium text-gray-700">
+                      <div className="mb-1 flex items-center justify-between gap-3">
+                        <span>{field.label}</span>
+                        {record?.secret && (
+                          <span className={record.status === 'configured' ? 'text-xs text-green-700' : 'text-xs text-gray-500'}>
+                            {record.status === 'configured' ? 'Configured' : 'Not set'}
+                          </span>
+                        )}
+                      </div>
+                      {field.options ? (
+                        <select
+                          value={fieldDraftValue(field, draft)}
+                          onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))}
+                          className="block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal text-gray-900"
+                        >
+                          {field.options.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : field.type === 'multiline' ? (
+                        <textarea
+                          value={draft[field.key] || ''}
+                          onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))}
+                          rows={8}
+                          className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal text-gray-900"
+                        />
+                      ) : (
+                        <input
+                          type={field.type || 'text'}
+                          value={draft[field.key] || ''}
+                          placeholder={record?.secret && record.status === 'configured' ? 'Leave blank to keep current secret' : ''}
+                          onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))}
+                          className="block h-10 w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-normal text-gray-900"
+                        />
+                      )}
+                      {field.help && <p className="mt-1 text-xs text-gray-500">{field.help}</p>}
+                      {field.key === 'SMTP_FROM'
+                        && draft.EMAIL_DELIVERY_MODE !== 'log'
+                        && isResendSandboxSender(draft.SMTP_FROM) && (
+                          <p className="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
+                            Resend&apos;s sandbox sender (<code>onboarding@resend.dev</code>) only delivers to your own Resend account email. Verify your domain at resend.com/domains and update this address before emailing collectors.
+                          </p>
+                        )}
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+
             {group.id === 'email-delivery' && isSmtpMode(draft) && (
               <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4">
                 <p className="text-xs text-gray-500">
@@ -804,18 +819,68 @@ export default function AdminSettings() {
                 </button>
               </div>
             )}
+
+            {group.id === 'scheduler' && (
+              <div className="mt-5 space-y-3 border-t border-gray-100 pt-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900">Email automations</p>
+                    <p className="text-xs text-gray-600">
+                      Turn automations on or off, customize templates, and trigger manual runs under Grow → Automations.
+                    </p>
+                  </div>
+                  {onSelectTab ? (
+                    <button
+                      type="button"
+                      onClick={() => onSelectTab('automations')}
+                      className="shrink-0 rounded-md border border-gray-300 bg-white px-3.5 py-2 text-xs font-medium text-gray-800 hover:bg-gray-50"
+                    >
+                      Open Automations →
+                    </button>
+                  ) : (
+                    <Link
+                      href="/admin?tab=automations"
+                      className="shrink-0 rounded-md border border-gray-300 bg-white px-3.5 py-2 text-xs font-medium text-gray-800 hover:bg-gray-50"
+                    >
+                      Open Automations →
+                    </Link>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+                  <span>
+                    External scheduler endpoint:{' '}
+                    <code className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-800">{cronEndpoint}</code>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await navigator.clipboard?.writeText(cronEndpoint);
+                      setCopiedCronUrl(true);
+                      window.setTimeout(() => setCopiedCronUrl(false), 2000);
+                    }}
+                    className="font-medium text-gray-700 underline hover:text-gray-900"
+                  >
+                    {copiedCronUrl ? 'Copied' : 'Copy endpoint'}
+                  </button>
+                </div>
+              </div>
+            )}
           </section>
         );
       })}
 
-      <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+      <div
+        className={`${
+          isDirty ? 'sticky bottom-20 md:bottom-4 z-20 shadow-md border-gray-300' : 'border-gray-200 shadow-sm'
+        } flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-white/95 px-4 py-3 backdrop-blur`}
+      >
         <p className="text-sm text-gray-600">
           {isDirty ? 'You have unsaved settings changes.' : 'All settings saved.'}
         </p>
         <button
           type="submit"
           disabled={saving || !isDirty}
-          className="rounded bg-gray-900 px-5 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+          className="rounded-md bg-gray-900 px-5 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
         >
           {saving ? 'Saving...' : 'Save Settings'}
         </button>

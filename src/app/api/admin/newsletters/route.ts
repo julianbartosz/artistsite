@@ -4,6 +4,7 @@ import { requireAdmin } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { jsonErrorResponse } from '@/lib/api-error-handler';
 import { newsletterCampaignData } from '@/lib/admin-content';
+import { getConfig, getConfigBool } from '@/lib/config';
 import {
   getNewsletterSendContext,
   getNewsletterSummary,
@@ -19,11 +20,13 @@ const createSchema = z.object({ document: newsletterDocumentSchema });
 export async function GET() {
   try {
     const session = await requireAdmin();
-    const [newsletters, automations, sendContext, admin] = await Promise.all([
+    const [newsletters, automations, sendContext, admin, lastRunAt, accountWelcomeEnabled] = await Promise.all([
       listNewsletterSummaries(),
       listAutomationEmailSummaries(),
       getNewsletterSendContext(),
       db.user.findUnique({ where: { id: session.user.id }, select: { email: true, firstName: true, name: true } }),
+      getConfig('CRON_LAST_RUN_AT'),
+      getConfigBool('WELCOME_EMAIL_ENABLED'),
     ]);
     const context: NewsletterAdminContext = {
       ...sendContext,
@@ -33,7 +36,15 @@ export async function GET() {
         firstName: admin?.firstName || admin?.name?.split(' ')[0] || '',
       },
     };
-    return NextResponse.json({ newsletters, automations, context });
+    return NextResponse.json({
+      newsletters,
+      automations,
+      context,
+      automationMeta: {
+        lastRunAt: lastRunAt?.trim() || null,
+        accountWelcomeEnabled,
+      },
+    });
   } catch (error) {
     return jsonErrorResponse(error, 'Failed to load newsletters');
   }

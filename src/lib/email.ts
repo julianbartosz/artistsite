@@ -222,7 +222,19 @@ export class OrderEmailService {
     if (order.type === 'commission') {
       sections.push({
         heading: 'Commission order',
-        html: `<div style="border-left:3px solid ${normalizeEmailColor(brand.primaryColor)};padding:4px 0 4px 14px;">This is a custom commission. I will contact you within 24–48 hours to talk through details, timeline, and next steps.</div>`,
+        html: `<div style="border-left:3px solid ${normalizeEmailColor(brand.primaryColor)};padding:4px 0 4px 14px;">This is a custom commission. I will contact you within 24 to 48 hours to talk through details, timeline, and next steps.</div>`,
+      });
+    }
+    if (order.certificates && order.certificates.length > 0) {
+      const certList = order.certificates
+        .map((cert) => {
+          const href = absoluteUrl(`/verify/${encodeURIComponent(cert.code)}`, brand.siteUrl);
+          return `<li style="margin:4px 0;"><a href="${escapeHtml(href)}" style="color:${normalizeEmailColor(brand.primaryColor)};font-weight:600;">${escapeHtml(cert.artworkTitle)} (${escapeHtml(cert.code)})</a></li>`;
+        })
+        .join('');
+      sections.push({
+        heading: 'Certificates of Authenticity',
+        html: `<p style="margin:0 0 8px;color:#374151;">Your verified provenance record is ready to view or print anytime:</p><ul style="margin:0;padding-left:18px;">${certList}</ul>`,
       });
     }
 
@@ -261,7 +273,7 @@ ${address.address1}
 ${address.city}, ${address.state} ${address.postalCode}
 
 ${order.type === 'commission' ? 'This is a custom commission order. I will contact you within 24-48 hours to discuss details.' : ''}
-
+${order.certificates && order.certificates.length > 0 ? `\nCertificates of Authenticity:\n${order.certificates.map((cert) => `- ${cert.artworkTitle} (${cert.code}): ${absoluteUrl(`/verify/${encodeURIComponent(cert.code)}`, brand.siteUrl)}`).join('\n')}\n` : ''}
 Thank you for supporting independent art!
 `;
 
